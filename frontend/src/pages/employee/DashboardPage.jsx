@@ -116,7 +116,7 @@ export function EmployeeDashboardPage() {
     };
 
     loadWorkspace();
-  }, [employeeID, toast]);
+  }, [employeeID]);
 
   const todayKey = new Date().toISOString().slice(0, 10);
   const todayAttendance = attendance.find((item) => item.date === todayKey);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useId } from 'react';
+import { useState, useEffect, useCallback, useId, useMemo } from 'react';
 import { hrGetEmployees } from '../../api/index.js';
 
 // ── SPINNER ──────────────────────────────────────────────────────────────────
@@ -22,10 +22,18 @@ export function useToast() {
     if (toastFn) toastFn(msg, type);
   }, []);
 
-  return {
-    success: (msg) => show(msg, 'success'),
-    error: (msg) => show(msg, 'error'),
-  };
+  // Returns a callable that *also* exposes `.success` and `.error` so both
+  // call styles work — `toast(msg, 'error')` and `toast.success(msg)`.
+  //
+  // Memoised so the returned identity is stable across renders. Without this,
+  // any useEffect listing `toast` in its deps would re-fire every render and
+  // trigger a fetch loop (the 12-fetch storm we just fixed).
+  return useMemo(() => {
+    const callable = (msg, type = 'success') => show(msg, type);
+    callable.success = (msg) => show(msg, 'success');
+    callable.error = (msg) => show(msg, 'error');
+    return callable;
+  }, [show]);
 }
 
 export function ToastContainer() {

@@ -1,7 +1,8 @@
 from django.contrib import admin
 from .models import (FeedbackForm, FeedbackQuestion,
                      FeedbackSubmission, FeedbackAnswer,
-                     Employee, AdminUser)
+                     AdminUser)
+from employee_management.models import Employee
 
 
 @admin.register(Employee)

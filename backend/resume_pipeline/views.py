@@ -15,8 +15,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateAPIView
 from accounts.models import User
-from accounts.permissions import IsHRManager, IsCandidate
-from feedback.models import Employee, EmployeeJobHistory
+from accounts.permissions import IsHRManager, IsCandidate, IsInternalEmployee
+from employee_management.models import Employee, EmployeeJobHistory
 from rest_framework.permissions import IsAuthenticated, AllowAny
 import nltk
 from nltk.corpus import stopwords, wordnet
@@ -25,6 +25,11 @@ from .models import Job, Submission
 from .serializers import JobSerializer, SubmissionSerializer, SubmissionUploadSerializer, SubmissionStageUpdateSerializer
 
 _PIPELINE_FUNCS = None
+
+
+def _label(value):
+    """Return the .name of an FK instance (Team / Department), or '' if None."""
+    return getattr(value, 'name', '') or ''
 
 
 def _get_pipeline_functions():
@@ -126,6 +131,8 @@ def _candidate_contact_email(submission):
 
 
 def _promote_candidate_to_employee(submission, actor):
+    from employee_management.models import Job as EmploymentJob
+
     candidate_name = _candidate_display_name(submission)
     candidate_email = _candidate_contact_email(submission)
     actor_name = getattr(actor, 'full_name', '') or getattr(actor, 'email', '') or 'HR team'
@@ -147,44 +154,33 @@ def _promote_candidate_to_employee(submission, actor):
             role=User.Role.TEAM_MEMBER,
         )
 
-    employee = Employee.objects.filter(email__iexact=candidate_email, isDeleted=False).first()
-    if employee and user.employee_id != employee.employeeID:
-        user.employee_id = employee.employeeID
-        user.save(update_fields=['employee_id'])
+    # User.save() auto-creates Employee for non-Candidate roles via the hook in accounts.models.User.save.
+    user.refresh_from_db()
+    employee = user.employee
+    if employee is None:
+        raise RuntimeError('Employee record was not provisioned for the promoted candidate.')
 
-    employee_id = user.employee_id
-    previous_job_title = ''
-    previous_employee_role = previous_role
+    previous_job_title = employee.jobTitle
+    previous_employee_role = employee.role or previous_role
 
-    if employee:
-        previous_job_title = employee.jobTitle or ''
-        previous_employee_role = employee.role or previous_role
-        update_fields = []
+    update_fields = []
+    if employee.fullName != candidate_name:
+        employee.fullName = candidate_name
+        update_fields.append('fullName')
+    if employee.employmentStatus != 'Active':
+        employee.employmentStatus = 'Active'
+        update_fields.append('employmentStatus')
 
-        if employee.fullName != candidate_name:
-            employee.fullName = candidate_name
-            update_fields.append('fullName')
-        if employee.jobTitle != submission.job.title:
-            employee.jobTitle = submission.job.title
-            update_fields.append('jobTitle')
-        if employee.role != User.Role.TEAM_MEMBER:
-            employee.role = User.Role.TEAM_MEMBER
-            update_fields.append('role')
-        if employee.employmentStatus != 'Active':
-            employee.employmentStatus = 'Active'
-            update_fields.append('employmentStatus')
+    target_job, _ = EmploymentJob.objects.get_or_create(
+        title=submission.job.title,
+        defaults={'base_salary': 0},
+    )
+    if employee.job_id != target_job.pk:
+        employee.job = target_job
+        update_fields.append('job')
 
-        if update_fields:
-            employee.save(update_fields=update_fields)
-    else:
-        employee = Employee.objects.create(
-            employeeID=employee_id,
-            fullName=candidate_name,
-            email=candidate_email,
-            jobTitle=submission.job.title,
-            role=User.Role.TEAM_MEMBER,
-            employmentStatus='Active',
-        )
+    if update_fields:
+        employee.save(update_fields=update_fields)
 
     EmployeeJobHistory.objects.create(
         employee=employee,
@@ -1443,3 +1439,172 @@ class JobCVRankingView(APIView):
         # Sort by final score descending
         combined_results.sort(key=lambda x: x['final_score'], reverse=True)
         return Response(combined_results)
+
+
+from rest_framework import generics
+from accounts.permissions import IsHRManager, IsAdmin
+from .models import SuccessionPlan
+from .serializers import SuccessionPlanSerializer, SuccessionPlanCreateSerializer
+
+
+def _resolve_employee(employee_id, request_user=None):
+    employee = Employee.objects.filter(pk=employee_id, isDeleted=False).first()
+    if employee:
+        return employee
+
+    if request_user and getattr(request_user, 'employee_id', None) == employee_id:
+        return Employee.objects.create(
+            employeeID=employee_id,
+            fullName=getattr(request_user, 'full_name', '') or request_user.email,
+            employmentStatus='Active',
+        )
+    return None
+
+
+class SuccessionPlanListCreateView(generics.ListCreateAPIView):
+    serializer_class = SuccessionPlanSerializer
+    permission_classes = [IsHRManager | IsAdmin]
+
+    def get_queryset(self):
+        return SuccessionPlan.objects.all()
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+
+class SuccessionPlanDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = SuccessionPlanSerializer
+    permission_classes = [IsHRManager | IsAdmin]
+
+    def get_queryset(self):
+        return SuccessionPlan.objects.all()
+
+
+class HRSuccessionWatchView(APIView):
+    permission_classes = [IsAuthenticated, IsHRManager]
+
+    def get(self, request):
+        plans = list(
+            SuccessionPlan.objects.select_related('employee')
+            .filter(employee__isDeleted=False)
+            .order_by('-updatedAt', '-createdAt')
+        )
+
+        follow_up_items = []
+        readiness_summary = {
+            'Ready Now': {'count': 0, 'followUpCount': 0, 'highRiskCount': 0},
+            '6-12 Months': {'count': 0, 'followUpCount': 0, 'highRiskCount': 0},
+            '1-2 Years': {'count': 0, 'followUpCount': 0, 'highRiskCount': 0},
+            'Long Term': {'count': 0, 'followUpCount': 0, 'highRiskCount': 0},
+        }
+
+        def needs_follow_up(plan):
+            return (
+                plan.retentionRisk == 'High'
+                or plan.status in {'On Hold', 'Active'} and plan.readiness == 'Ready Now'
+                or plan.status == 'On Hold'
+            )
+
+        for plan in plans:
+            bucket = readiness_summary.setdefault(
+                plan.readiness,
+                {'count': 0, 'followUpCount': 0, 'highRiskCount': 0},
+            )
+            bucket['count'] += 1
+            if plan.retentionRisk == 'High':
+                bucket['highRiskCount'] += 1
+
+            if needs_follow_up(plan):
+                bucket['followUpCount'] += 1
+                follow_up_items.append({
+                    'planID': plan.planID,
+                    'employeeName': plan.employee.fullName,
+                    'employeeID': plan.employee_id,
+                    'department': _label(plan.employee.department),
+                    'team': _label(plan.employee.team),
+                    'targetRole': plan.targetRole,
+                    'readiness': plan.readiness,
+                    'status': plan.status,
+                    'retentionRisk': plan.retentionRisk,
+                    'summary': plan.notes or plan.developmentActions or 'Review this succession plan during the next talent meeting.',
+                    'path': '/hr/succession',
+                })
+
+        readiness_breakdown = [
+            {
+                'readiness': readiness,
+                'count': data['count'],
+                'followUpCount': data['followUpCount'],
+                'highRiskCount': data['highRiskCount'],
+            }
+            for readiness, data in readiness_summary.items()
+            if data['count']
+        ]
+
+        risk_rank = {'High': 0, 'Medium': 1, 'Low': 2}
+        readiness_rank = {'Ready Now': 0, '6-12 Months': 1, '1-2 Years': 2, 'Long Term': 3}
+        follow_up_items = sorted(
+            follow_up_items,
+            key=lambda item: (
+                risk_rank.get(item['retentionRisk'], 9),
+                readiness_rank.get(item['readiness'], 9),
+                item['employeeName'],
+            ),
+        )[:8]
+
+        return Response({
+            'summary': {
+                'totalPlans': len(plans),
+                'readyNowCount': sum(1 for plan in plans if plan.readiness == 'Ready Now'),
+                'highRiskCount': sum(1 for plan in plans if plan.retentionRisk == 'High'),
+                'acknowledgedCount': sum(1 for plan in plans if plan.status == 'Acknowledged'),
+                'onHoldCount': sum(1 for plan in plans if plan.status == 'On Hold'),
+                'followUpCount': len(follow_up_items),
+            },
+            'readinessBreakdown': readiness_breakdown,
+            'followUpItems': follow_up_items,
+        })
+
+
+class HRSuccessionPlanListCreateView(APIView):
+    permission_classes = [IsAuthenticated, IsHRManager]
+
+    def get(self, request):
+        plans = SuccessionPlan.objects.select_related('employee').filter(employee__isDeleted=False)
+
+        employee_id = request.query_params.get('employee_id')
+        department = request.query_params.get('department')
+        status_filter = request.query_params.get('status')
+        readiness = request.query_params.get('readiness')
+
+        if employee_id:
+            plans = plans.filter(employee_id=employee_id)
+        if department:
+            plans = plans.filter(employee__department__name__icontains=department)
+        if status_filter:
+            plans = plans.filter(status=status_filter)
+        if readiness:
+            plans = plans.filter(readiness=readiness)
+
+        return Response(SuccessionPlanSerializer(plans.order_by('-updatedAt', '-createdAt'), many=True).data)
+
+    def post(self, request):
+        serializer = SuccessionPlanCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        employee = _resolve_employee(serializer.validated_data['employeeID'], request.user)
+        if not employee:
+            return Response({'error': 'Employee not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        plan = SuccessionPlan.objects.create(
+            employee=employee,
+            targetRole=serializer.validated_data['targetRole'],
+            readiness=serializer.validated_data.get('readiness', '1-2 Years'),
+            status=serializer.validated_data.get('status', 'Active'),
+            retentionRisk=serializer.validated_data.get('retentionRisk', 'Low'),
+            developmentActions=serializer.validated_data.get('developmentActions', ''),
+            notes=serializer.validated_data.get('notes', ''),
+            createdBy=getattr(request.user, 'full_name', '') or getattr(request.user, 'email', ''),
+        )
+        return Response(SuccessionPlanSerializer(plan).data, status=status.HTTP_201_CREATED)

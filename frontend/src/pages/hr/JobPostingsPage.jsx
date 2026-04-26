@@ -104,16 +104,10 @@ export function HRJobPostingsPage() {
     } catch { toast('Failed to update job', 'error'); }
   };
 
-  const handleCopyPublicLink = async (job) => {
-    const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
-    const publicUrl = `${baseUrl}/careers?job=${job.id}`;
-
-    try {
-      await navigator.clipboard.writeText(publicUrl);
-      toast('Public application link copied');
-    } catch {
-      toast(publicUrl, 'success');
-    }
+  const handleBenchmarkSalary = async (job) => {
+    // TODO: Implement benchmark salary calculation
+    // User will provide the function shortly
+    toast('Benchmark salary calculation not yet implemented', 'info');
   };
 
   const field = (key) => ({
@@ -365,10 +359,12 @@ export function HRJobPostingsPage() {
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <Btn variant="outline" onClick={handleExportPipelineHealth}>{t('Export Pipeline CSV')}</Btn>
-          <Btn onClick={() => { setForm(empty); setShowCreate(true); }}>
-            <svg width="16" height="16" fill="none" stroke="#fff" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            {t('New Job Posting')}
-          </Btn>
+          {isAdminView && (
+            <Btn onClick={() => { setForm(empty); setShowCreate(true); }}>
+              <svg width="16" height="16" fill="none" stroke="#fff" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              {t('New Job Posting')}
+            </Btn>
+          )}
         </div>
       </div>
 
@@ -654,6 +650,7 @@ export function HRJobPostingsPage() {
                 {['Title', 'Min. Exp', 'Degree', 'Applicants', 'Status', ''].map(h => (
                   <th key={h} style={{ padding: '14px 20px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', borderBottom: '1px solid #EAECF0' }}>{t(h)}</th>
                 ))}
+                {user?.role === 'hr_manager' && <th style={{ padding: '14px 20px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', borderBottom: '1px solid #EAECF0' }}>{t('Benchmark Salary')}</th>}
               </tr>
             </thead>
             <tbody>
@@ -675,26 +672,35 @@ export function HRJobPostingsPage() {
                   </td>
                   <td style={{ padding: '16px 20px' }}>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <Btn size="sm" variant={job.is_active ? 'ghost' : 'primary'}
-                        onClick={() => handleToggleActive(job)}>
-                        {job.is_active ? t('Deactivate') : t('Activate')}
-                      </Btn>
-                      <Btn size="sm" variant="ghost" onClick={() => handleCopyPublicLink(job)}>
-                        {t('Public Link')}
-                      </Btn>
-                      <Btn size="sm" variant="ghost" onClick={() => {
-                        setSelected(job);
-                        setForm({
-                          title: job.title, description: job.description,
-                          min_experience_years: job.min_experience_years,
-                          required_degree: job.required_degree,
-                          weight_skills: job.weight_skills, weight_experience: job.weight_experience,
-                          weight_education: job.weight_education, weight_semantic: job.weight_semantic,
-                        });
-                        setShowEdit(true);
-                      }}>
-                        <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4z"/></svg>
-                      </Btn>
+                      {isAdminView && (
+                        <>
+                          <Btn size="sm" variant={job.is_active ? 'ghost' : 'primary'}
+                            onClick={() => handleToggleActive(job)}>
+                            {job.is_active ? t('Deactivate') : t('Activate')}
+                          </Btn>
+                          <Btn size="sm" variant="ghost" onClick={() => handleCopyPublicLink(job)}>
+                            {t('Public Link')}
+                          </Btn>
+                          <Btn size="sm" variant="ghost" onClick={() => {
+                            setSelected(job);
+                            setForm({
+                              title: job.title, description: job.description,
+                              min_experience_years: job.min_experience_years,
+                              required_degree: job.required_degree,
+                              weight_skills: job.weight_skills, weight_experience: job.weight_experience,
+                              weight_education: job.weight_education, weight_semantic: job.weight_semantic,
+                            });
+                            setShowEdit(true);
+                          }}>
+                            <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4z"/></svg>
+                          </Btn>
+                        </>
+                      )}
+                      {user?.role === 'hr_manager' && (
+                        <Btn size="sm" variant="primary" onClick={() => handleBenchmarkSalary(job)}>
+                          {t('Benchmark Salary')}
+                        </Btn>
+                      )}
                     </div>
                   </td>
                 </tr>

@@ -1,3 +1,5 @@
+from datetime import timedelta, timezone
+
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -8,6 +10,12 @@ from accounts.permissions import IsHRManager
 from feedback.models import FeedbackForm, FeedbackSubmission
 from .models import AttritionPrediction
 from .serializers import AttritionPredictionSerializer
+from employee_management.models import Employee, Department, Team
+
+
+def _label(value):
+    """Return the .name of an FK instance (Team / Department), or '' if None."""
+    return getattr(value, 'name', '') or ''
 
 
 def _ai_policy_payload():
@@ -228,4 +236,161 @@ class AttritionGovernanceSummaryView(APIView):
                 'fallbackPredictions': sum(1 for item in serialized if item.get('predictionSource') != 'xgboost'),
             },
             'departmentBreakdown': sorted(department_map.values(), key=lambda item: item['department']),
+        })
+
+
+
+
+class HRPeopleIntelligenceView(APIView):
+    """
+    GET /api/feedback/hr/intelligence/
+    Returns an executive people-intelligence board with trends and priority queue.
+    """
+    permission_classes = [IsAuthenticated, IsHRManager]
+
+    def get(self, request):
+        from attrition.models import AttritionPrediction
+        from attrition.serializers import AttritionPredictionSerializer
+
+        employees_qs = Employee.objects.filter(isDeleted=False)
+        employees = list(employees_qs)
+        employee_ids = [employee.employeeID for employee in employees]
+        employee_map = {employee.employeeID: employee for employee in employees}
+
+        now = timezone.now()
+        current_start = now - timedelta(days=30)
+        previous_start = now - timedelta(days=60)
+
+        def pct_change(current_value, previous_value):
+            if previous_value == 0:
+                return 100 if current_value > 0 else 0
+            return round(((current_value - previous_value) / previous_value) * 100, 1)
+
+        predictions = AttritionPrediction.objects.filter(employeeID_id__in=employee_ids).order_by('employeeID_id', '-predictedAt')
+        latest_predictions = {}
+        for prediction in predictions:
+            if prediction.employeeID_id not in latest_predictions:
+                latest_predictions[prediction.employeeID_id] = prediction
+
+        current_predictions = AttritionPrediction.objects.filter(predictedAt__gte=current_start)
+        previous_predictions = AttritionPrediction.objects.filter(predictedAt__gte=previous_start, predictedAt__lt=current_start)
+
+        def latest_counts(queryset):
+            latest = {}
+            for prediction in queryset.order_by('employeeID_id', '-predictedAt'):
+                if prediction.employeeID_id not in latest:
+                    latest[prediction.employeeID_id] = prediction.riskLevel
+            high_count = sum(1 for level in latest.values() if level == 'High')
+            medium_count = sum(1 for level in latest.values() if level == 'Medium')
+            return high_count, medium_count
+
+        current_high, current_medium = latest_counts(current_predictions)
+        previous_high, previous_medium = latest_counts(previous_predictions)
+
+        pending_leave_counts = {
+            row['employee_id']: row['total']
+            for row in LeaveRequest.objects.filter(
+                employee_id__in=employee_ids,
+                status=LeaveRequest.STATUS_PENDING,
+            ).values('employee_id').annotate(total=Count('leaveRequestID'))
+        }
+        open_ticket_counts = {
+            row['employee_id']: row['total']
+            for row in SupportTicket.objects.filter(
+                employee_id__in=employee_ids,
+                status__in=['Open', 'In Progress'],
+            ).values('employee_id').annotate(total=Count('ticketID'))
+        }
+        blocked_task_counts = {
+            row['employee_id']: row['total']
+            for row in WorkTask.objects.filter(
+                employee_id__in=employee_ids,
+                status__in=['To Do', 'In Progress'],
+            ).values('employee_id').annotate(total=Count('taskID'))
+        }
+        pending_document_counts = {
+            row['employee_id']: row['total']
+            for row in DocumentRequest.objects.filter(
+                employee_id__in=employee_ids,
+                status__in=['Pending', 'In Progress'],
+            ).values('employee_id').annotate(total=Count('requestID'))
+        }
+
+        current_open_tickets = SupportTicket.objects.filter(createdAt__gte=current_start, status__in=['Open', 'In Progress']).count()
+        previous_open_tickets = SupportTicket.objects.filter(createdAt__gte=previous_start, createdAt__lt=current_start, status__in=['Open', 'In Progress']).count()
+        current_pending_leave = LeaveRequest.objects.filter(requestedAt__gte=current_start, status=LeaveRequest.STATUS_PENDING).count()
+        previous_pending_leave = LeaveRequest.objects.filter(requestedAt__gte=previous_start, requestedAt__lt=current_start, status=LeaveRequest.STATUS_PENDING).count()
+
+        priority_queue = []
+        high_count = 0
+        medium_count = 0
+
+        for employee_id, employee in employee_map.items():
+            prediction = latest_predictions.get(employee_id)
+            risk_score = float(prediction.riskScore) if prediction else 0
+            risk_level = prediction.riskLevel if prediction else 'Low'
+            if risk_level == 'High':
+                high_count += 1
+            elif risk_level == 'Medium':
+                medium_count += 1
+
+            leave_count = pending_leave_counts.get(employee_id, 0)
+            ticket_count = open_ticket_counts.get(employee_id, 0)
+            task_count = blocked_task_counts.get(employee_id, 0)
+            doc_count = pending_document_counts.get(employee_id, 0)
+
+            priority_score = (
+                (3 if risk_level == 'High' else 2 if risk_level == 'Medium' else 1)
+                + leave_count
+                + ticket_count
+                + (task_count * 0.5)
+                + (doc_count * 0.5)
+            )
+
+            if priority_score < 3 and risk_level == 'Low':
+                continue
+
+            serialized_prediction = AttritionPredictionSerializer(prediction).data if prediction else None
+            recommended_actions = (serialized_prediction or {}).get('recommendedActions') or []
+            if not recommended_actions and ticket_count:
+                recommended_actions.append('Review open support blockers with IT and manager this week.')
+            if not recommended_actions and leave_count:
+                recommended_actions.append('Confirm leave planning and workload backfill to reduce delivery stress.')
+            if not recommended_actions:
+                recommended_actions.append('Schedule a proactive 1:1 check-in and monitor next cycle signals.')
+
+            priority_queue.append({
+                'employeeID': employee_id,
+                'fullName': employee.fullName,
+                'jobTitle': employee.jobTitle,
+                'department': _label(employee.department),
+                'team': _label(employee.team),
+                'riskLevel': risk_level,
+                'riskScore': round(risk_score, 4),
+                'openTickets': ticket_count,
+                'pendingLeave': leave_count,
+                'blockedTasks': task_count,
+                'pendingDocuments': doc_count,
+                'priorityScore': round(priority_score, 2),
+                'recommendedActions': recommended_actions[:3],
+            })
+
+        priority_queue.sort(key=lambda item: (item['priorityScore'], item['riskScore']), reverse=True)
+        follow_up_count = len([item for item in priority_queue if item['riskLevel'] in ('High', 'Medium')])
+
+        return Response({
+            'overview': {
+                'totalEmployees': len(employee_ids),
+                'predictedEmployees': len(latest_predictions),
+                'highRisk': high_count,
+                'mediumRisk': medium_count,
+                'followUpCount': follow_up_count,
+                'coveragePct': round((len(latest_predictions) / max(len(employee_ids), 1)) * 100, 1),
+            },
+            'trends': {
+                'riskPressurePct': pct_change(current_high + current_medium, previous_high + previous_medium),
+                'supportLoadPct': pct_change(current_open_tickets, previous_open_tickets),
+                'leavePressurePct': pct_change(current_pending_leave, previous_pending_leave),
+            },
+            'priorityQueue': priority_queue[:12],
         })

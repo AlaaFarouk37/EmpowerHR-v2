@@ -9,13 +9,18 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 
 from accounts.permissions import IsHRManager, IsInternalEmployee
-from feedback.models import Employee
+from employee_management.models import Employee
 from .models import OnboardingPlan
 from .serializers import (
     OnboardingPlanSerializer,
     OnboardingPlanCreateSerializer,
     OnboardingPlanProgressSerializer,
 )
+
+
+def _label(value):
+    """Return the .name of an FK instance (Team / Department), or '' if None."""
+    return getattr(value, 'name', '') or ''
 
 
 def _resolve_employee(employee_id, request_user=None):
@@ -26,9 +31,7 @@ def _resolve_employee(employee_id, request_user=None):
     if request_user and getattr(request_user, 'employee_id', None) == employee_id:
         return Employee.objects.create(
             employeeID=employee_id,
-            fullName=getattr(request_user, 'full_name', request_user.email),
-            email=request_user.email,
-            role=getattr(request_user, 'role', 'TeamMember'),
+            fullName=getattr(request_user, 'full_name', '') or request_user.email,
             employmentStatus='Active',
         )
     return None
@@ -115,8 +118,8 @@ class HROnboardingWatchView(APIView):
                 'employeeID': plan.employee_id,
                 'planType': plan.planType,
                 'title': plan.title,
-                'department': plan.employee.department,
-                'team': plan.employee.team,
+                'department': _label(plan.employee.department),
+                'team': _label(plan.employee.team),
                 'status': plan.status,
                 'progress': plan.progress,
                 'targetDate': plan.targetDate.isoformat() if plan.targetDate else None,

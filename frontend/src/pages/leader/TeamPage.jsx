@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  approveTeamTask,
   createTeamGoal,
   getTeamGoals,
   updateTeamGoal,
@@ -410,6 +411,19 @@ export function TeamGoalsPage() {
     }
   };
 
+  const handleApproveTask = async (task) => {
+    setSavingTaskId(task.taskID);
+    try {
+      await approveTeamTask(task.taskID);
+      toast('Task approved');
+      await loadData();
+    } catch (error) {
+      toast(error.message || 'Failed to approve task', 'error');
+    } finally {
+      setSavingTaskId(null);
+    }
+  };
+
   return (
     <div className="hr-page-shell" style={{ maxWidth: 1280, margin: '0 auto', padding: '40px 32px 80px' }}>
       <div className="hr-page-header is-split" style={{ marginBottom: 28 }}>
@@ -595,16 +609,25 @@ export function TeamGoalsPage() {
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
                   <Btn size="sm" variant="ghost" onClick={() => prepareFollowUp(item)}>{t('Prepare Follow-up')}</Btn>
-                  <Btn
-                    size="sm"
-                    variant="outline"
-                    disabled={(item.kind === 'goal' && savingGoalId === item.source.goalID) || (item.kind === 'task' && savingTaskId === item.source.taskID)}
-                    onClick={() => item.kind === 'goal' ? handleCompleteGoal(item.source) : handleCompleteTask(item.source)}
-                  >
-                    {item.kind === 'goal'
-                      ? savingGoalId === item.source.goalID ? t('Saving...') : t('Mark Complete')
-                      : savingTaskId === item.source.taskID ? t('Saving...') : t('Mark Done')}
-                  </Btn>
+                  {item.kind === 'goal' ? (
+                    <Btn
+                      size="sm"
+                      variant="outline"
+                      disabled={savingGoalId === item.source.goalID}
+                      onClick={() => handleCompleteGoal(item.source)}
+                    >
+                      {savingGoalId === item.source.goalID ? t('Saving...') : t('Mark Complete')}
+                    </Btn>
+                  ) : item.source.status === 'Pending Review' ? (
+                    <Btn
+                      size="sm"
+                      variant="primary"
+                      disabled={savingTaskId === item.source.taskID}
+                      onClick={() => handleApproveTask(item.source)}
+                    >
+                      {savingTaskId === item.source.taskID ? t('Saving...') : t('Approve')}
+                    </Btn>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -767,12 +790,14 @@ export function TeamGoalsPage() {
                       <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}><Badge label={t(task.status)} color={TASK_STATUS_COLORS[task.status] || 'gray'} /></td>
                       <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6', fontWeight: 700 }}>{task.progress}%</td>
                       <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}>
-                        {task.status !== 'Done' ? (
-                          <Btn size="sm" onClick={() => handleCompleteTask(task)} disabled={savingTaskId === task.taskID}>
-                            {savingTaskId === task.taskID ? t('Saving...') : t('Mark Done')}
+                        {task.status === 'Pending Review' ? (
+                          <Btn size="sm" variant="primary" onClick={() => handleApproveTask(task)} disabled={savingTaskId === task.taskID}>
+                            {savingTaskId === task.taskID ? t('Saving...') : t('Approve')}
                           </Btn>
-                        ) : (
+                        ) : task.status === 'Done' ? (
                           <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>{t('Done')}</span>
+                        ) : (
+                          <span style={{ fontSize: 12, color: 'var(--gray-400)' }}>{t('Awaiting employee')}</span>
                         )}
                       </td>
                     </tr>

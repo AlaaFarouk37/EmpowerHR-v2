@@ -16,6 +16,9 @@ def root_status(_request):
                 "/api/feedback/",
                 "/api/attrition/",
                 "/api/employee_management/",
+                "/api/attendance_leave/",
+                "/api/payroll/",
+                "/api/onboarding/",
                 "/health/",
             ],
         }
@@ -30,6 +33,9 @@ urlpatterns = [
     path('api/feedback/',    include('feedback.urls')),
     path('api/attrition/',   include('attrition.urls')),
     path('api/employee_management/', include('employee_management.urls')),
+    path('api/attendance_leave/', include('Attendance_and_Leave.urls')),
+    path('api/payroll/', include('payroll.urls')),
+    path('api/onboarding/', include('onboarding.urls')),
     path('api/mobile/', include('mobile.urls')),
     path("api/auth/", include("accounts.urls"))
 ]

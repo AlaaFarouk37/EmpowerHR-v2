@@ -1,5 +1,6 @@
 from django.urls import path
 from .views import (
+    HRPeopleIntelligenceView,
     RunAttritionPredictionView,
     AttritionPredictionListView,
     AttritionPredictionLatestView,
@@ -18,4 +19,7 @@ urlpatterns = [
 
     # GET  /api/attrition/governance/           governance snapshot for model confidence and review load
     path('governance/', AttritionGovernanceSummaryView.as_view(), name='attrition-governance'),
+        # GET /api/feedback/hr/intelligence/            executive people-intelligence board
+    path('hr/intelligence/', HRPeopleIntelligenceView.as_view(), name='hr-people-intelligence'),
+
 ]

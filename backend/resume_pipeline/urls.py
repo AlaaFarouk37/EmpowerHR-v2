@@ -2,6 +2,8 @@ from django.urls import path
 from .views import (
     JobListCreateView, JobDetailView, JobWeightsView, JobPipelineHealthView,
     SubmitResumeView, CandidateApplicationListView, JobSubmissionsView, SubmissionDetailView, SubmissionStageUpdateView, JobCVRankingView,
+    SuccessionPlanListCreateView, SuccessionPlanDetailView,
+    HRSuccessionWatchView, HRSuccessionPlanListCreateView,
 )
 
 urlpatterns = [
@@ -15,4 +17,9 @@ urlpatterns = [
     path("applications/", CandidateApplicationListView.as_view()),
     path("submissions/<int:pk>/", SubmissionDetailView.as_view()),
     path("submissions/<int:pk>/stage/", SubmissionStageUpdateView.as_view(), name="recruitment-submission-stage"),
+    path("succession-plans/", SuccessionPlanListCreateView.as_view(), name='succession-plan-list-create'),
+    path("succession-plans/<str:pk>/", SuccessionPlanDetailView.as_view(), name='succession-plan-detail'),
+    path("hr/succession/watch/", HRSuccessionWatchView.as_view(), name='hr-succession-watch'),
+    path("hr/succession/", HRSuccessionPlanListCreateView.as_view(), name='hr-succession-list-create'),
 ]
+

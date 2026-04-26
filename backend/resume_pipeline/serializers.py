@@ -1,6 +1,6 @@
 from django.conf import settings
 from rest_framework import serializers
-from .models import Job, Submission
+from .models import Job, Submission, SuccessionPlan
 
 
 class JobSerializer(serializers.ModelSerializer):
@@ -99,3 +99,30 @@ class SubmissionStageUpdateSerializer(serializers.Serializer):
         if attrs.get('review_stage') in {Submission.ReviewStage.REJECTED, Submission.ReviewStage.HIRED} and not (attrs.get('stage_notes') or '').strip():
             raise serializers.ValidationError({'stage_notes': 'Please add a short hiring note before finalizing this stage.'})
         return attrs
+
+
+class SuccessionPlanSerializer(serializers.ModelSerializer):
+    employeeName = serializers.CharField(source='employee.fullName', read_only=True)
+
+    class Meta:
+        model = SuccessionPlan
+        fields = '__all__'
+
+
+class SuccessionPlanCreateSerializer(serializers.Serializer):
+    employeeID = serializers.CharField(max_length=50)
+    targetRole = serializers.CharField(max_length=100)
+    readiness = serializers.ChoiceField(
+        choices=[choice[0] for choice in SuccessionPlan.READINESS_CHOICES],
+        required=False,
+    )
+    status = serializers.ChoiceField(
+        choices=[choice[0] for choice in SuccessionPlan.STATUS_CHOICES],
+        required=False,
+    )
+    retentionRisk = serializers.ChoiceField(
+        choices=[choice[0] for choice in SuccessionPlan.RISK_CHOICES],
+        required=False,
+    )
+    developmentActions = serializers.CharField(required=False, allow_blank=True)
+    notes = serializers.CharField(required=False, allow_blank=True)

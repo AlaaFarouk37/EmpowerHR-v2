@@ -55,6 +55,8 @@ INSTALLED_APPS = [
     'attrition',
     'accounts',
     'employee_management',
+    'Attendance_and_Leave',
+    'payroll',
     'core',
     "rest_framework",
     "rest_framework_simplejwt",

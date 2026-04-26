@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 
 from accounts.models import User
 from attrition.models import AttritionPrediction
-from feedback.models import Employee, FeedbackForm, FeedbackQuestion, FeedbackSubmission, FeedbackAnswer, EmployeeJobHistory, AttendanceRecord, LeaveRequest, PayrollRecord, EmployeeGoal, WorkTask, TrainingCourse, PerformanceReview, SuccessionPlan, ShiftSchedule, PolicyAnnouncement, RecognitionAward, BenefitEnrollment, ExpenseClaim, DocumentRequest, SupportTicket
+from employee_management.models import Employee, FeedbackForm, FeedbackQuestion, FeedbackSubmission, FeedbackAnswer, EmployeeJobHistory, AttendanceRecord, LeaveRequest, PayrollRecord, EmployeeGoal, WorkTask, TrainingCourse, PerformanceReview, SuccessionPlan, ShiftSchedule, PolicyAnnouncement, RecognitionAward, BenefitEnrollment, ExpenseClaim, DocumentRequest, SupportTicket
 from onboarding.models import OnboardingPlan
 from resume_pipeline.models import Job, Submission
 
@@ -289,7 +289,7 @@ class RecruitmentPublicFlowTests(TestCase):
         self.assertEqual(candidate_user.role, 'TeamMember')
         self.assertTrue(candidate_user.employee_id)
 
-        employee = Employee.objects.get(email='hire.me@test.com')
+        employee = Employee.objects.get(user_account__email='hire.me@test.com')
         self.assertEqual(employee.employeeID, candidate_user.employee_id)
         self.assertEqual(employee.fullName, 'Hire Me')
         self.assertEqual(employee.jobTitle, 'Frontend Engineer')

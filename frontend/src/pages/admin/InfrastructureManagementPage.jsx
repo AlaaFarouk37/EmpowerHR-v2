@@ -14,7 +14,7 @@ const TABS = ['departments', 'teams', 'jobs', 'leave-types'];
 
 const EMPTY_FORMS = {
   departments: { name: '' },
-  teams: { name: '', department: '' },
+  teams: { name: '' },
   jobs: { title: '', level: 1, base_salary: '' },
   'leave-types': { name: '', max_days_per_year: '' },
 };
@@ -28,14 +28,14 @@ const TAB_LABELS = {
 
 const FIELD_LABELS = {
   departments: { name: 'Department Name' },
-  teams: { name: 'Team Name', department: 'Department' },
+  teams: { name: 'Team Name' },
   jobs: { title: 'Job Title', level: 'Level', base_salary: 'Base Salary' },
   'leave-types': { name: 'Leave Type Name', max_days_per_year: 'Max Days Per Year' },
 };
 
 const FIELD_TYPES = {
   departments: { name: 'text' },
-  teams: { name: 'text', department: 'select' },
+  teams: { name: 'text' },
   jobs: { title: 'text', level: 'number', base_salary: 'number' },
   'leave-types': { name: 'text', max_days_per_year: 'number' },
 };
@@ -67,18 +67,12 @@ const ID_KEY_MAP = {
 function useAdminData(tab) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [departments, setDepartments] = useState([]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
       const response = await api.get(`/employee_management/${tab}/`);
       setData(Array.isArray(response) ? response : response.results || []);
-
-      if (tab === 'teams') {
-        const deptResponse = await api.get('/employee_management/departments/');
-        setDepartments(Array.isArray(deptResponse) ? deptResponse : deptResponse.results || []);
-      }
     } catch (error) {
       console.error(`Error fetching ${tab}:`, error);
       setData([]);
@@ -91,7 +85,7 @@ function useAdminData(tab) {
     fetchData();
   }, [tab]);
 
-  return { data, setData, loading, fetchData, departments };
+  return { data, setData, loading, fetchData };
 }
 
 function AdminManagementPage() {
@@ -105,7 +99,7 @@ function AdminManagementPage() {
   const [formData, setFormData] = useState(EMPTY_FORMS[activeTab]);
   const [showForm, setShowForm] = useState(false);
 
-  const { data, setData, loading, fetchData, departments } = useAdminData(activeTab);
+  const { data, setData, loading, fetchData } = useAdminData(activeTab);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
@@ -191,240 +185,212 @@ function AdminManagementPage() {
   };
 
   if (!user || user.role !== 'Admin') {
-    return <div className="p-8 text-red-600">You don't have permission to access this page.</div>;
+    return (
+      <div className="hr-page-shell">
+        <div className="hr-surface-card" style={{ padding: 24, color: 'var(--danger, #B91C1C)' }}>
+          {t("You don't have permission to access this page.")}
+        </div>
+      </div>
+    );
   }
 
+  const singularLabel = TAB_LABELS[activeTab].slice(0, -1);
+  const openCreateForm = () => {
+    setEditingId(null);
+    setFormData(EMPTY_FORMS[activeTab]);
+    setShowForm(true);
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <div className="max-w-7xl mx-auto p-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">Infrastructure Management</h1>
-          <p className="text-gray-600">Manage organizational structure and policies</p>
+    <div className="hr-page-shell">
+      <div className="hr-page-header is-split">
+        <div>
+          <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>{t('Infrastructure Management')}</h2>
+          <p style={{ fontSize: 13.5, color: 'var(--gray-500)' }}>
+            {t('Manage organizational structure and policies — departments, teams, jobs, and leave types.')}
+          </p>
         </div>
+        <Btn variant="primary" onClick={openCreateForm}>
+          + {t('Add')} {singularLabel}
+        </Btn>
+      </div>
 
-        {/* Tab Navigation */}
-        <div className="mb-8">
-          <div className="flex flex-wrap gap-4">
-            {TABS.map((tab) => (
-              <Btn
-                key={tab}
-                onClick={() => handleTabChange(tab)}
-                variant={activeTab === tab ? 'primary' : 'ghost'}
-                className={`group relative overflow-hidden transition-all duration-300 ${
-                  activeTab === tab ? 'scale-105 shadow-lg' : 'hover:scale-105'
-                }`}
-                style={{
-                  padding: '16px 24px',
-                  minWidth: '140px',
-                  position: 'relative',
-                }}
-              >
-                <div className="flex items-center space-x-3">
-                  <span className="text-xl">{TAB_ICONS[tab]}</span>
-                  <span className="font-semibold">{TAB_LABELS[tab]}</span>
-                  {/* Only show count on the active tab to avoid showing stale
-                      counts from a previous tab while the new tab's data is loading */}
-                  {activeTab === tab && !loading && (
-                    <span className="text-sm opacity-75">({data.length})</span>
-                  )}
-                </div>
-                {activeTab === tab && (
-                  <div className="absolute inset-0 bg-white opacity-10 rounded-xl"></div>
+      {/* Tabs */}
+      <div className="hr-surface-card" style={{ padding: 14, marginBottom: 20 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {TABS.map((tab) => (
+            <Btn
+              key={tab}
+              onClick={() => handleTabChange(tab)}
+              variant={activeTab === tab ? 'primary' : 'ghost'}
+              size="sm"
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span aria-hidden>{TAB_ICONS[tab]}</span>
+                <span>{TAB_LABELS[tab]}</span>
+                {activeTab === tab && !loading && (
+                  <span style={{ fontSize: 12, opacity: 0.75 }}>({data.length})</span>
                 )}
-              </Btn>
-            ))}
-          </div>
+              </span>
+            </Btn>
+          ))}
         </div>
+      </div>
 
-        {/* Action Button */}
-        <div className="mb-6">
-          <Btn
-            onClick={() => {
-              setEditingId(null);
-              setFormData(EMPTY_FORMS[activeTab]);
-              setShowForm(true);
-            }}
-            variant="primary"
-          >
-            <span className="flex items-center space-x-2">
-              <span>+</span>
-              <span>Add {TAB_LABELS[activeTab].slice(0, -1)}</span>
-            </span>
+      {/* Content */}
+      {loading ? (
+        <div className="hr-surface-card" style={{ padding: 32, display: 'flex', justifyContent: 'center' }}>
+          <Spinner />
+        </div>
+      ) : data.length === 0 ? (
+        <div className="hr-soft-empty" style={{ padding: '40px 24px', textAlign: 'center' }}>
+          <div style={{ fontSize: 48, marginBottom: 12, opacity: 0.7 }}>{TAB_ICONS[activeTab]}</div>
+          <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>
+            {t('No')} {TAB_LABELS[activeTab]} {t('found')}
+          </h3>
+          <p style={{ fontSize: 13.5, color: 'var(--gray-500)', maxWidth: 420, margin: '0 auto 18px' }}>
+            {t('Get started by creating your first')} {singularLabel.toLowerCase()}.
+          </p>
+          <Btn variant="primary" onClick={openCreateForm}>
+            {t('Create first')} {singularLabel}
           </Btn>
         </div>
-
-        {/* Content */}
-        {loading ? (
-          <div className="flex justify-center items-center py-16">
-            <Spinner />
+      ) : (
+        <div className="hr-table-card" style={{ overflow: 'hidden' }}>
+          <div style={{ padding: '18px 20px', borderBottom: '1px solid #F3F4F6' }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700 }}>{TAB_LABELS[activeTab]}</h3>
           </div>
-        ) : data.length === 0 ? (
-          <div className="bg-gradient-to-br from-gray-50 to-blue-50 rounded-2xl shadow-xl p-16 text-center border border-gray-100">
-            <div className="text-8xl mb-6 opacity-75">{TAB_ICONS[activeTab]}</div>
-            <h3 className="text-2xl font-bold text-gray-900 mb-3">No {TAB_LABELS[activeTab]} Found</h3>
-            <p className="text-gray-600 mb-8 text-lg max-w-md mx-auto">Get started by creating your first {TAB_LABELS[activeTab].slice(0, -1).toLowerCase()}. All your organizational data will be displayed in this beautifully formatted table.</p>
-            <Btn
-              onClick={() => {
-                setEditingId(null);
-                setFormData(EMPTY_FORMS[activeTab]);
-                setShowForm(true);
-              }}
-              variant="primary"
-              className="px-8 py-4 text-lg"
-            >
-              Create First {TAB_LABELS[activeTab].slice(0, -1)}
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead style={{ background: '#F9FAFB' }}>
+                <tr>
+                  <th style={thStyle}>{t('Name')}</th>
+                  {activeTab === 'jobs' && (
+                    <>
+                      <th style={thStyle}>{t('Level')}</th>
+                      <th style={thStyle}>{t('Base Salary')}</th>
+                      <th style={thStyle}>{t('Benchmark Salary')}</th>
+                    </>
+                  )}
+                  {activeTab === 'leave-types' && <th style={thStyle}>{t('Max Days/Year')}</th>}
+                  <th style={{ ...thStyle, textAlign: 'right' }}>{t('Actions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((item) => {
+                  const itemId = getItemId(item);
+
+                  return (
+                    <tr key={itemId} style={{ borderTop: '1px solid #F3F4F6' }}>
+                      <td style={{ ...tdStyle, fontWeight: 600 }}>{item.name || item.title}</td>
+                      {activeTab === 'jobs' && (
+                        <>
+                          <td style={tdStyle}>
+                            <span style={pillStyle('blue')}>{t('Level')} {item.level}</span>
+                          </td>
+                          <td style={{ ...tdStyle, fontFamily: 'ui-monospace, monospace', color: '#0F766E' }}>
+                            EGP {item.base_salary?.toLocaleString()}
+                          </td>
+                          <td style={{ ...tdStyle, fontFamily: 'ui-monospace, monospace', color: '#7C3AED' }}>
+                            EGP {item.benchmark_salary?.toLocaleString()}
+                          </td>
+                        </>
+                      )}
+                      {activeTab === 'leave-types' && <td style={tdStyle}>{item.max_days_per_year} {t('days')}</td>}
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', gap: 8 }}>
+                          <Btn size="sm" variant="ghost" onClick={() => handleEdit(item)}>{t('Edit')}</Btn>
+                          <Btn size="sm" variant="danger" onClick={() => handleDelete(itemId)}>{t('Delete')}</Btn>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Form */}
+      {/* Submit is driven by the Save button's onClick → handleSubmit, not form
+          submission, to avoid the modal intercepting/swallowing the submit. */}
+      <Modal
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        title={`${editingId ? t('Edit') : t('Add')} ${singularLabel}`}
+      >
+        <div style={{ display: 'grid', gap: 16 }}>
+          {Object.keys(EMPTY_FORMS[activeTab]).map((field) => {
+            const type = FIELD_TYPES[activeTab][field] || 'text';
+            const label = FIELD_LABELS[activeTab][field];
+
+            return (
+              <div key={field} style={{ display: 'grid', gap: 6 }}>
+                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-700, #374151)' }}>{label}</label>
+                <Input
+                  type={type}
+                  value={formData[field]}
+                  onChange={(e) => handleInputChange(field, e.target.value)}
+                  step={type === 'number' && (field.includes('salary') || field.includes('level')) ? '0.01' : '1'}
+                  required
+                />
+              </div>
+            );
+          })}
+
+          <div style={{ display: 'flex', gap: 10, paddingTop: 14, borderTop: '1px solid #F3F4F6' }}>
+            <Btn type="button" onClick={handleSubmit} disabled={saving} variant="primary" style={{ flex: 1 }}>
+              {saving ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <Spinner />
+                  <span>{t('Saving...')}</span>
+                </span>
+              ) : (
+                <span>{editingId ? t('Update') : t('Create')}</span>
+              )}
+            </Btn>
+            <Btn type="button" onClick={() => setShowForm(false)} variant="ghost" style={{ flex: 1 }}>
+              {t('Cancel')}
             </Btn>
           </div>
-        ) : (
-          <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gradient-to-r from-slate-50 via-gray-50 to-slate-50">
-                  <tr className="border-b border-gray-200">
-                    <th className="px-8 py-5 text-left text-sm font-bold text-gray-800 uppercase tracking-wider rounded-tl-2xl">Name</th>
-                    {activeTab === 'teams' && <th className="px-8 py-5 text-left text-sm font-bold text-gray-800 uppercase tracking-wider">Department</th>}
-                    {activeTab === 'jobs' && (
-                      <>
-                        <th className="px-8 py-5 text-left text-sm font-bold text-gray-800 uppercase tracking-wider">Level</th>
-                        <th className="px-8 py-5 text-left text-sm font-bold text-gray-800 uppercase tracking-wider">Base Salary</th>
-                        <th className="px-8 py-5 text-left text-sm font-bold text-gray-800 uppercase tracking-wider">Benchmark Salary</th>
-                      </>
-                    )}
-                    {activeTab === 'leave-types' && <th className="px-8 py-5 text-left text-sm font-bold text-gray-800 uppercase tracking-wider">Max Days/Year</th>}
-                    <th className="px-8 py-5 text-right text-sm font-bold text-gray-800 uppercase tracking-wider rounded-tr-2xl">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {data.map((item, index) => {
-                    // FIX 3 (continued): use getItemId helper everywhere in the table too
-                    const itemId = getItemId(item);
-
-                    return (
-                      <tr key={itemId} className="hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all duration-200 group">
-                        <td className="px-8 py-6 text-sm font-medium text-gray-900 group-hover:text-gray-800">{item.name || item.title}</td>
-                        {activeTab === 'teams' && <td className="px-8 py-6 text-sm text-gray-600 group-hover:text-gray-700">{item.department_name}</td>}
-                        {activeTab === 'jobs' && (
-                          <>
-                            <td className="px-8 py-6 text-sm text-gray-600 group-hover:text-gray-700">
-                              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                Level {item.level}
-                              </span>
-                            </td>
-                            <td className="px-8 py-6 text-sm text-gray-600 font-mono font-semibold text-green-700 group-hover:text-green-800">
-                              EGP {item.base_salary?.toLocaleString()}
-                            </td>
-                            <td className="px-8 py-6 text-sm text-gray-600 font-mono font-semibold text-purple-700 group-hover:text-purple-800">
-                              EGP {item.benchmark_salary?.toLocaleString()}
-                            </td>
-                          </>
-                        )}
-                        {activeTab === 'leave-types' && <td className="px-8 py-6 text-sm text-gray-600 group-hover:text-gray-700">{item.max_days_per_year} days</td>}
-                        <td className="px-8 py-6 text-right">
-                          <div className="flex justify-end space-x-3">
-                            <Btn
-                              onClick={() => handleEdit(item)}
-                              variant="ghost"
-                              size="sm"
-                              className="opacity-70 group-hover:opacity-100 transition-opacity duration-200"
-                            >
-                              Edit
-                            </Btn>
-                            <Btn
-                              onClick={() => handleDelete(itemId)}
-                              variant="danger"
-                              size="sm"
-                              className="opacity-70 group-hover:opacity-100 transition-opacity duration-200"
-                            >
-                              Delete
-                            </Btn>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* Modal Form */}
-        {/* FIX 2 (continued): Removed <form> wrapper. Submit is now driven by the
-            Save button's onClick → handleSubmit, not form submission. This avoids
-            the modal intercepting or swallowing the submit event entirely. */}
-        <Modal
-          open={showForm}
-          onClose={() => setShowForm(false)}
-          title={`${editingId ? 'Edit' : 'Add'} ${TAB_LABELS[activeTab].slice(0, -1)}`}
-        >
-          <div className="space-y-6">
-            {Object.keys(EMPTY_FORMS[activeTab]).map((field) => {
-              const type = FIELD_TYPES[activeTab][field] || 'text';
-              const label = FIELD_LABELS[activeTab][field];
-
-              return (
-                <div key={field} className="space-y-2">
-                  <label className="block text-sm font-semibold text-gray-700">{label}</label>
-                  {type === 'select' ? (
-                    <select
-                      value={formData[field]}
-                      onChange={(e) => handleInputChange(field, e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white"
-                      required
-                    >
-                      <option value="">Select {label}</option>
-                      {departments.map((dept) => (
-                        <option key={dept.department_id} value={dept.department_id}>
-                          {dept.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <Input
-                      type={type}
-                      value={formData[field]}
-                      onChange={(e) => handleInputChange(field, e.target.value)}
-                      step={type === 'number' && (field.includes('salary') || field.includes('level')) ? '0.01' : '1'}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                      required
-                    />
-                  )}
-                </div>
-              );
-            })}
-
-            <div className="flex gap-3 pt-6 border-t border-gray-200">
-              <Btn
-                type="button"
-                onClick={handleSubmit}
-                disabled={saving}
-                variant="primary"
-                className="flex-1"
-              >
-                {saving ? (
-                  <span className="flex items-center space-x-2">
-                    <Spinner />
-                    <span>Saving...</span>
-                  </span>
-                ) : (
-                  <span>{editingId ? 'Update' : 'Create'}</span>
-                )}
-              </Btn>
-              <Btn
-                type="button"
-                onClick={() => setShowForm(false)}
-                variant="ghost"
-                className="flex-1"
-              >
-                Cancel
-              </Btn>
-            </div>
-          </div>
-        </Modal>
-      </div>
+        </div>
+      </Modal>
     </div>
   );
+}
+
+const thStyle = {
+  padding: '14px 20px',
+  textAlign: 'left',
+  fontSize: 12,
+  fontWeight: 700,
+  color: 'var(--gray-700, #374151)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+};
+
+const tdStyle = {
+  padding: '14px 20px',
+  fontSize: 13.5,
+  color: 'var(--gray-700, #374151)',
+};
+
+function pillStyle(tone) {
+  const palette = {
+    blue: { bg: '#DBEAFE', fg: '#1E40AF' },
+  };
+  const c = palette[tone] || palette.blue;
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '3px 10px',
+    borderRadius: 999,
+    fontSize: 11.5,
+    fontWeight: 600,
+    background: c.bg,
+    color: c.fg,
+  };
 }
 
 export default AdminManagementPage;

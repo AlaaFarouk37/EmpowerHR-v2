@@ -1,7 +1,7 @@
 import uuid
 from django.db import models
 
-from feedback.models import Employee
+from employee_management.models import Employee
 
 
 def gen_id():

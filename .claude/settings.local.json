@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"c:/Users/Alaa Farouk/Downloads/EmpowerHR-GraduationProject-main/EmpowerHR-GraduationProject-main\" show HEAD:backend/accounts/models.py)",
+      "Bash(/c/Python313/python.exe _audit_urls.py)",
+      "Bash(/c/Python313/python.exe -c ' *)",
+      "Bash(/c/Python313/python.exe manage.py check)"
+    ]
+  }
+}

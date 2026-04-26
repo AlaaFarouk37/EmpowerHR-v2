@@ -79,3 +79,52 @@ class Submission(models.Model):
 
     def __str__(self):
         return f"{self.candidate_name or 'Candidate'} → {self.job.title}"
+
+
+import uuid
+
+def gen_id():
+    return uuid.uuid4().hex[:20]
+
+class SuccessionPlan(models.Model):
+    READINESS_CHOICES = [
+        ('Ready Now', 'Ready Now'),
+        ('6-12 Months', '6-12 Months'),
+        ('1-2 Years', '1-2 Years'),
+        ('Long Term', 'Long Term'),
+    ]
+    STATUS_CHOICES = [
+        ('Active', 'Active'),
+        ('On Track', 'On Track'),
+        ('Acknowledged', 'Acknowledged'),
+        ('Completed', 'Completed'),
+        ('On Hold', 'On Hold'),
+    ]
+    RISK_CHOICES = [
+        ('Low', 'Low'),
+        ('Medium', 'Medium'),
+        ('High', 'High'),
+    ]
+
+    planID              = models.CharField(max_length=50, primary_key=True, default=gen_id)
+    employee            = models.ForeignKey(
+                              'employee_management.Employee', on_delete=models.CASCADE,
+                              db_column='employeeID', related_name='succession_plans')
+    targetRole          = models.CharField(max_length=120)
+    readiness           = models.CharField(max_length=20, choices=READINESS_CHOICES, default='1-2 Years')
+    status              = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Active')
+    retentionRisk       = models.CharField(max_length=10, choices=RISK_CHOICES, default='Low')
+    developmentActions  = models.TextField(blank=True)
+    notes               = models.TextField(blank=True)
+    employeeNote        = models.TextField(blank=True)
+    acknowledgedAt      = models.DateTimeField(null=True, blank=True)
+    createdBy           = models.CharField(max_length=150, blank=True)
+    createdAt           = models.DateTimeField(auto_now_add=True)
+    updatedAt           = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'SuccessionPlan'
+        ordering = ['-updatedAt', '-createdAt']
+
+    def __str__(self):
+        return f"{self.employee.fullName} → {self.targetRole}"

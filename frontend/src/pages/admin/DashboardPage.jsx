@@ -57,7 +57,7 @@ export function AdminDashboardPage() {
     };
 
     loadAdminWorkspace();
-  }, [toast]);
+  }, []);
 
   const roleCounts = useMemo(() => employees.reduce((acc, employee) => {
     const key = employee?.role || 'TeamMember';

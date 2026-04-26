@@ -1,14 +1,14 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.forms import UserCreationForm, UserChangeForm
-from .models import User, generate_employee_id
+from .models import User
 
 
 class EmployeeCreationForm(UserCreationForm):
     class Meta:
         model  = User
         # employee_id intentionally excluded — auto-generated on save
-        fields = ("email", "full_name", "role")
+        fields = ("email", "role")
 
 
 class EmployeeChangeForm(UserChangeForm):
@@ -16,9 +16,8 @@ class EmployeeChangeForm(UserChangeForm):
         model  = User
         fields = (
             "email",
-            "full_name",
             "role",
-            "employee_id",
+            "employee",
             "currency_preference",
             "language_preference",
             "theme_preference",
@@ -45,8 +44,9 @@ class UserAdmin(BaseUserAdmin):
         "created_at",
     ]
     list_filter   = ["role", "is_active"]
-    search_fields = ["email", "full_name", "employee_id"]
+    search_fields = ["email", "employee__fullName", "employee__employeeID"]
     ordering      = ["-created_at"]
+    readonly_fields = ("employee_id", "full_name")
 
     fieldsets = (
         (None,            {"fields": ("email", "password")}),
@@ -55,6 +55,7 @@ class UserAdmin(BaseUserAdmin):
             {"fields": (
                 "full_name",
                 "role",
+                "employee",
                 "employee_id",
                 "currency_preference",
                 "language_preference",
@@ -68,16 +69,7 @@ class UserAdmin(BaseUserAdmin):
     add_fieldsets = (
         (None, {
             "classes": ("wide",),
-            # employee_id is NOT here — auto-generated in save_model below
-            "fields":  ("email", "full_name", "role", "password1", "password2"),
+            # employee_id is not included in the add form; it is derived from the linked Employee.
+            "fields":  ("email", "role", "password1", "password2"),
         }),
     )
-
-    def save_model(self, request, obj, form, change):
-        """
-        Auto-generate employee_id for new internal employees.
-        Candidates keep employee_id = null.
-        """
-        if not change and obj.role != User.Role.CANDIDATE and not obj.employee_id:
-            obj.employee_id = generate_employee_id()
-        super().save_model(request, obj, form, change)

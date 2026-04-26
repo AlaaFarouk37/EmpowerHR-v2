@@ -4,7 +4,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .serializers import *
 from django.utils import timezone
-from feedback.models import AttendanceRecord, LeaveRequest, SupportTicket
+from Attendance_and_Leave.models import AttendanceRecord, LeaveRequest
+from employee_management.models import SupportTicket
 from attrition.models import AttritionPrediction
 
 # Dummy data for demonstration. Replace with real queries.

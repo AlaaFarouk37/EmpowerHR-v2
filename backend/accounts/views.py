@@ -14,7 +14,7 @@ from .serializers import (
     PasswordResetConfirmSerializer,
 )
 from .permissions import IsAdmin
-from .models import generate_employee_id
+from .models import User
 from .demo_access import build_demo_access_payload, ensure_demo_users
 
 
@@ -171,35 +171,18 @@ class CreateEmployeeView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Auto-generate employee_id — admin never supplies this
-        employee_id = generate_employee_id()
-
+        # User.save() will auto-create Employee for non-candidates
         user = User.objects.create_user(
             email       = request.data["email"],
             full_name   = request.data["full_name"],
             password    = request.data["password"],
             role        = role,
-            employee_id = employee_id,
         )
-
-        try:
-            from feedback.models import Employee
-            Employee.objects.get_or_create(
-                employeeID=employee_id,
-                defaults={
-                    'fullName': request.data['full_name'],
-                    'email': request.data['email'],
-                    'role': role,
-                    'employmentStatus': 'Active',
-                }
-            )
-        except Exception:
-            pass
 
         return Response(
             {
                 "detail":      "Employee account created.",
-                "employee_id": employee_id,
+                "employee_id": user.employee_id,
                 "user_id":     user.id,
             },
             status=status.HTTP_201_CREATED,

@@ -1,4 +1,4 @@
-from .models import User, generate_employee_id
+from .models import User
 
 DEMO_PASSWORD = 'TestPass123!'
 
@@ -78,7 +78,7 @@ DEMO_ACCOUNTS = [
 
 
 def ensure_demo_users():
-    from feedback.models import Employee
+    from employee_management.models import Employee, Job, Team, Department
 
     synced_users = []
 
@@ -94,7 +94,6 @@ def ensure_demo_users():
                 full_name=spec['full_name'],
                 role=role,
                 is_staff=expected_staff,
-                employee_id=generate_employee_id() if role != 'Candidate' else None,
                 language_preference=User.LanguagePreference.EN,
                 theme_preference=User.ThemePreference.COMFORT,
                 focus_mode_preference=False,
@@ -124,12 +123,13 @@ def ensure_demo_users():
             if user.focus_mode_preference:
                 user.focus_mode_preference = False
                 changed = True
-            if role != 'Candidate' and not user.employee_id:
-                user.employee_id = generate_employee_id()
+            if role != 'Candidate' and not user.employee:
+                # Force save to create employee
+                user.save()
                 changed = True
-            if role == 'Candidate' and user.employee_id is not None:
-                user.employee_id = None
-                changed = True
+            if role == 'Candidate' and user.employee is not None:
+                # For candidates, we might need to handle this differently
+                pass
             if not user.check_password(DEMO_PASSWORD):
                 user.set_password(DEMO_PASSWORD)
                 changed = True
@@ -137,15 +137,31 @@ def ensure_demo_users():
                 user.save()
 
         if role != 'Candidate':
+            job = None
+            job_title = spec.get('jobTitle', '')
+            if job_title:
+                job, _ = Job.objects.get_or_create(
+                    title=job_title,
+                    defaults={'base_salary': 0},
+                )
+
+            department = None
+            department_name = (spec.get('department') or '').strip()
+            if department_name:
+                department, _ = Department.objects.get_or_create(name=department_name)
+
+            team = None
+            team_name = (spec.get('team') or '').strip()
+            if team_name:
+                team, _ = Team.objects.get_or_create(name=team_name)
+
             Employee.objects.update_or_create(
                 employeeID=user.employee_id,
                 defaults={
                     'fullName': spec['full_name'],
-                    'email': email,
-                    'jobTitle': spec.get('jobTitle', ''),
-                    'department': spec.get('department', ''),
-                    'team': spec.get('team', ''),
-                    'role': role,
+                    'job': job,
+                    'department': department,
+                    'team': team,
                     'employeeType': 'Full-time',
                     'location': spec.get('location', ''),
                     'employmentStatus': 'Active',

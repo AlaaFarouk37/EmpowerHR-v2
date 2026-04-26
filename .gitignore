@@ -23,3 +23,40 @@ temp/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Default ignored files
+/shelf/
+/workspace.xml
+# Editor-based HTTP Client requests
+/httpRequests/
+node_modules/
+
+# Dependencies
+dist/
+build/
+.env
+.env.local
+
+# Python/Backend
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+<<<<<<< HEAD
+media/
+staticfiles/
+static/
+logs/
+=======
+>>>>>>> 9944dddc (remove frontend.rar)
+
+# IDEs & Editors
+.vscode/
+.idea/
+.DS_Store
+*.log
+
+# Databases (if local)
+*.sqlite3

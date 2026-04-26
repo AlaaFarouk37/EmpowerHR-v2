@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getMyTasks, updateMyTaskProgress } from '../../api/index.js';
+import {
+  endMyTask,
+  getMyTasks,
+  markMyTaskDone,
+  startMyTask,
+  updateMyTaskProgress,
+} from '../../api/index.js';
 import { Badge, Btn, Spinner, useToast } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -7,9 +13,26 @@ import { useLanguage } from '../../context/LanguageContext';
 const STATUS_COLORS = {
   'To Do': 'gray',
   'In Progress': 'orange',
+  'Pending Review': 'accent',
   Done: 'green',
   Blocked: 'red',
 };
+
+const formatDateTime = (value) => {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
+};
+
+const formatDuration = (minutes) => {
+  if (minutes == null) return '—';
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes - h * 60);
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+};
+
+const hasOpenLog = (task) => Array.isArray(task?.logs) && task.logs.some((log) => !log.end_time);
 
 const daysUntilDue = (value) => {
   if (!value) return Number.POSITIVE_INFINITY;
@@ -186,6 +209,27 @@ export function EmployeeTasksPage() {
     }
   };
 
+  const runAction = async (taskID, action, payload = {}) => {
+    setSavingId(taskID);
+    try {
+      if (action === 'start') {
+        await startMyTask(taskID, payload);
+        toast('Work session started');
+      } else if (action === 'end') {
+        await endMyTask(taskID, payload);
+        toast('Work session ended');
+      } else if (action === 'done') {
+        await markMyTaskDone(taskID, payload);
+        toast('Task submitted for review');
+      }
+      await loadTasks();
+    } catch (error) {
+      toast(error.message || 'Failed to update task', 'error');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   return (
     <div className="hr-page-shell" style={{ maxWidth: 1180, margin: '0 auto', padding: '40px 32px 80px' }}>
       <div className="hr-page-header" style={{ marginBottom: 28 }}>
@@ -344,36 +388,94 @@ export function EmployeeTasksPage() {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr auto', gap: 12, alignItems: 'end' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--gray-500)', marginBottom: 6 }}>{t('Status')}</label>
-                    <select
-                      value={draft.status}
-                      onChange={(e) => setDraftField(task.taskID, 'status', e.target.value)}
-                      style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1px solid #E5E7EB', background: '#fff' }}
-                    >
-                      {['To Do', 'In Progress', 'Done', 'Blocked'].map((item) => (
-                        <option key={item} value={item}>{t(item)}</option>
+                {/* Workflow buttons — Start / End / Add Progress / Mark as Done */}
+                {(() => {
+                  const isSaving = savingId === task.taskID;
+                  const open = hasOpenLog(task);
+                  const started = Boolean(task.start_time);
+
+                  if (task.status === 'Done') {
+                    return (
+                      <div style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>
+                        {t('Approved on')} {formatDateTime(task.updatedAt)}
+                      </div>
+                    );
+                  }
+                  if (task.status === 'Pending Review') {
+                    return (
+                      <div style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>
+                        {t('Awaiting team-leader review.')} {task.finished_time ? `(${t('Submitted')} ${formatDateTime(task.finished_time)})` : ''}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      {!started && (
+                        <Btn variant="primary" disabled={isSaving} onClick={() => runAction(task.taskID, 'start', { progress: Number(draft.progress || 0) })}>
+                          {isSaving ? t('Working...') : t('Start')}
+                        </Btn>
+                      )}
+                      {started && open && (
+                        <Btn variant="primary" disabled={isSaving} onClick={() => runAction(task.taskID, 'end')}>
+                          {isSaving ? t('Working...') : t('End Progress')}
+                        </Btn>
+                      )}
+                      {started && !open && (
+                        <>
+                          <Btn variant="primary" disabled={isSaving} onClick={() => runAction(task.taskID, 'start', { progress: Number(draft.progress || 0) })}>
+                            {isSaving ? t('Working...') : t('Add Progress')}
+                          </Btn>
+                          <Btn variant="ghost" disabled={isSaving} onClick={() => runAction(task.taskID, 'done')}>
+                            {isSaving ? t('Working...') : t('Mark as Done')}
+                          </Btn>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Optional progress quick-edit (kept for fallback updates) */}
+                <details style={{ marginTop: 14 }}>
+                  <summary style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-500)', cursor: 'pointer' }}>
+                    {t('Update progress manually')}
+                  </summary>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end', marginTop: 12 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--gray-500)', marginBottom: 6 }}>{t('Progress %')}</label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={draft.progress}
+                        onChange={(e) => setDraftField(task.taskID, 'progress', e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <Btn variant="ghost" onClick={() => handleUpdate(task.taskID)} disabled={savingId === task.taskID}>
+                      {savingId === task.taskID ? t('Saving...') : t('Save')}
+                    </Btn>
+                  </div>
+                </details>
+
+                {/* Activity panel — every WorkTaskLog session */}
+                {Array.isArray(task.logs) && task.logs.length > 0 && (
+                  <div style={{ marginTop: 16, borderTop: '1px solid #F3F4F6', paddingTop: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 8 }}>
+                      {t('Activity')} ({task.logs.length})
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      {task.logs.slice(0, 6).map((log) => (
+                        <div key={log.logID} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12.5, color: 'var(--gray-700)' }}>
+                          <span>
+                            {formatDateTime(log.start_time)} → {log.end_time ? formatDateTime(log.end_time) : <em style={{ color: '#B45309' }}>{t('open')}</em>}
+                          </span>
+                          <span style={{ color: 'var(--gray-500)' }}>{formatDuration(log.durationMinutes)}</span>
+                        </div>
                       ))}
-                    </select>
+                    </div>
                   </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--gray-500)', marginBottom: 6 }}>{t('Progress %')}</label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={draft.progress}
-                      onChange={(e) => setDraftField(task.taskID, 'progress', e.target.value)}
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-
-                  <Btn onClick={() => handleUpdate(task.taskID)} disabled={savingId === task.taskID}>
-                    {savingId === task.taskID ? t('Saving...') : t('Update')}
-                  </Btn>
-                </div>
+                )}
               </div>
             );
           })}

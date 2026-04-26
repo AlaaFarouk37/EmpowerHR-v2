@@ -6,25 +6,6 @@ from django.db import models
 from django.utils import timezone
 
 
-def generate_employee_id():
-    """
-    Auto-generates the next employee ID in the format EMP00001, EMP00002, etc.
-    Looks at the highest existing employee_id and increments it.
-    """
-    last = (
-        User.objects.filter(employee_id__startswith="EMP")
-        .order_by("employee_id")
-        .last()
-    )
-    if not last or not last.employee_id:
-        return "EMP00001"
-    try:
-        num = int(last.employee_id.replace("EMP", ""))
-        return f"EMP{num + 1:05d}"
-    except ValueError:
-        return "EMP00001"
-
-
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
@@ -68,15 +49,24 @@ class User(AbstractBaseUser, PermissionsMixin):
         COMFORT = "comfort", "Comfort"
         COMPACT = "compact", "Compact"
 
+    employee = models.OneToOneField(
+        'employee_management.Employee',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='user_account',
+        db_column='fk_employee_id'
+    )
+
     email       = models.EmailField(unique=True)
-    full_name   = models.CharField(max_length=150)
+    full_name   = models.CharField(max_length=150, blank=True)
     role        = models.CharField(max_length=20, choices=Role.choices)
 
-    # Auto-generated for employees, null for candidates
-    employee_id = models.CharField(max_length=50, null=True, blank=True, unique=True)
     currency_preference = models.CharField(
         max_length=3,
         choices=CurrencyPreference.choices,
+        
+        
         default=CurrencyPreference.EGP,
     )
     language_preference = models.CharField(
@@ -98,7 +88,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     objects = UserManager()
 
     USERNAME_FIELD  = "email"
-    REQUIRED_FIELDS = ["full_name", "role"]
+    REQUIRED_FIELDS = ["role"]
 
     class Meta:
         db_table = "auth_user"
@@ -107,11 +97,15 @@ class User(AbstractBaseUser, PermissionsMixin):
         return f"{self.email} ({self.role})"
 
     def save(self, *args, **kwargs):
-        if self.role == self.Role.CANDIDATE:
-            self.employee_id = None
-        elif not self.employee_id:
-            self.employee_id = generate_employee_id()
         super().save(*args, **kwargs)
+        if self.role != self.Role.CANDIDATE and not self.employee_id:
+            from employee_management.models import Employee, generate_employee_id
+            employee = Employee.objects.create(
+                employeeID=generate_employee_id(),
+                fullName=self.full_name or '',
+            )
+            User.objects.filter(pk=self.pk).update(employee=employee)
+            self.employee = employee
 
     @property
     def is_candidate(self):
@@ -123,18 +117,6 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def employee_currency_preference(self):
-        if not self.employee_id:
-            return self.currency_preference or self.CurrencyPreference.EGP
-
-        try:
-            from feedback.models import Employee
-
-            employee = Employee.objects.only('currency_preference').filter(employeeID=self.employee_id).first()
-            if employee and employee.currency_preference:
-                return employee.currency_preference
-        except Exception:
-            pass
-
         return self.currency_preference or self.CurrencyPreference.EGP
 
 

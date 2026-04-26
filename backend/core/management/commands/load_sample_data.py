@@ -7,29 +7,19 @@ from django.utils import timezone
 from accounts.demo_access import ensure_demo_users
 from attrition.models import AttritionPrediction
 from feedback.models import (
-    AttendanceRecord,
-    BenefitEnrollment,
-    DocumentRequest,
-    Employee,
-    EmployeeGoal,
-    ExpenseClaim,
     FeedbackAnswer,
     FeedbackForm,
     FeedbackQuestion,
     FeedbackSubmission,
-    LeaveRequest,
-    PayrollRecord,
-    PerformanceReview,
-    PolicyAnnouncement,
-    RecognitionAward,
-    ShiftSchedule,
-    SuccessionPlan,
-    SupportTicket,
-    TrainingCourse,
-    WorkTask,
+
 )
 from onboarding.models import OnboardingPlan
-from resume_pipeline.models import Job, Submission
+from resume_pipeline.models import Job, Submission, SuccessionPlan
+from employee_management.models import Employee, EmployeeGoal, PerformanceReview, TrainingCourse, WorkTask
+from Attendance_and_Leave.models import AttendanceRecord, LeaveRequest
+from payroll.models import PayrollRecord
+from employee_management.models import PolicyAnnouncement, RecognitionAward, ShiftSchedule, SupportTicket, DocumentRequest, ExpenseClaim   
+from employee_management.models import BenefitEnrollment
 
 
 class Command(BaseCommand):
@@ -186,9 +176,18 @@ class Command(BaseCommand):
             )
             question_map[q_data['questionText']] = question
 
-        team_member = Employee.objects.filter(email__iexact='employee@test.com').first() or Employee.objects.filter(role='TeamMember').first()
-        team_leader = Employee.objects.filter(email__iexact='leader@test.com').first() or Employee.objects.filter(role='TeamLeader').first()
-        hr_manager = Employee.objects.filter(email__iexact='hr@test.com').first() or Employee.objects.filter(role='HRManager').first()
+        team_member = (
+            Employee.objects.filter(user_account__email__iexact='employee@test.com').first()
+            or Employee.objects.filter(user_account__role='TeamMember').first()
+        )
+        team_leader = (
+            Employee.objects.filter(user_account__email__iexact='leader@test.com').first()
+            or Employee.objects.filter(user_account__role='TeamLeader').first()
+        )
+        hr_manager = (
+            Employee.objects.filter(user_account__email__iexact='hr@test.com').first()
+            or Employee.objects.filter(user_account__role='HRManager').first()
+        )
 
         if not team_member:
             self.stdout.write(self.style.WARNING('Demo employee record not found. Basic sample data loaded without employee workspace scenarios.'))
