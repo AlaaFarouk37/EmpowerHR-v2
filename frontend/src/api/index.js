@@ -464,6 +464,7 @@ export const adminGetTeams = async () => toList(await api.get('/employee_managem
 export const adminCreateTeam = (data) => api.post('/employee_management/teams/', data);
 export const adminUpdateTeam = (id, data) => api.put(`/employee_management/teams/${id}/`, data);
 export const adminDeleteTeam = (id) => api.delete(`/employee_management/teams/${id}/`);
+export const getTeams = adminGetTeams;
 
 // Jobs
 export const adminGetJobs = async () => toList(await api.get('/employee_management/jobs/'));

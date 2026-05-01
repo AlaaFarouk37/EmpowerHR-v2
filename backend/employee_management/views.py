@@ -6,8 +6,11 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from django.contrib.auth import get_user_model
+
 
 from accounts.permissions import IsHRManager, IsInternalEmployee, IsTeamLeader, IsAdmin
+from accounts.models import User
 from .models import (
     Department, Team, Job, LeaveType, Employee, EmployeeJobHistory,
     RecognitionAward, BenefitEnrollment, ExpenseClaim, DocumentRequest, SupportTicket,
@@ -80,7 +83,10 @@ class DepartmentListCreateView(APIView):
     GET  /api/employee_management/departments/        - List all departments
     POST /api/employee_management/departments/        - Create a new department (Admin only)
     """
-    permission_classes = [IsAuthenticated, IsAdmin]
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated()]   # ✅ any logged-in user can read
+        return [IsAuthenticated(), IsAdmin()]  # only admin can create
 
     def get(self, request):
         departments = Department.objects.all()
@@ -143,7 +149,10 @@ class TeamListCreateView(APIView):
     GET  /api/employee_management/teams/        - List all teams
     POST /api/employee_management/teams/        - Create a new team (Admin only)
     """
-    permission_classes = [IsAuthenticated, IsAdmin]
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated()]   # ✅ any logged-in user can read
+        return [IsAuthenticated(), IsAdmin()]  # only admin can create
 
     def get(self, request):
         teams = Team.objects.all()
@@ -206,7 +215,11 @@ class JobListCreateView(APIView):
     GET  /api/employee_management/jobs/        - List all jobs
     POST /api/employee_management/jobs/        - Create a new job (Admin only)
     """
-    permission_classes = [IsAuthenticated, IsAdmin]
+    
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated()]   # ✅ any logged-in user can read
+        return [IsAuthenticated(), IsAdmin()]  # only admin can create
 
     def get(self, request):
         jobs = Job.objects.all()
@@ -332,7 +345,7 @@ class HREmployeeListCreateView(APIView):
     GET  /api/employee_management/hr/employees/        list/search/filter employees
     POST /api/employee_management/hr/employees/        create an employee directory record
     """
-
+    User = get_user_model()
     def get_permissions(self):
         if self.request.method == 'GET':
             return [IsAuthenticated(), IsTeamLeader()]
@@ -340,6 +353,14 @@ class HREmployeeListCreateView(APIView):
 
     def get(self, request):
         qs = Employee.objects.filter(isDeleted=False).order_by('fullName', 'employeeID')
+        if getattr(request.user, 'role', None) == 'TeamLeader':
+            leader = Employee.objects.filter(
+                employeeID=getattr(request.user, 'employee_id', None),
+                isDeleted=False,
+            ).first()
+            if not leader or not leader.team:
+                return Response([])
+            qs = qs.filter(team=leader.team).exclude(employeeID=leader.employeeID)
 
         search = (request.query_params.get('search') or '').strip()
         department = (request.query_params.get('department') or '').strip()
@@ -369,12 +390,34 @@ class HREmployeeListCreateView(APIView):
 
         return Response(EmployeeSerializer(qs, many=True).data)
 
+    
+
     def post(self, request):
         serializer = EmployeeCreateUpdateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+        role  = request.data.get('role', User.Role.TEAM_MEMBER)
+        email = request.data.get('email', '').strip().lower()
+        full_name = request.data.get('fullName', '').strip()
+
+        # Save employee first
         employee = serializer.save()
+
+        # Create linked User with the correct role
+        # (User.save() would auto-create a blank Employee — we bypass that with update())
+        user = User(
+            email=email,
+            full_name=full_name,
+            role=role,
+            employee=employee,
+        )
+        user.set_unusable_password()
+        user.save()
+
+        # Link back to employee in case save() created a duplicate
+        User.objects.filter(pk=user.pk).update(employee=employee)
+
         return Response(EmployeeSerializer(employee).data, status=status.HTTP_201_CREATED)
 
 
@@ -455,37 +498,28 @@ class HREmployeeRoleChangeView(APIView):
         previous_team = _label(employee.team)
         previous_income = employee.monthlyIncome
 
-        new_job_title = data.get('jobTitle', employee.jobTitle)
         new_role = data.get('role', employee.role)
-        new_department_name = (data.get('department', previous_department) or '').strip()
-        new_team_name = (data.get('team', previous_team) or '').strip()
         new_income = data.get('monthlyIncome', employee.monthlyIncome)
         new_currency = data.get('currency_preference', employee.currency_preference)
 
-        if new_job_title and new_job_title != employee.jobTitle:
-            target_job, _ = Job.objects.get_or_create(
-                title=new_job_title,
-                defaults={'base_salary': 0},
-            )
-            employee.job = target_job
-            updates['job'] = target_job
+        if 'job' in data:
+            new_job = data.get('job')
+            if (new_job.pk if new_job else None) != employee.job_id:
+                employee.job = new_job
+                updates['job'] = new_job
         if new_role and user_account and new_role != user_account.role:
             user_account.role = new_role
             user_updates.append('role')
-        if new_department_name != previous_department:
-            target_department = (
-                Department.objects.get_or_create(name=new_department_name)[0]
-                if new_department_name else None
-            )
-            employee.department = target_department
-            updates['department'] = target_department
-        if new_team_name != previous_team:
-            target_team = (
-                Team.objects.get_or_create(name=new_team_name)[0]
-                if new_team_name else None
-            )
-            employee.team = target_team
-            updates['team'] = target_team
+        if 'department' in data:
+            new_department = data.get('department')
+            if (new_department.pk if new_department else None) != employee.department_id:
+                employee.department = new_department
+                updates['department'] = new_department
+        if 'team' in data:
+            new_team = data.get('team')
+            if (new_team.pk if new_team else None) != employee.team_id:
+                employee.team = new_team
+                updates['team'] = new_team
         if new_income != employee.monthlyIncome:
             employee.monthlyIncome = new_income
             updates['monthlyIncome'] = new_income

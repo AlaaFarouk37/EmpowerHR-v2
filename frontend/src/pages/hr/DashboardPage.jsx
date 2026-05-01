@@ -22,7 +22,7 @@ import {
   hrUpdateActionPlanStatus,
   runPrediction,
 } from '../../api/index.js';
-import { Spinner, Btn, Badge, useToast } from '../../components/shared/index.jsx';
+import { Spinner, Btn, Badge, Modal, useToast } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -108,6 +108,7 @@ export function HRDashboardPage() {
   const navigate = useNavigate();
   // Removed not-important section as per user request to keep the system error-free.
   const [predictions, setPredictions] = useState([]);
+  const [insightModalPrediction, setInsightModalPrediction] = useState(null);
   const [running, setRunning] = useState(false);
   const [lastRun, setLastRun] = useState(null);
   const [formTitle, setFormTitle] = useState('');
@@ -200,6 +201,7 @@ export function HRDashboardPage() {
     setRunning(true);
     try {
       const data = await runPrediction();
+      console.log('missingFields:', data.predictions[0].missingFields);
       if (data.error) throw new Error(data.error);
       setPredictions(data.predictions || []);
       setFormTitle(data.formTitle || '');
@@ -451,6 +453,31 @@ export function HRDashboardPage() {
   const highRiskWithoutPlans = useMemo(
     () => sorted.filter((item) => item.riskLevel === 'High' && !openPlanEmployeeIds.has(String(item.employeeID || ''))),
     [openPlanEmployeeIds, sorted],
+  );
+
+  // A prediction is considered "resolved" only when there is a Done action plan
+  // created *after* the prediction's predictedAt timestamp. Plans older than the
+  // current prediction are stale (e.g. from a previous run) and must not hide the
+  // employee from the live list.
+  const isPredictionResolved = (prediction) => {
+    if (!prediction) return false;
+    const predictedAt = prediction.predictedAt ? new Date(prediction.predictedAt).getTime() : 0;
+    const empId = String(prediction.employeeID || '');
+    const employeeName = prediction.fullName || prediction.employeeName || '';
+    return actionPlans.some((plan) => {
+      if (plan?.status !== 'Done') return false;
+      const planAt = plan.createdAt ? new Date(plan.createdAt).getTime() : 0;
+      if (planAt && predictedAt && planAt < predictedAt) return false;
+      const planEmp = String(plan.employeeID || '');
+      const directMatch = empId && planEmp === empId;
+      const nameMatch = employeeName && String(plan.description || '').includes(String(employeeName));
+      return directMatch || nameMatch;
+    });
+  };
+
+  const displayedPredictions = useMemo(
+    () => sorted.filter((p) => !isPredictionResolved(p)),
+    [sorted, actionPlans],
   );
 
   const recognitionTone = (state) => {
@@ -1416,12 +1443,16 @@ export function HRDashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((p, i) => {
+                {displayedPredictions.map((p, i) => {
                   const pct = Math.round((p.riskScore || 0) * 100);
                   const color = RISK_COLORS[p.riskLevel] || 'var(--gray-500)';
                   const bg = RISK_BG[p.riskLevel] || 'var(--gray-100)';
                   return (
-                    <tr key={p.predictionID || i} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                    <tr
+                      key={p.predictionID || i}
+                      onClick={() => setInsightModalPrediction(p)}
+                      style={{ borderBottom: '1px solid #F3F4F6', cursor: 'pointer' }}
+                    >
                       <td style={{ padding: '16px 20px', verticalAlign: 'top' }}>
                         <div style={{ fontWeight: 700, fontSize: 14 }}>{p.fullName || p.employeeName || p.employeeID}</div>
                         <div style={{ fontSize: 11.5, color: 'var(--gray-500)' }}>{p.employeeID}</div>
@@ -1433,10 +1464,20 @@ export function HRDashboardPage() {
                       <td style={{ padding: '16px 20px', fontSize: 13.5 }}>{p.department || <span style={{ color: 'var(--gray-300)' }}>—</span>}</td>
                       <td style={{ padding: '16px 20px', fontSize: 13.5 }}>{p.team || <span style={{ color: 'var(--gray-300)' }}>—</span>}</td>
                       <td style={{ padding: '16px 20px' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: bg, color }}>
-                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, display: 'inline-block' }} />
-                          {t(p.riskLevel)}
-                        </span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: bg, color }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, display: 'inline-block' }} />
+                            {t(p.riskLevel)}
+                          </span>
+                          {p.escalation ? (
+                            <span
+                              title={t('High-risk for two consecutive cycles with a follow-up plan in the previous cycle.')}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 800, background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A', textTransform: 'uppercase', letterSpacing: '.04em' }}
+                            >
+                              {t('Escalate')}
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td style={{ padding: '16px 20px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1446,7 +1487,7 @@ export function HRDashboardPage() {
                           <span style={{ fontSize: 12, fontWeight: 700, color, minWidth: 36 }}>{pct}%</span>
                         </div>
                       </td>
-                      <td style={{ padding: '16px 20px' }}>
+                      <td style={{ padding: '16px 20px' }} onClick={(e) => e.stopPropagation()}>
                         <Btn
                           size="sm"
                           variant={openPlanEmployeeIds.has(String(p.employeeID)) ? 'ghost' : 'outline'}
@@ -1465,97 +1506,130 @@ export function HRDashboardPage() {
                 })}
               </tbody>
             </table>
+            <div style={{ padding: '10px 20px', fontSize: 11.5, color: 'var(--gray-500)', background: '#FAFAFA', borderTop: '1px solid #F3F4F6' }}>
+              {t('Click any row to view AI insights and recommended actions.')}
+            </div>
           </div>
 
-          <div className="hr-panel-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', marginTop: 18 }}>
-            {insightCards.map((p, i) => {
-              const pct = Math.round((p.riskScore || 0) * 100);
-              const color = RISK_COLORS[p.riskLevel] || 'var(--gray-500)';
-              const bg = RISK_BG[p.riskLevel] || 'var(--gray-100)';
-              return (
-                <div key={`insight-${p.predictionID || i}`} className="hr-surface-card" style={{ padding: 18 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 10 }}>
-                    <div>
-                      <div style={{ fontWeight: 700 }}>{p.fullName || p.employeeName || p.employeeID}</div>
-                      <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{p.jobTitle || '—'} • {p.department || '—'}</div>
-                    </div>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, background: bg, color }}>
-                      {t(p.riskLevel)} · {pct}%
-                    </span>
-                  </div>
-
-                  <p style={{ margin: '0 0 10px', fontSize: 13.5, color: 'var(--gray-600)', lineHeight: 1.55 }}>
-                    {t(p.explanationSummary || 'AI summary unavailable for this prediction.')}
-                  </p>
-                  <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 12 }}>
-                    {t(p.feedbackSummary || '')}
-                  </div>
-
-                  <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 8 }}>{t('Key Drivers')}</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
-                    {(p.riskDrivers || []).length ? (p.riskDrivers || []).slice(0, 3).map((driver, index) => {
-                      const driverColor = driver.severity === 'high' ? '#B42318' : driver.severity === 'medium' ? '#B54708' : '#027A48';
-                      const driverBg = driver.severity === 'high' ? '#FFF1F3' : driver.severity === 'medium' ? '#FFF7ED' : '#ECFDF3';
-                      return (
-                        <span key={`${driver.title}-${index}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 999, background: driverBg, color: driverColor, fontSize: 12, fontWeight: 700 }}>
-                          {t(driver.title)}
-                        </span>
-                      );
-                    }) : (
-                      <span style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>{t('No strong drivers available for this prediction yet.')}</span>
-                    )}
-                  </div>
-
-                  <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 8 }}>{t('Main Risk Points')}</div>
-                  <ul style={{ margin: '0 0 14px', paddingInlineStart: 18, display: 'grid', gap: 6, color: 'var(--gray-700)', fontSize: 13 }}>
-                    {(p.mainRiskPoints || []).length ? (p.mainRiskPoints || []).slice(0, 3).map((point, index) => (
-                      <li key={`${point}-${index}`}>{t(point)}</li>
-                    )) : (
-                      <li>{t('No strong drivers available for this prediction yet.')}</li>
-                    )}
-                  </ul>
-
-                  <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 8 }}>{t('HR Action Plan')}</div>
-                  <ul style={{ margin: '0 0 12px', paddingInlineStart: 18, display: 'grid', gap: 6, color: 'var(--gray-700)', fontSize: 13 }}>
-                    {(p.hrActionPlan || p.recommendedActions || []).length ? (p.hrActionPlan || p.recommendedActions || []).slice(0, 3).map((action, index) => (
-                      <li key={`hr-${action}-${index}`}>{t(action)}</li>
-                    )) : (
-                      <li>{t('No recommended actions generated yet.')}</li>
-                    )}
-                  </ul>
-
-                  <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 8 }}>{t('Admin Action Plan')}</div>
-                  <ul style={{ margin: 0, paddingInlineStart: 18, display: 'grid', gap: 6, color: 'var(--gray-700)', fontSize: 13 }}>
-                    {(p.adminActionPlan || []).length ? (p.adminActionPlan || []).slice(0, 3).map((action, index) => (
-                      <li key={`admin-${action}-${index}`}>{t(action)}</li>
-                    )) : (
-                      <li>{t('No recommended actions generated yet.')}</li>
-                    )}
-                  </ul>
-
-                  <div style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 12, color: openPlanEmployeeIds.has(String(p.employeeID)) ? '#027A48' : 'var(--gray-500)', fontWeight: 600 }}>
-                      {openPlanEmployeeIds.has(String(p.employeeID)) ? t('Open retention plan already active') : t('Ready for follow-up automation')}
-                    </span>
-                    <Btn
-                      size="sm"
-                      variant={openPlanEmployeeIds.has(String(p.employeeID)) ? 'ghost' : 'outline'}
-                      disabled={Boolean(actionPlanSavingKey) || openPlanEmployeeIds.has(String(p.employeeID))}
-                      onClick={() => createRetentionPlan(p, t('Attrition Risk'))}
-                    >
-                      {openPlanEmployeeIds.has(String(p.employeeID))
-                        ? t('Plan Exists')
-                        : actionPlanSavingKey === `plan-${p.employeeID}`
-                          ? t('Creating...')
-                          : t('Create Follow-up Plan')}
-                    </Btn>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
         </>
       )}
+
+      {/* Per-employee insights modal — opened by clicking a row in the prediction list */}
+      <Modal
+        open={Boolean(insightModalPrediction)}
+        onClose={() => setInsightModalPrediction(null)}
+        title={insightModalPrediction
+          ? `${insightModalPrediction.fullName || insightModalPrediction.employeeName || insightModalPrediction.employeeID} — ${t('Attrition Insights')}`
+          : t('Attrition Insights')}
+        maxWidth={680}
+      >
+        {insightModalPrediction ? (() => {
+          const p = insightModalPrediction;
+          const pct = Math.round((p.riskScore || 0) * 100);
+          const color = RISK_COLORS[p.riskLevel] || 'var(--gray-500)';
+          const bg = RISK_BG[p.riskLevel] || 'var(--gray-100)';
+          const planActive = openPlanEmployeeIds.has(String(p.employeeID));
+          return (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{p.fullName || p.employeeName || p.employeeID}</div>
+                  <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{p.jobTitle || '—'} • {p.department || '—'} • {p.team || '—'}</div>
+                </div>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, background: bg, color }}>
+                  {t(p.riskLevel)} · {pct}%
+                </span>
+              </div>
+
+              {p.escalation ? (
+                <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 10, background: '#FEF3C7', border: '1px solid #FDE68A', color: '#78350F', fontSize: 12.5, lineHeight: 1.5 }}>
+                  <strong style={{ textTransform: 'uppercase', letterSpacing: '.04em' }}>{t('Escalation needed')}:</strong>{' '}
+                  {t('This employee was High-risk in the previous cycle and a follow-up plan was created — they remain High-risk now. Consider escalating beyond a standard retention plan.')}
+                </div>
+              ) : null}
+              {p.previousRiskLevel ? (
+                <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 8 }}>
+                  {t('Previous cycle')}: {t(p.previousRiskLevel)}
+                  {p.hadPreviousActionPlan ? ` • ${t('follow-up plan was created')}` : ''}
+                </div>
+              ) : null}
+
+              <p style={{ margin: '0 0 10px', fontSize: 13.5, color: 'var(--gray-600)', lineHeight: 1.55 }}>
+                {t(p.explanationSummary || 'AI summary unavailable for this prediction.')}
+              </p>
+              {p.feedbackSummary ? (
+                <div style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 12 }}>
+                  {t(p.feedbackSummary)}
+                </div>
+              ) : null}
+
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 8 }}>{t('Key Drivers')}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+                {(p.riskDrivers || []).length ? (p.riskDrivers || []).slice(0, 5).map((driver, index) => {
+                  const driverColor = driver.severity === 'high' ? '#B42318' : driver.severity === 'medium' ? '#B54708' : '#027A48';
+                  const driverBg = driver.severity === 'high' ? '#FFF1F3' : driver.severity === 'medium' ? '#FFF7ED' : '#ECFDF3';
+                  return (
+                    <span key={`${driver.title}-${index}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 999, background: driverBg, color: driverColor, fontSize: 12, fontWeight: 700 }}>
+                      {t(driver.title)}
+                    </span>
+                  );
+                }) : (
+                  <span style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>{t('No strong drivers available for this prediction yet.')}</span>
+                )}
+              </div>
+
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 8 }}>{t('Main Risk Points')}</div>
+              <ul style={{ margin: '0 0 14px', paddingInlineStart: 18, display: 'grid', gap: 6, color: 'var(--gray-700)', fontSize: 13 }}>
+                {(p.mainRiskPoints || []).length ? (p.mainRiskPoints || []).slice(0, 5).map((point, index) => (
+                  <li key={`${point}-${index}`}>{t(point)}</li>
+                )) : (
+                  <li>{t('No strong drivers available for this prediction yet.')}</li>
+                )}
+              </ul>
+
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 8 }}>{t('HR Action Plan')}</div>
+              <ul style={{ margin: '0 0 12px', paddingInlineStart: 18, display: 'grid', gap: 6, color: 'var(--gray-700)', fontSize: 13 }}>
+                {(p.hrActionPlan || p.recommendedActions || []).length ? (p.hrActionPlan || p.recommendedActions || []).slice(0, 5).map((action, index) => (
+                  <li key={`hr-${action}-${index}`}>{t(action)}</li>
+                )) : (
+                  <li>{t('No recommended actions generated yet.')}</li>
+                )}
+              </ul>
+
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 8 }}>{t('Admin Action Plan')}</div>
+              <ul style={{ margin: 0, paddingInlineStart: 18, display: 'grid', gap: 6, color: 'var(--gray-700)', fontSize: 13 }}>
+                {(p.adminActionPlan || []).length ? (p.adminActionPlan || []).slice(0, 5).map((action, index) => (
+                  <li key={`admin-${action}-${index}`}>{t(action)}</li>
+                )) : (
+                  <li>{t('No recommended actions generated yet.')}</li>
+                )}
+              </ul>
+
+              <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: planActive ? '#027A48' : 'var(--gray-500)', fontWeight: 600 }}>
+                  {planActive ? t('Open retention plan already active') : t('Ready for follow-up automation')}
+                </span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Btn variant="ghost" onClick={() => setInsightModalPrediction(null)}>{t('Close')}</Btn>
+                  <Btn
+                    variant={planActive ? 'ghost' : 'primary'}
+                    disabled={Boolean(actionPlanSavingKey) || planActive}
+                    onClick={async () => {
+                      await createRetentionPlan(p, t('Attrition Risk'));
+                    }}
+                  >
+                    {planActive
+                      ? t('Plan Exists')
+                      : actionPlanSavingKey === `plan-${p.employeeID}`
+                        ? t('Creating...')
+                        : t('Create Follow-up Plan')}
+                  </Btn>
+                </div>
+              </div>
+            </div>
+          );
+        })() : null}
+      </Modal>
     </div>
   );
 }

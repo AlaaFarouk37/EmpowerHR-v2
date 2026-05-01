@@ -15,7 +15,7 @@ const TABS = ['departments', 'teams', 'jobs', 'leave-types'];
 const EMPTY_FORMS = {
   departments: { name: '' },
   teams: { name: '' },
-  jobs: { title: '', level: 1, base_salary: '' },
+  jobs: { title: '', level: '', base_salary: '' },
   'leave-types': { name: '', max_days_per_year: '' },
 };
 
@@ -36,8 +36,12 @@ const FIELD_LABELS = {
 const FIELD_TYPES = {
   departments: { name: 'text' },
   teams: { name: 'text' },
-  jobs: { title: 'text', level: 'number', base_salary: 'number' },
+  jobs: { title: 'text', level: 'select', base_salary: 'number' },
   'leave-types': { name: 'text', max_days_per_year: 'number' },
+};
+
+const FIELD_CHOICES = {
+  jobs: { level: ['Entry', 'Mid', 'Senior'] },
 };
 
 const TAB_ICONS = {
@@ -324,17 +328,41 @@ function AdminManagementPage() {
           {Object.keys(EMPTY_FORMS[activeTab]).map((field) => {
             const type = FIELD_TYPES[activeTab][field] || 'text';
             const label = FIELD_LABELS[activeTab][field];
+            const choices = FIELD_CHOICES[activeTab]?.[field];
 
             return (
               <div key={field} style={{ display: 'grid', gap: 6 }}>
                 <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-700, #374151)' }}>{label}</label>
-                <Input
-                  type={type}
-                  value={formData[field]}
-                  onChange={(e) => handleInputChange(field, e.target.value)}
-                  step={type === 'number' && (field.includes('salary') || field.includes('level')) ? '0.01' : '1'}
-                  required
-                />
+                {type === 'select' && choices ? (
+                  <select
+                    value={formData[field] || ''}
+                    onChange={(e) => handleInputChange(field, e.target.value)}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #D1D5DB',
+                      borderRadius: 8,
+                      fontSize: 14,
+                      background: 'white',
+                      color: 'var(--gray-900, #111827)',
+                      outline: 'none',
+                    }}
+                  >
+                    <option value="" disabled>{t('Select...')}</option>
+                    {choices.map((choice) => (
+                      <option key={choice} value={choice}>{choice}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <Input
+                    type={type}
+                    value={formData[field]}
+                    onChange={(e) => handleInputChange(field, e.target.value)}
+                    step={type === 'number' && field.includes('salary') ? '0.01' : '1'}
+                    required
+                  />
+                )}
               </div>
             );
           })}

@@ -28,7 +28,7 @@ const downloadTextFile = (filename, content, mimeType = 'text/csv;charset=utf-8'
   URL.revokeObjectURL(url);
 };
 
-const FIELD_TYPES = ['score_1_4', 'boolean', 'decimal'];
+const FIELD_TYPES = ['score_1_4', 'decimal','boolean'];
 const FIELD_LABELS = { score_1_4: 'Score 1-4', boolean: 'Yes / No', decimal: 'Decimal' };
 const EMPTY_RESPONSE_SNAPSHOT = { summary: {}, followUpItems: [] };
 

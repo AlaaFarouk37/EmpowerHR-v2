@@ -1,14 +1,18 @@
+from datetime import date
+
 from django.db import models
 from accounts.models import User
 from django.conf import settings
 from decimal import Decimal
 import uuid
+from django.db.models import F, ExpressionWrapper, IntegerField
+from django.db.models.functions import ExtractYear, Now
 
 
 class Job(models.Model):
     job_id = models.AutoField(primary_key=True)
     title = models.CharField(max_length=100)
-    level = models.PositiveIntegerField(default=1)
+    level = models.CharField(max_length=100, null=True,choices=[('Entry', 'Entry'), ('Mid', 'Mid'), ('Senior', 'Senior')]) # e.g. Entry, Mid, Senior
     base_salary = models.DecimalField(max_digits=10, decimal_places=2)
     benchmark_salary = models.DecimalField(max_digits=10, decimal_places=2, default=0, null=True, blank=True)
 
@@ -20,6 +24,9 @@ class Job(models.Model):
 
     def __str__(self):
         return f"{self.title} (Level {self.level})"
+
+def gen_id():
+    return uuid.uuid4().hex[:20]
     
 def generate_employee_id():
     """
@@ -56,7 +63,34 @@ class Team(models.Model):
 
 
 
-# --- EMPLOYEE MODEL (moved from feedback) ---
+# ──────────────────────────────────────────────
+# Custom QuerySet & Manager
+# ──────────────────────────────────────────────
+
+class EmployeeQuerySet(models.QuerySet):
+    def with_computed_fields(self):
+        today = date.today()
+        return self.annotate(
+            _age=ExpressionWrapper(
+                today.year - ExtractYear('birth_date'),
+                output_field=IntegerField()
+            ),
+            _years_at_company=ExpressionWrapper(
+                today.year - ExtractYear('hiring_date'),
+                output_field=IntegerField()
+            ),
+        )
+
+
+class EmployeeManager(models.Manager):
+    def get_queryset(self):
+        return EmployeeQuerySet(self.model, using=self._db).with_computed_fields()
+
+
+# ──────────────────────────────────────────────
+# Employee Model
+# ──────────────────────────────────────────────
+
 class Employee(models.Model):
     """
     Employee model with all fields required by the attrition prediction model.
@@ -69,41 +103,56 @@ class Employee(models.Model):
     MARITAL_CHOICES      = [('Single', 'Single'), ('Married', 'Married'),
                              ('Divorced', 'Divorced')]
 
-    # Identity
+    # ── Identity ──────────────────────────────
     employeeID         = models.CharField(max_length=50, primary_key=True, default=generate_employee_id)
     fullName           = models.CharField(max_length=150)
+
+    # ── Relations ─────────────────────────────
     job = models.ForeignKey(
         'Job',
         on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        null=True, blank=True,
         related_name='employees'
     )
-
-
-    # Display fields for HR dashboard / employee directory
     team = models.ForeignKey(
-        Team, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name='employees')
-    
-    department = models.ForeignKey(
-        Department, on_delete=models.SET_NULL, null=True, blank=True,
+        'Team',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
         related_name='employees'
     )
-    
+    department = models.ForeignKey(
+        'Department',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='employees'
+    )
+
+    # ── Employment info ───────────────────────
     employeeType       = models.CharField(max_length=30, null=True, blank=True)
     location           = models.CharField(max_length=100, null=True, blank=True)
     employmentStatus   = models.CharField(max_length=30, default='Active')
     isDeleted          = models.BooleanField(default=False)
 
-    # Profile fields used by attrition model
-    age                = models.IntegerField(null=True, blank=True)
+    # ── New: Hiring & personal dates ──────────
+    hiring_date        = models.DateField(null=True, blank=True)
+    birth_date         = models.DateField(null=True, blank=True)
+
+    # ── New: Personal details ─────────────────
+    phoneNumber        = models.CharField(max_length=20, null=True, blank=True)
+    has_disability     = models.BooleanField(default=False)
+
+    # ── New: Work schedule ────────────────────
+    default_clock_in   = models.TimeField(null=True, blank=True)
+    default_clock_out  = models.TimeField(null=True, blank=True)
+    contracted_hours   = models.DecimalField(max_digits=5, decimal_places=2,
+                                             null=True, blank=True,
+                                             help_text="Contracted weekly hours")
+
+    # ── Attrition model fields ─────────────────
     gender             = models.CharField(max_length=10, choices=GENDER_CHOICES,
                                           null=True, blank=True)
-    yearsAtCompany     = models.IntegerField(null=True, blank=True)
     monthlyIncome      = models.IntegerField(null=True, blank=True)
     performanceRating  = models.IntegerField(null=True, blank=True)
-    numberOfPromotions = models.IntegerField(null=True, blank=True)
     overtime           = models.BooleanField(null=True, blank=True)
     educationLevel     = models.IntegerField(choices=EDUCATION_CHOICES,
                                              null=True, blank=True)
@@ -115,12 +164,44 @@ class Employee(models.Model):
     maritalStatus      = models.CharField(max_length=20, choices=MARITAL_CHOICES,
                                           null=True, blank=True)
 
+    # ── Custom manager ────────────────────────
+    objects = EmployeeManager()
+
     class Meta:
         db_table = 'employee_management_employee'
 
     def __str__(self):
         return f"{self.fullName} ({self.employeeID})"
-    
+
+    # ── Computed: age & yearsAtCompany ────────
+    # These are set by the manager annotation when fetched from DB.
+    # The @property below is a fallback for unsaved / in-memory instances.
+
+    @property
+    def age(self):
+        annotated = self.__dict__.get('_age')
+        if annotated is not None:
+            return annotated
+        if not self.birth_date:
+            return None
+        today = date.today()
+        return today.year - self.birth_date.year - (
+            (today.month, today.day) < (self.birth_date.month, self.birth_date.day)
+        )
+
+    @property
+    def yearsAtCompany(self):
+        annotated = self.__dict__.get('_years_at_company')
+        if annotated is not None:
+            return annotated
+        if not self.hiring_date:
+            return None
+        today = date.today()
+        return today.year - self.hiring_date.year - (
+            (today.month, today.day) < (self.hiring_date.month, self.hiring_date.day)
+        )
+
+    # ── Delegated to related User account ─────
     @property
     def email(self):
         user = getattr(self, 'user_account', None)
@@ -144,12 +225,15 @@ class Employee(models.Model):
     def jobLevel(self):
         return self.job.level if self.job_id else None
 
+    @property
+    def numberOfPromotions(self):
+        return self.job_history.filter(action='Promotion').count()
+    
     # Snake_case aliases (legacy callers)
     job_title = jobTitle
     job_level = jobLevel
 
-def gen_id():
-    return uuid.uuid4().hex[:20]
+
 
 
 class EmployeeJobHistory(models.Model):

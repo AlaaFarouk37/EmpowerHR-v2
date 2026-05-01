@@ -5,11 +5,13 @@ import { getJobs, hrGetJobPipelineHealth, createJob, updateJob } from '../../api
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 
+// ─── helpers & constants outside the component ───────────────────────────────
+
 const downloadTextFile = (filename, content, mimeType = 'text/plain;charset=utf-8') => {
   const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
+  const url  = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.href = url;
+  link.href     = url;
   link.download = filename;
   document.body.appendChild(link);
   link.click();
@@ -17,26 +19,127 @@ const downloadTextFile = (filename, content, mimeType = 'text/plain;charset=utf-
   URL.revokeObjectURL(url);
 };
 
-export function HRJobPostingsPage() {
-  const toast = useToast();
-  const { t, language } = useLanguage();
-  const { user, resolvePath } = useAuth();
-  const navigate = useNavigate();
-  const isAdminView = user?.role === 'Admin';
+const DEGREES = ['Unknown', 'High School', 'Associate', 'Bachelor', 'Master', 'PhD'];
 
-  const [jobs, setJobs]           = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [selected, setSelected]   = useState(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [showEdit, setShowEdit]   = useState(false);
-  const [saving, setSaving]       = useState(false);
+const labelStyle = {
+  display: 'block', fontSize: 12, fontWeight: 700,
+  color: 'var(--gray-700)', marginBottom: 6,
+  textTransform: 'uppercase', letterSpacing: '.06em',
+};
+
+const inputStyle = {
+  width: '100%', padding: '11px 14px', background: '#fff',
+  border: '1.5px solid #E7EAEE', borderRadius: 12, fontSize: 13.5,
+  outline: 'none', fontFamily: 'var(--sans)', color: 'var(--gray-900)',
+  boxShadow: '0 1px 2px rgba(17,19,24,.03)',
+};
+
+// ─── sub-components outside the main component ───────────────────────────────
+
+const WeightInput = ({ label, fieldKey, form, setForm }) => (
+  <div>
+    <label style={labelStyle}>{label}</label>
+    <input
+      type="number" step="0.05" min="0" max="1"
+      style={inputStyle}
+      value={form[fieldKey]}
+      onChange={e => setForm(f => ({ ...f, [fieldKey]: e.target.value }))}
+    />
+  </div>
+);
+
+const FormFields = ({ form, setForm, weightsValid }) => {
+  const field = (key) => ({
+    value: form[key],
+    onChange: e => setForm(f => ({ ...f, [key]: e.target.value })),
+  });
+
+  const weightTotal = (
+    +form.weight_skills +
+    +form.weight_experience +
+    +form.weight_education +
+    +form.weight_semantic
+  ).toFixed(2);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div>
+        <label style={labelStyle}>Job Title *</label>
+        <input
+          style={inputStyle}
+          placeholder="e.g. Senior Backend Engineer"
+          {...field('title')}
+        />
+      </div>
+
+      <div>
+        <label style={labelStyle}>Job Description *</label>
+        <textarea
+          style={{ ...inputStyle, minHeight: 120, resize: 'vertical' }}
+          placeholder="Full job description — skills, responsibilities, requirements..."
+          {...field('description')}
+        />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div>
+          <label style={labelStyle}>Min. Experience (years)</label>
+          <input type="number" min="0" step="0.5" style={inputStyle} {...field('min_experience_years')} />
+        </div>
+        <div>
+          <label style={labelStyle}>Required Degree</label>
+          <select style={{ ...inputStyle, cursor: 'pointer' }} {...field('required_degree')}>
+            {DEGREES.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Weights */}
+      <div>
+        <label style={{ ...labelStyle, marginBottom: 10 }}>
+          Scoring Weights (must sum to 1.0)
+        </label>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+          <WeightInput label="Skills"     fieldKey="weight_skills"     form={form} setForm={setForm} />
+          <WeightInput label="Experience" fieldKey="weight_experience" form={form} setForm={setForm} />
+          <WeightInput label="Education"  fieldKey="weight_education"  form={form} setForm={setForm} />
+          <WeightInput label="Semantic"   fieldKey="weight_semantic"   form={form} setForm={setForm} />
+        </div>
+        <div style={{ fontSize: 12, color: weightsValid() ? '#22C55E' : 'var(--red)', marginTop: 6, fontWeight: 600 }}>
+          Total: {weightTotal}
+          {weightsValid() ? ' ✓' : ' — must equal 1.0'}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── main page component ──────────────────────────────────────────────────────
+
+export function HRJobPostingsPage() {
+  const toast               = useToast();
+  const { t, language }     = useLanguage();
+  const { user, resolvePath } = useAuth();
+  const navigate            = useNavigate();
+  const isAdminView         = user?.role === 'Admin';
+
+  const [jobs, setJobs]               = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [selected, setSelected]       = useState(null);
+  const [showCreate, setShowCreate]   = useState(false);
+  const [showEdit, setShowEdit]       = useState(false);
+  const [saving, setSaving]           = useState(false);
   const [pipelineHealth, setPipelineHealth] = useState(null);
 
-  const empty = { title: '', description: '', min_experience_years: 0, required_degree: 'Bachelor',
-                  weight_skills: 0.40, weight_experience: 0.30, weight_education: 0.10, weight_semantic: 0.20 };
+  const empty = {
+    title: '', description: '',
+    min_experience_years: 0, required_degree: 'Bachelor',
+    weight_skills: 0.40, weight_experience: 0.30,
+    weight_education: 0.10, weight_semantic: 0.20,
+  };
   const [form, setForm] = useState(empty);
 
-  const DEGREES = ['Unknown', 'High School', 'Associate', 'Bachelor', 'Master', 'PhD'];
+  // ── data loading ────────────────────────────────────────────────────────────
 
   const load = async () => {
     setLoading(true);
@@ -55,15 +158,20 @@ export function HRJobPostingsPage() {
 
   useEffect(() => { load(); }, []);
 
+  // ── helpers ─────────────────────────────────────────────────────────────────
+
   const weightsValid = () => {
-    const total = +form.weight_skills + +form.weight_experience + +form.weight_education + +form.weight_semantic;
+    const total = +form.weight_skills + +form.weight_experience +
+                  +form.weight_education + +form.weight_semantic;
     return Math.abs(total - 1.0) < 0.001;
   };
 
+  // ── handlers ────────────────────────────────────────────────────────────────
+
   const handleCreate = async () => {
-    if (!form.title.trim())       { toast('Title is required', 'error'); return; }
-    if (!form.description.trim()) { toast('Description is required', 'error'); return; }
-    if (!weightsValid())          { toast('Weights must sum to 1.0', 'error'); return; }
+    if (!form.title.trim())       { toast('Title is required', 'error');        return; }
+    if (!form.description.trim()) { toast('Description is required', 'error');  return; }
+    if (!weightsValid())          { toast('Weights must sum to 1.0', 'error');  return; }
     setSaving(true);
     try {
       const res = await createJob(form);
@@ -74,9 +182,9 @@ export function HRJobPostingsPage() {
   };
 
   const handleUpdate = async () => {
-    if (!form.title.trim())       { toast('Title is required', 'error'); return; }
-    if (!form.description.trim()) { toast('Description is required', 'error'); return; }
-    if (!weightsValid())          { toast('Weights must sum to 1.0', 'error'); return; }
+    if (!form.title.trim())       { toast('Title is required', 'error');        return; }
+    if (!form.description.trim()) { toast('Description is required', 'error');  return; }
+    if (!weightsValid())          { toast('Weights must sum to 1.0', 'error');  return; }
     setSaving(true);
     try {
       const res = await updateJob(selected.id, form);
@@ -89,14 +197,11 @@ export function HRJobPostingsPage() {
   const handleToggleActive = async (job) => {
     try {
       await updateJob(job.id, {
-        title: job.title,
-        description: job.description,
+        title: job.title, description: job.description,
         min_experience_years: job.min_experience_years,
         required_degree: job.required_degree,
-        weight_skills: job.weight_skills,
-        weight_experience: job.weight_experience,
-        weight_education: job.weight_education,
-        weight_semantic: job.weight_semantic,
+        weight_skills: job.weight_skills, weight_experience: job.weight_experience,
+        weight_education: job.weight_education, weight_semantic: job.weight_semantic,
         is_active: !job.is_active,
       });
       toast(job.is_active ? 'Job deactivated' : 'Job activated');
@@ -105,37 +210,20 @@ export function HRJobPostingsPage() {
   };
 
   const handleBenchmarkSalary = async (job) => {
-    // TODO: Implement benchmark salary calculation
-    // User will provide the function shortly
     toast('Benchmark salary calculation not yet implemented', 'info');
   };
 
-  const field = (key) => ({
-    value: form[key],
-    onChange: e => setForm(f => ({ ...f, [key]: e.target.value })),
-  });
+  // ── derived pipeline data ────────────────────────────────────────────────────
 
-  const inputStyle = {
-    width: '100%', padding: '11px 14px', background: '#fff',
-    border: '1.5px solid #E7EAEE', borderRadius: 12, fontSize: 13.5,
-    outline: 'none', fontFamily: 'var(--sans)', color: 'var(--gray-900)',
-    boxShadow: '0 1px 2px rgba(17,19,24,.03)',
-  };
-
-  const labelStyle = {
-    display: 'block', fontSize: 12, fontWeight: 700,
-    color: 'var(--gray-700)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em',
-  };
-
-  const pipelineTotals = pipelineHealth?.totals || {};
-  const funnelSummary = pipelineHealth?.funnelSummary || {};
-  const followUpItems = pipelineHealth?.followUpItems || [];
-  const jobBreakdown = pipelineHealth?.jobBreakdown || [];
+  const pipelineTotals = pipelineHealth?.totals      || {};
+  const funnelSummary  = pipelineHealth?.funnelSummary || {};
+  const followUpItems  = pipelineHealth?.followUpItems || [];
+  const jobBreakdown   = pipelineHealth?.jobBreakdown  || [];
 
   const statusColor = (state) => {
-    if (state === 'Overdue') return 'red';
-    if (state === 'At Risk') return 'orange';
-    if (state === 'Paused') return 'gray';
+    if (state === 'Overdue')  return 'red';
+    if (state === 'At Risk')  return 'orange';
+    if (state === 'Paused')   return 'gray';
     return 'green';
   };
 
@@ -149,68 +237,49 @@ export function HRJobPostingsPage() {
   const formatDateLabel = (value) => {
     if (!value) return t('No recent activity');
     try {
-      return new Intl.DateTimeFormat(language === 'ar' ? 'ar-EG' : 'en-US', { dateStyle: 'medium' }).format(new Date(value));
-    } catch {
-      return '—';
-    }
+      return new Intl.DateTimeFormat(
+        language === 'ar' ? 'ar-EG' : 'en-US',
+        { dateStyle: 'medium' }
+      ).format(new Date(value));
+    } catch { return '—'; }
   };
 
-  const urgentRoleCount = jobBreakdown.filter((item) => item.followUpState === 'Overdue').length;
-  const sourcingGapCount = jobBreakdown.filter((item) => item.isActive && Number(item.applicantCount || 0) === 0).length;
-  const lateStageCount = followUpItems.filter((item) => ['Shortlisted', 'Interview'].includes(item.reviewStage)).length;
-  const readyBenchCount = jobBreakdown.filter((item) => Number(item.talentPoolCount || 0) > 0).length;
+  const urgentRoleCount  = jobBreakdown.filter(i => i.followUpState === 'Overdue').length;
+  const sourcingGapCount = jobBreakdown.filter(i => i.isActive && Number(i.applicantCount || 0) === 0).length;
+  const lateStageCount   = followUpItems.filter(i => ['Shortlisted', 'Interview'].includes(i.reviewStage)).length;
+  const readyBenchCount  = jobBreakdown.filter(i => Number(i.talentPoolCount || 0) > 0).length;
 
   const hiringFocusQueue = useMemo(() => {
     const stateRank = { Overdue: 4, 'At Risk': 3, 'On Track': 2, Paused: 1 };
     return [...jobBreakdown]
-      .filter((item) => item.followUpState !== 'On Track' || (item.isActive && Number(item.applicantCount || 0) === 0))
-      .sort((a, b) => (stateRank[b.followUpState] || 0) - (stateRank[a.followUpState] || 0)
-        || Number(b.staleCandidates || 0) - Number(a.staleCandidates || 0)
-        || Number(a.applicantCount || 0) - Number(b.applicantCount || 0)
-        || Number(b.daysOpen || 0) - Number(a.daysOpen || 0))
+      .filter(i => i.followUpState !== 'On Track' || (i.isActive && Number(i.applicantCount || 0) === 0))
+      .sort((a, b) =>
+        (stateRank[b.followUpState] || 0) - (stateRank[a.followUpState] || 0) ||
+        Number(b.staleCandidates || 0)    - Number(a.staleCandidates || 0)    ||
+        Number(a.applicantCount  || 0)    - Number(b.applicantCount  || 0)    ||
+        Number(b.daysOpen        || 0)    - Number(a.daysOpen        || 0))
       .slice(0, 4);
   }, [jobBreakdown]);
 
-  const recruitmentPressureMap = useMemo(() => {
-    return [...jobBreakdown]
-      .filter((item) => item.isActive || Number(item.staleCandidates || 0) > 0)
-      .sort((a, b) => Number(b.staleCandidates || 0) - Number(a.staleCandidates || 0)
-        || Number(a.applicantCount || 0) - Number(b.applicantCount || 0)
-        || Number(b.talentPoolCount || 0) - Number(a.talentPoolCount || 0))
-      .slice(0, 4);
-  }, [jobBreakdown]);
+  const recruitmentPressureMap = useMemo(() => (
+    [...jobBreakdown]
+      .filter(i => i.isActive || Number(i.staleCandidates || 0) > 0)
+      .sort((a, b) =>
+        Number(b.staleCandidates || 0) - Number(a.staleCandidates || 0) ||
+        Number(a.applicantCount  || 0) - Number(b.applicantCount  || 0) ||
+        Number(b.talentPoolCount || 0) - Number(a.talentPoolCount || 0))
+      .slice(0, 4)
+  ), [jobBreakdown]);
 
   const hiringPlaybook = useMemo(() => {
     const plays = [];
-
-    if (urgentRoleCount > 0) {
-      plays.push({
-        title: t('Unblock overdue hiring decisions'),
-        note: t('Start with roles carrying overdue candidates so interviews and offers do not stall in the funnel.'),
-      });
-    }
-    if (sourcingGapCount > 0) {
-      plays.push({
-        title: t('Restart quiet requisitions'),
-        note: t('Active roles without applicants need refreshed outreach, referral pushes, or updated visibility this week.'),
-      });
-    }
-    if (lateStageCount > 0) {
-      plays.push({
-        title: t('Move finalists across the line'),
-        note: t('Shortlisted and interview-stage candidates should get a quick decision rhythm to protect acceptance rates.'),
-      });
-    }
-    if (readyBenchCount > 0) {
-      plays.push({
-        title: t('Lean on the talent pool'),
-        note: t('Roles with talent-pool coverage can reopen warm conversations faster than starting from zero.'),
-      });
-    }
-
+    if (urgentRoleCount  > 0) plays.push({ title: t('Unblock overdue hiring decisions'),   note: t('Start with roles carrying overdue candidates so interviews and offers do not stall in the funnel.') });
+    if (sourcingGapCount > 0) plays.push({ title: t('Restart quiet requisitions'),          note: t('Active roles without applicants need refreshed outreach, referral pushes, or updated visibility this week.') });
+    if (lateStageCount   > 0) plays.push({ title: t('Move finalists across the line'),      note: t('Shortlisted and interview-stage candidates should get a quick decision rhythm to protect acceptance rates.') });
+    if (readyBenchCount  > 0) plays.push({ title: t('Lean on the talent pool'),             note: t('Roles with talent-pool coverage can reopen warm conversations faster than starting from zero.') });
     return plays.length ? plays.slice(0, 4) : [{
       title: t('Keep pipeline momentum steady'),
-      note: t('The funnel looks balanced right now, so keep screening and decision SLAs consistent across open roles.'),
+      note:  t('The funnel looks balanced right now, so keep screening and decision SLAs consistent across open roles.'),
     }];
   }, [lateStageCount, readyBenchCount, sourcingGapCount, t, urgentRoleCount]);
 
@@ -227,46 +296,42 @@ export function HRJobPostingsPage() {
       const dateLabel = new Date().toISOString().slice(0, 10);
       const rows = [
         ['Section', 'Label', 'Value', 'Extra'],
-        ['Totals', 'Active Jobs', pipelineTotals.activeJobs ?? 0, ''],
-        ['Totals', 'Total Candidates', pipelineTotals.totalCandidates ?? 0, ''],
-        ['Totals', 'Stale Candidates', pipelineTotals.staleCandidates ?? 0, ''],
-        ['Totals', 'Jobs Without Applicants', pipelineTotals.jobsWithoutApplicants ?? 0, ''],
-        ['Totals', 'Talent Pool Candidates', pipelineTotals.talentPoolCandidates ?? 0, ''],
+        ['Totals', 'Active Jobs',             pipelineTotals.activeJobs             ?? 0, ''],
+        ['Totals', 'Total Candidates',        pipelineTotals.totalCandidates        ?? 0, ''],
+        ['Totals', 'Stale Candidates',        pipelineTotals.staleCandidates        ?? 0, ''],
+        ['Totals', 'Jobs Without Applicants', pipelineTotals.jobsWithoutApplicants  ?? 0, ''],
+        ['Totals', 'Talent Pool Candidates',  pipelineTotals.talentPoolCandidates   ?? 0, ''],
         [],
-        ['Funnel', 'Applied', funnelSummary.appliedCount ?? 0, ''],
+        ['Funnel', 'Applied',     funnelSummary.appliedCount     ?? 0, ''],
         ['Funnel', 'Shortlisted', funnelSummary.shortlistedCount ?? 0, ''],
-        ['Funnel', 'Interview', funnelSummary.interviewCount ?? 0, ''],
-        ['Funnel', 'Hired', funnelSummary.hiredCount ?? 0, ''],
-        ['Funnel', 'Rejected', funnelSummary.rejectedCount ?? 0, ''],
+        ['Funnel', 'Interview',   funnelSummary.interviewCount   ?? 0, ''],
+        ['Funnel', 'Hired',       funnelSummary.hiredCount       ?? 0, ''],
+        ['Funnel', 'Rejected',    funnelSummary.rejectedCount    ?? 0, ''],
       ];
 
       if (jobBreakdown.length) {
         rows.push([]);
         rows.push(['Jobs', 'Title', 'Applicants', 'Status / Metrics']);
-        jobBreakdown.forEach((item) => {
-          rows.push([
-            'Jobs',
-            item.jobTitle,
-            item.applicantCount ?? 0,
-            `${item.followUpState} | ${item.inReviewCount ?? 0} in review | ${item.interviewCount ?? 0} interviews | avg ATS ${item.averageAtsScore ?? 0}`,
-          ]);
-        });
+        jobBreakdown.forEach(item => rows.push([
+          'Jobs', item.jobTitle, item.applicantCount ?? 0,
+          `${item.followUpState} | ${item.inReviewCount ?? 0} in review | ${item.interviewCount ?? 0} interviews | avg ATS ${item.averageAtsScore ?? 0}`,
+        ]));
       }
 
       if (followUpItems.length) {
         rows.push([]);
         rows.push(['Follow-Up', 'Candidate / Role', 'Waiting Days', 'Summary']);
-        followUpItems.forEach((item) => {
-          rows.push([
-            item.type || 'Follow-Up',
-            item.candidateName || item.jobTitle || '—',
-            item.waitingDays ?? 0,
-            `${item.jobTitle || ''} | ${item.reviewStage || ''} | ${item.slaState || ''} | ${item.summary || ''}`,
-          ]);
-        });
+        followUpItems.forEach(item => rows.push([
+          item.type || 'Follow-Up',
+          item.candidateName || item.jobTitle || '—',
+          item.waitingDays ?? 0,
+          `${item.jobTitle || ''} | ${item.reviewStage || ''} | ${item.slaState || ''} | ${item.summary || ''}`,
+        ]));
       }
 
-      const csv = rows.map((row) => row.map((value) => `"${String(value ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+      const csv = rows
+        .map(row => row.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+        .join('\n');
       downloadTextFile(`recruitment-pipeline-${dateLabel}.csv`, csv, 'text/csv;charset=utf-8');
       toast(t('Recruitment snapshot exported.'));
     } catch {
@@ -276,77 +341,32 @@ export function HRJobPostingsPage() {
 
   const jobPulseCards = useMemo(() => ([
     {
-      label: t('Open Roles'),
-      value: pipelineTotals.activeJobs ?? jobs.filter((job) => job.is_active).length,
-      note: t('Positions currently live and accepting applications.'),
+      label:  t('Open Roles'),
+      value:  pipelineTotals.activeJobs ?? jobs.filter(j => j.is_active).length,
+      note:   t('Positions currently live and accepting applications.'),
       accent: '#22C55E',
     },
     {
-      label: t('Applicants in Funnel'),
-      value: pipelineTotals.totalCandidates ?? jobs.reduce((sum, job) => sum + (job.submission_count || 0), 0),
-      note: t('Candidates moving through sourcing, review, and interview steps.'),
+      label:  t('Applicants in Funnel'),
+      value:  pipelineTotals.totalCandidates ?? jobs.reduce((s, j) => s + (j.submission_count || 0), 0),
+      note:   t('Candidates moving through sourcing, review, and interview steps.'),
       accent: '#2563EB',
     },
     {
-      label: t('Talent Pool'),
-      value: pipelineTotals.talentPoolCandidates ?? 0,
-      note: t('Promising profiles saved for current or future openings.'),
+      label:  t('Talent Pool'),
+      value:  pipelineTotals.talentPoolCandidates ?? 0,
+      note:   t('Promising profiles saved for current or future openings.'),
       accent: '#7C3AED',
     },
     {
-      label: t('Sourcing Gaps'),
-      value: pipelineTotals.jobsWithoutApplicants ?? 0,
-      note: t('Roles that may need stronger outreach or refreshed visibility.'),
+      label:  t('Sourcing Gaps'),
+      value:  pipelineTotals.jobsWithoutApplicants ?? 0,
+      note:   t('Roles that may need stronger outreach or refreshed visibility.'),
       accent: '#E8321A',
     },
   ]), [jobs, pipelineTotals.activeJobs, pipelineTotals.jobsWithoutApplicants, pipelineTotals.talentPoolCandidates, pipelineTotals.totalCandidates, t]);
 
-  const WeightInput = ({ label, fieldKey }) => (
-    <div>
-      <label style={labelStyle}>{label}</label>
-      <input type="number" step="0.05" min="0" max="1" style={inputStyle} {...field(fieldKey)} />
-    </div>
-  );
-
-  const FormFields = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div>
-        <label style={labelStyle}>Job Title *</label>
-        <input style={inputStyle} placeholder="e.g. Senior Backend Engineer" {...field('title')} />
-      </div>
-      <div>
-        <label style={labelStyle}>Job Description *</label>
-        <textarea style={{ ...inputStyle, minHeight: 120, resize: 'vertical' }}
-          placeholder="Full job description — skills, responsibilities, requirements..." {...field('description')} />
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <div>
-          <label style={labelStyle}>Min. Experience (years)</label>
-          <input type="number" min="0" step="0.5" style={inputStyle} {...field('min_experience_years')} />
-        </div>
-        <div>
-          <label style={labelStyle}>Required Degree</label>
-          <select style={{ ...inputStyle, cursor: 'pointer' }} {...field('required_degree')}>
-            {DEGREES.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-        </div>
-      </div>
-      {/* Weights */}
-      <div>
-        <label style={{ ...labelStyle, marginBottom: 10 }}>Scoring Weights (must sum to 1.0)</label>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
-          <WeightInput label="Skills"      fieldKey="weight_skills" />
-          <WeightInput label="Experience"  fieldKey="weight_experience" />
-          <WeightInput label="Education"   fieldKey="weight_education" />
-          <WeightInput label="Semantic"    fieldKey="weight_semantic" />
-        </div>
-        <div style={{ fontSize: 12, color: weightsValid() ? '#22C55E' : 'var(--red)', marginTop: 6, fontWeight: 600 }}>
-          Total: {(+form.weight_skills + +form.weight_experience + +form.weight_education + +form.weight_semantic).toFixed(2)}
-          {weightsValid() ? ' ✓' : ' — must equal 1.0'}
-        </div>
-      </div>
-    </div>
-  );
+  // ── render ───────────────────────────────────────────────────────────────────
 
   return (
     <div className="hr-page-shell">
@@ -359,12 +379,12 @@ export function HRJobPostingsPage() {
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <Btn variant="outline" onClick={handleExportPipelineHealth}>{t('Export Pipeline CSV')}</Btn>
-          {isAdminView && (
-            <Btn onClick={() => { setForm(empty); setShowCreate(true); }}>
-              <svg width="16" height="16" fill="none" stroke="#fff" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              {t('New Job Posting')}
-            </Btn>
-          )}
+          <Btn onClick={() => { setForm(empty); setShowCreate(true); }}>
+            <svg width="16" height="16" fill="none" stroke="#fff" strokeWidth="2.5" viewBox="0 0 24 24">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            {t('New Job Posting')}
+          </Btn>
         </div>
       </div>
 
@@ -390,11 +410,11 @@ export function HRJobPostingsPage() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
           {[
-            { label: t('Total Postings'), value: jobs.length, color: 'var(--gray-900)' },
-            { label: t('Active'), value: pipelineTotals.activeJobs ?? jobs.filter((j) => j.is_active).length, color: '#22C55E' },
-            { label: t('Total Applicants'), value: pipelineTotals.totalCandidates ?? jobs.reduce((a, j) => a + (j.submission_count || 0), 0), color: '#2563EB' },
-            { label: t('Needs Follow-Up'), value: pipelineTotals.staleCandidates ?? 0, color: '#E8321A' },
-          ].map((card) => (
+            { label: t('Total Postings'),    value: jobs.length,                                                                                color: 'var(--gray-900)' },
+            { label: t('Active'),            value: pipelineTotals.activeJobs ?? jobs.filter(j => j.is_active).length,                         color: '#22C55E' },
+            { label: t('Total Applicants'),  value: pipelineTotals.totalCandidates ?? jobs.reduce((a, j) => a + (j.submission_count || 0), 0), color: '#2563EB' },
+            { label: t('Needs Follow-Up'),   value: pipelineTotals.staleCandidates ?? 0,                                                        color: '#E8321A' },
+          ].map(card => (
             <div key={card.label} style={{ border: '1px solid #EAECF0', borderRadius: 14, padding: '12px 14px', background: '#fff' }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', marginBottom: 6 }}>{card.label}</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: card.color }}>{card.value}</div>
@@ -404,7 +424,7 @@ export function HRJobPostingsPage() {
       </div>
 
       <div className="workspace-journey-strip" style={{ marginBottom: 22 }}>
-        {jobPulseCards.map((card) => (
+        {jobPulseCards.map(card => (
           <div key={card.label} className="workspace-journey-card">
             <div className="workspace-journey-title">{card.label}</div>
             <div className="workspace-journey-value" style={{ color: card.accent }}>{card.value}</div>
@@ -416,11 +436,11 @@ export function HRJobPostingsPage() {
       {/* Stats */}
       <div className="hr-stats-grid" style={{ marginBottom: 28 }}>
         {[
-          { label: 'Total Postings', value: jobs.length, sub: `${pipelineTotals.activeJobs ?? jobs.filter(j => j.is_active).length} ${t('active roles')}` },
+          { label: 'Total Postings',   value: jobs.length,                                                                                sub: `${pipelineTotals.activeJobs ?? jobs.filter(j => j.is_active).length} ${t('active roles')}` },
           { label: 'Total Applicants', value: pipelineTotals.totalCandidates ?? jobs.reduce((a, j) => a + (j.submission_count || 0), 0), sub: `${pipelineTotals.talentPoolCandidates ?? 0} ${t('in talent pool')}` },
-          { label: 'Needs Follow-Up', value: pipelineTotals.staleCandidates ?? 0, color: '#E8321A', sub: `${pipelineTotals.jobsWithoutApplicants ?? 0} ${t('roles need sourcing')}` },
-          { label: 'Active', value: pipelineTotals.activeJobs ?? jobs.filter(j => j.is_active).length, color: '#22C55E', sub: `${pipelineTotals.jobsWithoutApplicants ?? 0} ${t('without applicants')}` },
-        ].map((s) => (
+          { label: 'Needs Follow-Up',  value: pipelineTotals.staleCandidates ?? 0,  color: '#E8321A', sub: `${pipelineTotals.jobsWithoutApplicants ?? 0} ${t('roles need sourcing')}` },
+          { label: 'Active',           value: pipelineTotals.activeJobs ?? jobs.filter(j => j.is_active).length, color: '#22C55E', sub: `${pipelineTotals.jobsWithoutApplicants ?? 0} ${t('without applicants')}` },
+        ].map(s => (
           <div key={s.label} className="hr-stat-card" style={{ padding: '20px 24px' }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-500)', marginBottom: 6 }}>{t(s.label)}</div>
             <div style={{ fontSize: 32, fontWeight: 700, color: s.color ?? 'var(--gray-900)' }}>{s.value}</div>
@@ -436,12 +456,12 @@ export function HRJobPostingsPage() {
               <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>{t('Hiring Funnel')}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 10 }}>
                 {[
-                  { label: 'Applied', value: funnelSummary.appliedCount ?? 0, bg: '#EFF6FF', color: '#2563EB' },
+                  { label: 'Applied',     value: funnelSummary.appliedCount     ?? 0, bg: '#EFF6FF', color: '#2563EB' },
                   { label: 'Shortlisted', value: funnelSummary.shortlistedCount ?? 0, bg: '#F5F3FF', color: '#7C3AED' },
-                  { label: 'Interview', value: funnelSummary.interviewCount ?? 0, bg: '#FFF7ED', color: '#C2410C' },
-                  { label: 'Hired', value: funnelSummary.hiredCount ?? 0, bg: '#ECFDF3', color: '#027A48' },
-                  { label: 'Rejected', value: funnelSummary.rejectedCount ?? 0, bg: '#FFF1F3', color: '#BE123C' },
-                ].map((stage) => (
+                  { label: 'Interview',   value: funnelSummary.interviewCount   ?? 0, bg: '#FFF7ED', color: '#C2410C' },
+                  { label: 'Hired',       value: funnelSummary.hiredCount       ?? 0, bg: '#ECFDF3', color: '#027A48' },
+                  { label: 'Rejected',    value: funnelSummary.rejectedCount    ?? 0, bg: '#FFF1F3', color: '#BE123C' },
+                ].map(stage => (
                   <div key={stage.label} style={{ borderRadius: 14, padding: '14px 12px', background: stage.bg }}>
                     <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: stage.color }}>{t(stage.label)}</div>
                     <div style={{ fontSize: 24, fontWeight: 700, color: stage.color, marginTop: 6 }}>{stage.value}</div>
@@ -458,7 +478,7 @@ export function HRJobPostingsPage() {
                 <div style={{ padding: 24, color: 'var(--gray-500)' }}>{t('No recruitment pipeline activity yet.')}</div>
               ) : (
                 <div style={{ padding: '8px 0' }}>
-                  {jobBreakdown.slice(0, 6).map((item) => (
+                  {jobBreakdown.slice(0, 6).map(item => (
                     <div key={item.jobID} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '12px 20px', borderTop: '1px solid #F3F4F6' }}>
                       <div>
                         <div style={{ fontWeight: 700 }}>{item.jobTitle}</div>
@@ -488,7 +508,7 @@ export function HRJobPostingsPage() {
               </div>
             ) : (
               <div style={{ display: 'grid', gap: 12 }}>
-                {followUpItems.map((item) => (
+                {followUpItems.map(item => (
                   <div key={item.id} className="workspace-action-card">
                     <div className="workspace-action-eyebrow">{t('Recruiting follow-up')}</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
@@ -518,11 +538,11 @@ export function HRJobPostingsPage() {
               <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>{t('Recruitment Acceleration Radar')}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
                 {[
-                  { label: t('Overdue Roles'), value: urgentRoleCount, color: '#E8321A', note: t('Open roles carrying overdue candidate decisions.') },
-                  { label: t('Sourcing Gaps'), value: sourcingGapCount, color: '#F59E0B', note: t('Active requisitions still missing applicant coverage.') },
-                  { label: t('Late-Stage Moves'), value: lateStageCount, color: '#2563EB', note: t('Shortlist or interview decisions waiting for action.') },
-                  { label: t('Bench-Ready Roles'), value: readyBenchCount, color: '#7C3AED', note: t('Roles with talent-pool depth ready to reuse.') },
-                ].map((item) => (
+                  { label: t('Overdue Roles'),    value: urgentRoleCount,  color: '#E8321A', note: t('Open roles carrying overdue candidate decisions.') },
+                  { label: t('Sourcing Gaps'),    value: sourcingGapCount, color: '#F59E0B', note: t('Active requisitions still missing applicant coverage.') },
+                  { label: t('Late-Stage Moves'), value: lateStageCount,   color: '#2563EB', note: t('Shortlist or interview decisions waiting for action.') },
+                  { label: t('Bench-Ready Roles'),value: readyBenchCount,  color: '#7C3AED', note: t('Roles with talent-pool depth ready to reuse.') },
+                ].map(item => (
                   <div key={item.label} style={{ border: '1px solid #EAECF0', borderRadius: 14, padding: '14px 12px', background: '#fff' }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 6 }}>{item.label}</div>
                     <div style={{ fontSize: 24, fontWeight: 700, color: item.color }}>{item.value}</div>
@@ -530,7 +550,6 @@ export function HRJobPostingsPage() {
                   </div>
                 ))}
               </div>
-
               <div style={{ marginTop: 14, borderRadius: 14, border: '1px solid #FDE68A', background: '#FFFBEB', padding: '12px 14px' }}>
                 <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: '#B45309', marginBottom: 6 }}>{t('Strongest signal')}</div>
                 <div style={{ fontSize: 13.5, color: '#92400E' }}>{strongestSignal}</div>
@@ -547,7 +566,7 @@ export function HRJobPostingsPage() {
                 </div>
               ) : (
                 <div style={{ padding: '8px 0' }}>
-                  {hiringFocusQueue.map((item) => (
+                  {hiringFocusQueue.map(item => (
                     <div key={item.jobID} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '12px 20px', borderTop: '1px solid #F3F4F6' }}>
                       <div>
                         <div style={{ fontWeight: 700 }}>{item.jobTitle}</div>
@@ -565,8 +584,7 @@ export function HRJobPostingsPage() {
                       <div style={{ display: 'grid', gap: 8, justifyItems: 'end' }}>
                         <Badge label={t(item.followUpState)} color={getHiringTone(item)} />
                         <Btn
-                          size="sm"
-                          variant="ghost"
+                          size="sm" variant="ghost"
                           onClick={() => navigate(resolvePath(Number(item.applicantCount || 0) > 0 ? `/hr/cv-ranking?job=${item.jobID}` : '/hr/jobs'))}
                         >
                           {t('Review')}
@@ -583,7 +601,7 @@ export function HRJobPostingsPage() {
             <div className="hr-surface-card" style={{ padding: 20 }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>{t('Recruiter Playbook')}</div>
               <div style={{ display: 'grid', gap: 10 }}>
-                {hiringPlaybook.map((play) => (
+                {hiringPlaybook.map(play => (
                   <div key={play.title} style={{ border: '1px solid #EAECF0', borderRadius: 14, padding: '12px 14px', background: '#fff' }}>
                     <div style={{ fontWeight: 700, color: 'var(--gray-900)' }}>{play.title}</div>
                     <div style={{ fontSize: 12.5, color: 'var(--gray-500)', marginTop: 6 }}>{play.note}</div>
@@ -600,7 +618,7 @@ export function HRJobPostingsPage() {
                 </div>
               ) : (
                 <div style={{ display: 'grid', gap: 10 }}>
-                  {recruitmentPressureMap.map((item) => (
+                  {recruitmentPressureMap.map(item => (
                     <div key={`pressure-${item.jobID}`} style={{ border: '1px solid #EAECF0', borderRadius: 14, padding: '12px 14px', background: '#fff' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
                         <div>
@@ -650,7 +668,9 @@ export function HRJobPostingsPage() {
                 {['Title', 'Min. Exp', 'Degree', 'Applicants', 'Status', ''].map(h => (
                   <th key={h} style={{ padding: '14px 20px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', borderBottom: '1px solid #EAECF0' }}>{t(h)}</th>
                 ))}
-                {user?.role === 'hr_manager' && <th style={{ padding: '14px 20px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', borderBottom: '1px solid #EAECF0' }}>{t('Benchmark Salary')}</th>}
+                {user?.role === 'hr_manager' && (
+                  <th style={{ padding: '14px 20px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', borderBottom: '1px solid #EAECF0' }}>{t('Benchmark Salary')}</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -674,8 +694,7 @@ export function HRJobPostingsPage() {
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       {isAdminView && (
                         <>
-                          <Btn size="sm" variant={job.is_active ? 'ghost' : 'primary'}
-                            onClick={() => handleToggleActive(job)}>
+                          <Btn size="sm" variant={job.is_active ? 'ghost' : 'primary'} onClick={() => handleToggleActive(job)}>
                             {job.is_active ? t('Deactivate') : t('Activate')}
                           </Btn>
                           <Btn size="sm" variant="ghost" onClick={() => handleCopyPublicLink(job)}>
@@ -692,7 +711,10 @@ export function HRJobPostingsPage() {
                             });
                             setShowEdit(true);
                           }}>
-                            <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4z"/></svg>
+                            <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4z"/>
+                            </svg>
                           </Btn>
                         </>
                       )}
@@ -712,7 +734,7 @@ export function HRJobPostingsPage() {
 
       {/* Create modal */}
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t('Create Job Posting')} maxWidth={600}>
-        <FormFields />
+        <FormFields form={form} setForm={setForm} weightsValid={weightsValid} />
         <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
           <Btn variant="ghost" onClick={() => setShowCreate(false)} style={{ flex: 1 }}>{t('Cancel')}</Btn>
           <Btn onClick={handleCreate} style={{ flex: 1 }} disabled={saving}>{saving ? t('Creating...') : t('Create Posting')}</Btn>
@@ -721,7 +743,7 @@ export function HRJobPostingsPage() {
 
       {/* Edit modal */}
       <Modal open={showEdit} onClose={() => setShowEdit(false)} title={t('Edit Job Posting')} maxWidth={600}>
-        <FormFields />
+        <FormFields form={form} setForm={setForm} weightsValid={weightsValid} />
         <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
           <Btn variant="ghost" onClick={() => setShowEdit(false)} style={{ flex: 1 }}>{t('Cancel')}</Btn>
           <Btn onClick={handleUpdate} style={{ flex: 1 }} disabled={saving}>{saving ? t('Saving...') : t('Save Changes')}</Btn>
@@ -731,3 +753,5 @@ export function HRJobPostingsPage() {
     </div>
   );
 }
+
+export default HRJobPostingsPage;

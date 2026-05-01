@@ -1,4 +1,5 @@
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
+from django.db.models import Count
 
 from django.conf import settings
 from rest_framework.views import APIView
@@ -10,7 +11,8 @@ from accounts.permissions import IsHRManager
 from feedback.models import FeedbackForm, FeedbackSubmission
 from .models import AttritionPrediction
 from .serializers import AttritionPredictionSerializer
-from employee_management.models import Employee, Department, Team
+from employee_management.models import Employee, Department, Team, SupportTicket, WorkTask, DocumentRequest
+from Attendance_and_Leave.models import LeaveRequest
 
 
 def _label(value):
@@ -31,6 +33,46 @@ def _ai_policy_payload():
     }
 
 
+def _ensure_retention_task(employee, requesting_user):
+    """Create a 'Retention conversation' WorkTask for the team's leader if a High-risk
+    prediction exists for `employee` and one isn't already open. Returns the WorkTask
+    instance or None when no task is created."""
+    if not employee or not getattr(employee, 'team', None):
+        return None
+
+    leader = (
+        Employee.objects
+        .filter(team=employee.team, user_account__role='TeamLeader', isDeleted=False)
+        .exclude(employeeID=employee.employeeID)
+        .first()
+    )
+    if not leader:
+        return None
+
+    description = f"Retention conversation required for {employee.fullName}"
+    existing = WorkTask.objects.filter(
+        employee=leader,
+        description=description,
+    ).exclude(status='Done').first()
+    if existing:
+        return existing
+
+    hr_label = (
+        getattr(requesting_user, 'full_name', '')
+        or getattr(requesting_user, 'email', '')
+        or 'System'
+    )
+    return WorkTask.objects.create(
+        employee=leader,
+        title=f'Retention conversation: {employee.fullName}',
+        description=description,
+        priority='High',
+        status='To Do',
+        progress=0,
+        assignedBy=f'ActionPlan:{hr_label}',
+    )
+
+
 class RunAttritionPredictionView(APIView):
     permission_classes = [IsAuthenticated, IsHRManager]
 
@@ -49,6 +91,27 @@ class RunAttritionPredictionView(APIView):
 
     def post(self, request):
         from .predictor import predict_risk
+        from django.db.models import Max
+
+        # Backfill: ensure every employee currently flagged High-risk has an open
+        # retention conversation task on their team leader. Self-healing for any
+        # predictions saved before the auto-task hook existed.
+        latest_ids = (
+            AttritionPrediction.objects
+            .values('employeeID')
+            .annotate(latest=Max('predictedAt'))
+            .values('employeeID', 'latest')
+        )
+        for entry in latest_ids:
+            try:
+                pred = AttritionPrediction.objects.select_related('employeeID').get(
+                    employeeID_id=entry['employeeID'],
+                    predictedAt=entry['latest'],
+                )
+                if pred.riskLevel in ('High', 'Medium') and pred.employeeID:
+                    _ensure_retention_task(pred.employeeID, request.user)
+            except Exception:
+                pass
 
         # Find the form to use
         form_id = request.data.get('form_id')
@@ -106,6 +169,15 @@ class RunAttritionPredictionView(APIView):
                     'predictionID': prediction.predictionID,
                     'predictedAt':  prediction.predictedAt,
                 })
+
+                # Auto-create a retention conversation task for the TL whenever the
+                # employee is flagged Medium- or High-risk (§6c).
+                if result.get('riskLevel') in ('High', 'Medium'):
+                    try:
+                        _ensure_retention_task(employee, request.user)
+                    except Exception:
+                        # Failing to create the follow-up task should not block the prediction run.
+                        pass
 
             except Exception as e:
                 errors.append({
@@ -171,15 +243,62 @@ class AttritionPredictionLatestView(APIView):
         )
 
         results = []
+        previous_by_employee = {}
         for entry in latest_ids:
             pred = AttritionPrediction.objects.select_related('employeeID').get(
                 employeeID_id=entry['employeeID'],
                 predictedAt=entry['latest']
             )
             results.append(pred)
+            previous = (
+                AttritionPrediction.objects
+                .filter(employeeID_id=entry['employeeID'])
+                .exclude(predictionID=pred.predictionID)
+                .order_by('-predictedAt')
+                .first()
+            )
+            previous_by_employee[entry['employeeID']] = previous
 
         serializer = AttritionPredictionSerializer(results, many=True)
-        return Response(serializer.data)
+        data = serializer.data
+
+        # Decorate each row with previous-cycle info and an escalation flag.
+        # An employee is "escalated" when their current riskLevel is High AND the
+        # previous cycle was also High AND a follow-up action plan existed for them
+        # (created between the previous prediction and the current one).
+        action_plans = WorkTask.objects.filter(assignedBy__startswith='ActionPlan:')
+        for item, pred in zip(data, results):
+            prev = previous_by_employee.get(pred.employeeID_id)
+            item['previousRiskLevel'] = prev.riskLevel if prev else None
+            item['previousPredictedAt'] = prev.predictedAt if prev else None
+
+            had_previous_plan = False
+            if prev:
+                # Plan must have been created after the previous prediction and
+                # before (or at) the current one — i.e. it belonged to the previous cycle.
+                window = action_plans.filter(
+                    employee_id=pred.employeeID_id,
+                    createdAt__gte=prev.predictedAt,
+                    createdAt__lte=pred.predictedAt,
+                )
+                # Also accept plans whose description references the employee (e.g. retention
+                # tasks assigned to the team leader for this employee).
+                window_for_team = action_plans.filter(
+                    description__icontains=pred.employeeID.fullName,
+                    createdAt__gte=prev.predictedAt,
+                    createdAt__lte=pred.predictedAt,
+                )
+                had_previous_plan = window.exists() or window_for_team.exists()
+
+            item['hadPreviousActionPlan'] = had_previous_plan
+            item['escalation'] = bool(
+                pred.riskLevel == 'High'
+                and prev is not None
+                and prev.riskLevel == 'High'
+                and had_previous_plan
+            )
+
+        return Response(data)
 
 
 class AttritionGovernanceSummaryView(APIView):
@@ -257,7 +376,7 @@ class HRPeopleIntelligenceView(APIView):
         employee_ids = [employee.employeeID for employee in employees]
         employee_map = {employee.employeeID: employee for employee in employees}
 
-        now = timezone.now()
+        now = datetime.now()
         current_start = now - timedelta(days=30)
         previous_start = now - timedelta(days=60)
 

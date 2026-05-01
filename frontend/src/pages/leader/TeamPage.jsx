@@ -1,15 +1,51 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
+import { format, parse, startOfWeek, getDay } from 'date-fns';
+import enUS from 'date-fns/locale/en-US';
+import 'react-big-calendar/lib/css/react-big-calendar.css';
 import {
+  adminGetTeams,
   approveTeamTask,
   createTeamGoal,
-  getTeamGoals,
-  updateTeamGoal,
   createTeamTask,
+  getPredictions,
+  getTeamGoals,
   getTeamTasks,
+  hrGetEmployees,
+  updateTeamGoal,
   updateTeamTask,
 } from '../../api/index.js';
-import { Badge, Btn, EmployeeSelect, Input, Spinner, Textarea, useToast } from '../../components/shared/index.jsx';
+import { Badge, Btn, EmployeeSelect, Input, Modal, Spinner, Textarea, useToast } from '../../components/shared/index.jsx';
+import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+
+const STANDARD_PERIOD_HOURS = 40; // weekly contracted baseline used for utilization estimates
+
+const isRetentionConversationTask = (task) => {
+  if (!task) return false;
+  const description = String(task.description || '').toLowerCase();
+  const title = String(task.title || '').toLowerCase();
+  const assignedBy = String(task.assignedBy || '').toLowerCase();
+  return (
+    description.startsWith('retention conversation') ||
+    title.includes('retention conversation') ||
+    assignedBy.startsWith('actionplan:')
+  );
+};
+
+const calendarLocalizer = dateFnsLocalizer({
+  format,
+  parse,
+  startOfWeek: () => startOfWeek(new Date(), { weekStartsOn: 0 }),
+  getDay,
+  locales: { 'en-US': enUS },
+});
+
+const PRIORITY_EVENT_COLOR = {
+  High: '#E8321A',
+  Medium: '#175CD3',
+  Low: '#0F766E',
+};
 
 const EMPTY_GOAL_FORM = {
   employeeID: '',
@@ -56,8 +92,13 @@ const PRIORITY_COLORS = {
 export function TeamGoalsPage() {
   const toast = useToast();
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const isHRRole = user?.role === 'HRManager' || user?.role === 'Admin';
   const [goals, setGoals] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [teams, setTeams] = useState([]);
+  const [predictions, setPredictions] = useState([]);
+  const [employeesById, setEmployeesById] = useState({});
   const [loading, setLoading] = useState(true);
   const [goalSubmitting, setGoalSubmitting] = useState(false);
   const [taskSubmitting, setTaskSubmitting] = useState(false);
@@ -66,14 +107,32 @@ export function TeamGoalsPage() {
   const [goalForm, setGoalForm] = useState(EMPTY_GOAL_FORM);
   const [taskForm, setTaskForm] = useState(EMPTY_TASK_FORM);
   const [searchTerm, setSearchTerm] = useState('');
+  const [calendarModalOpen, setCalendarModalOpen] = useState(false);
+  const [calendarSelectedDate, setCalendarSelectedDate] = useState(null);
   const [focusFilter, setFocusFilter] = useState('all');
+  const [selectedTeam, setSelectedTeam] = useState('');
+  const [goalFormTeam, setGoalFormTeam] = useState('');
+  const [taskFormTeam, setTaskFormTeam] = useState('');
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [goalData, taskData] = await Promise.all([getTeamGoals(), getTeamTasks()]);
+      const [goalData, taskData, predictionData, teamData, employeeData] = await Promise.all([
+        getTeamGoals(),
+        getTeamTasks(),
+        getPredictions().catch(() => []),
+        adminGetTeams().catch(() => []),
+        isHRRole ? hrGetEmployees().catch(() => []) : Promise.resolve([]),
+      ]);
       setGoals(Array.isArray(goalData) ? goalData : []);
       setTasks(Array.isArray(taskData) ? taskData : []);
+      setPredictions(Array.isArray(predictionData) ? predictionData : []);
+      setTeams(Array.isArray(teamData) ? teamData : []);
+      const employeeMap = {};
+      (Array.isArray(employeeData) ? employeeData : []).forEach((employee) => {
+        if (employee?.employeeID) employeeMap[employee.employeeID] = employee;
+      });
+      setEmployeesById(employeeMap);
     } catch (error) {
       toast(error.message || 'Failed to load team workspace', 'error');
     } finally {
@@ -83,26 +142,135 @@ export function TeamGoalsPage() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [isHRRole]);
+
+  // When HR picks a team at the page level, default the assign forms to that team.
+  useEffect(() => {
+    if (selectedTeam) {
+      setGoalFormTeam(selectedTeam);
+      setTaskFormTeam(selectedTeam);
+    }
+  }, [selectedTeam]);
+
+  // HR users must select a team before any data is rendered (§4).
+  const requiresTeamSelection = isHRRole && !selectedTeam;
+
+  // Teams come from /teams/ as { team_id, name }. Employees serialize team as team_id (int),
+  // while goals/tasks serialize team as the team name string. We canonicalize on team_id
+  // and translate to name when matching goal/task rows.
+  const teamOptions = useMemo(() => {
+    const fromApi = (Array.isArray(teams) ? teams : [])
+      .map((team) => ({
+        id: team?.team_id ?? team?.id ?? team?.teamID,
+        name: team?.name || team?.teamName,
+      }))
+      .filter((entry) => entry.id != null && entry.name);
+    if (fromApi.length) {
+      return fromApi
+        .filter((entry, index, all) => all.findIndex((other) => String(other.id) === String(entry.id)) === index)
+        .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    }
+    // Fallback: teams discovered in goal/task data when the teams API isn't reachable.
+    const discoveredNames = new Set();
+    [...goals, ...tasks].forEach((item) => {
+      if (item?.team) discoveredNames.add(item.team);
+    });
+    return Array.from(discoveredNames).sort().map((name) => ({ id: name, name }));
+  }, [teams, goals, tasks]);
+
+  const teamNameById = useMemo(() => {
+    const map = {};
+    teamOptions.forEach((entry) => { map[String(entry.id)] = entry.name; });
+    return map;
+  }, [teamOptions]);
+
+  const matchesSelectedTeam = (item) => {
+    if (!selectedTeam) return true;
+    const expectedName = teamNameById[String(selectedTeam)] ?? String(selectedTeam);
+    return String(item?.team || '') === String(expectedName);
+  };
+
+  const scopedGoals = useMemo(
+    () => (selectedTeam ? goals.filter(matchesSelectedTeam) : goals),
+    [goals, selectedTeam],
+  );
+  const scopedTasks = useMemo(
+    () => (selectedTeam ? tasks.filter(matchesSelectedTeam) : tasks),
+    [tasks, selectedTeam],
+  );
 
   const todayKey = new Date().toISOString().slice(0, 10);
   const weekAheadKey = new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   const stats = useMemo(() => ({
-    totalGoals: goals.length,
-    openTasks: tasks.filter((task) => task.status !== 'Done').length,
-    inProgress: goals.filter((goal) => goal.status === 'In Progress').length + tasks.filter((task) => task.status === 'In Progress').length,
-    completed: goals.filter((goal) => goal.status === 'Completed').length + tasks.filter((task) => task.status === 'Done').length,
+    totalGoals: scopedGoals.length,
+    openTasks: scopedTasks.filter((task) => task.status !== 'Done').length,
+    inProgress: scopedGoals.filter((goal) => goal.status === 'In Progress').length + scopedTasks.filter((task) => task.status === 'In Progress').length,
+    completed: scopedGoals.filter((goal) => goal.status === 'Completed').length + scopedTasks.filter((task) => task.status === 'Done').length,
     overdueItems:
-      goals.filter((goal) => goal.status !== 'Completed' && goal.dueDate && goal.dueDate < todayKey).length +
-      tasks.filter((task) => task.status !== 'Done' && task.dueDate && task.dueDate < todayKey).length,
+      scopedGoals.filter((goal) => goal.status !== 'Completed' && goal.dueDate && goal.dueDate < todayKey).length +
+      scopedTasks.filter((task) => task.status !== 'Done' && task.dueDate && task.dueDate < todayKey).length,
     blockedItems:
-      goals.filter((goal) => goal.status === 'On Hold').length +
-      tasks.filter((task) => task.status === 'Blocked').length,
+      scopedGoals.filter((goal) => goal.status === 'On Hold').length +
+      scopedTasks.filter((task) => task.status === 'Blocked').length,
     highPriority:
-      goals.filter((goal) => goal.priority === 'High' && goal.status !== 'Completed').length +
-      tasks.filter((task) => task.priority === 'High' && task.status !== 'Done').length,
-  }), [goals, tasks, todayKey]);
+      scopedGoals.filter((goal) => goal.priority === 'High' && goal.status !== 'Completed').length +
+      scopedTasks.filter((task) => task.priority === 'High' && task.status !== 'Done').length,
+  }), [scopedGoals, scopedTasks, todayKey]);
+
+  // Workforce metrics (§3): utilization, performance, completed tasks for the active scope.
+  const workforceMetrics = useMemo(() => {
+  // Group estimated hours and contracted hours by employee.
+  // The leader's own tasks are excluded so utilization reflects team members only.
+  const ownEmployeeId = user?.employee_id ? String(user.employee_id) : '';
+  const byEmployee = {};
+  scopedTasks.forEach((task) => {
+    const id = task.employeeID;
+    if (!id) return;
+    if (ownEmployeeId && String(id) === ownEmployeeId) return;
+    if (!byEmployee[id]) {
+      byEmployee[id] = {
+        employeeID: id,
+        employeeName: task.employeeName ?? id,
+        estimatedHours: 0,
+        contractedHours: Number(task.contractedHours ?? STANDARD_PERIOD_HOURS),
+      };
+    }
+    byEmployee[id].estimatedHours += Number(task.estimatedHours || 0);
+  });
+
+  const employeeUtilization = Object.values(byEmployee).map((emp) => ({
+    ...emp,
+    utilizationRate: emp.contractedHours > 0
+      ? Math.round((emp.estimatedHours / emp.contractedHours) * 100)
+      : 0,
+  }));
+
+  const avgUtilization = employeeUtilization.length > 0
+    ? Math.round(
+        employeeUtilization.reduce((sum, e) => sum + e.utilizationRate, 0) / employeeUtilization.length
+      )
+    : 0;
+
+  // Performance rate (unchanged)
+  const completedTasks = scopedTasks.filter((t) => t.status === 'Done');
+  const tasksWithDueDate = completedTasks.filter((t) => t.dueDate);
+  const onTimeCompletions = tasksWithDueDate.filter((task) => {
+    const ref = task.finished_time || task.updatedAt;
+    if (!ref) return true;
+    return String(ref).slice(0, 10) <= String(task.dueDate);
+  }).length;
+  const performanceRate = tasksWithDueDate.length > 0
+    ? Math.round((onTimeCompletions / tasksWithDueDate.length) * 100)
+    : 0;
+
+  return {
+    employeeUtilization,  // per-employee breakdown for the UI
+    avgUtilization,       // summary card number
+    performanceRate,
+    completedCount: completedTasks.length,
+  };
+}, [scopedTasks, user?.employee_id]);
 
   const normalizedSearch = searchTerm.trim().toLowerCase();
 
@@ -123,17 +291,17 @@ export function TeamGoalsPage() {
   };
 
   const filteredGoals = useMemo(
-    () => goals.filter((goal) => matchesSearch(goal) && matchesFocus(goal, 'goal')),
-    [goals, normalizedSearch, focusFilter, todayKey],
+    () => scopedGoals.filter((goal) => matchesSearch(goal) && matchesFocus(goal, 'goal')),
+    [scopedGoals, normalizedSearch, focusFilter, todayKey],
   );
 
   const filteredTasks = useMemo(
-    () => tasks.filter((task) => matchesSearch(task) && matchesFocus(task, 'task')),
-    [tasks, normalizedSearch, focusFilter, todayKey],
+    () => scopedTasks.filter((task) => matchesSearch(task) && matchesFocus(task, 'task')),
+    [scopedTasks, normalizedSearch, focusFilter, todayKey],
   );
 
   const leaderFocusItems = useMemo(() => {
-    const goalItems = goals
+    const goalItems = scopedGoals
       .filter((goal) => goal.status !== 'Completed')
       .map((goal) => {
         const overdue = Boolean(goal.dueDate) && goal.dueDate < todayKey;
@@ -155,7 +323,7 @@ export function TeamGoalsPage() {
         };
       });
 
-    const taskItems = tasks
+    const taskItems = scopedTasks
       .filter((task) => task.status !== 'Done')
       .map((task) => {
         const overdue = Boolean(task.dueDate) && task.dueDate < todayKey;
@@ -181,7 +349,7 @@ export function TeamGoalsPage() {
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 6);
-  }, [goals, tasks, todayKey]);
+  }, [scopedGoals, scopedTasks, todayKey]);
 
   const coachingRows = useMemo(() => {
     const rows = new Map();
@@ -224,8 +392,8 @@ export function TeamGoalsPage() {
       rows.set(key, current);
     };
 
-    goals.forEach((goal) => register(goal, 'goal'));
-    tasks.forEach((task) => register(task, 'task'));
+    scopedGoals.forEach((goal) => register(goal, 'goal'));
+    scopedTasks.forEach((task) => register(task, 'task'));
 
     return Array.from(rows.values())
       .map((row) => {
@@ -247,24 +415,24 @@ export function TeamGoalsPage() {
       })
       .sort((a, b) => b.focusScore - a.focusScore || b.openItems - a.openItems)
       .slice(0, 6);
-  }, [goals, tasks, todayKey, weekAheadKey, t]);
+  }, [scopedGoals, scopedTasks, todayKey, weekAheadKey, t]);
 
   const teamCoachingSnapshot = useMemo(() => {
     const uniqueMembers = new Set();
     const progressValues = [];
 
-    goals.forEach((goal) => {
+    scopedGoals.forEach((goal) => {
       if (goal.employeeID || goal.employeeName) uniqueMembers.add(goal.employeeID || goal.employeeName);
       if (goal.status !== 'Completed') progressValues.push(Number(goal.progress || 0));
     });
 
-    tasks.forEach((task) => {
+    scopedTasks.forEach((task) => {
       if (task.employeeID || task.employeeName) uniqueMembers.add(task.employeeID || task.employeeName);
       if (task.status !== 'Done') progressValues.push(Number(task.progress || 0));
     });
 
-    const dueThisWeek = goals.filter((goal) => goal.status !== 'Completed' && goal.dueDate && goal.dueDate >= todayKey && goal.dueDate <= weekAheadKey).length
-      + tasks.filter((task) => task.status !== 'Done' && task.dueDate && task.dueDate >= todayKey && task.dueDate <= weekAheadKey).length;
+    const dueThisWeek = scopedGoals.filter((goal) => goal.status !== 'Completed' && goal.dueDate && goal.dueDate >= todayKey && goal.dueDate <= weekAheadKey).length
+      + scopedTasks.filter((task) => task.status !== 'Done' && task.dueDate && task.dueDate >= todayKey && task.dueDate <= weekAheadKey).length;
 
     const averageCompletion = progressValues.length
       ? Math.round(progressValues.reduce((sum, value) => sum + value, 0) / progressValues.length)
@@ -277,7 +445,51 @@ export function TeamGoalsPage() {
       dueThisWeek,
       averageCompletion,
     };
-  }, [goals, tasks, coachingRows, stats.overdueItems, stats.blockedItems, todayKey, weekAheadKey]);
+  }, [scopedGoals, scopedTasks, coachingRows, stats.overdueItems, stats.blockedItems, todayKey, weekAheadKey]);
+
+  // Retention alerts (§6) — derived from attrition predictions, not goal/task data.
+  const retentionAlerts = useMemo(() => {
+    const highRisk = (Array.isArray(predictions) ? predictions : []).filter((p) => p?.riskLevel === 'High' || p?.riskLevel === 'Medium');
+    const knownEmployees = isHRRole ? employeesById : null;
+
+    return highRisk
+      .filter((prediction) => {
+        if (!selectedTeam) return true;
+        const expectedName = teamNameById[String(selectedTeam)] ?? String(selectedTeam);
+        const team = prediction?.team || prediction?.department || knownEmployees?.[prediction?.employeeID]?.team;
+        return String(team || '') === String(expectedName);
+      })
+      .map((prediction) => {
+        const employeeName = prediction.employeeName
+          || prediction.fullName
+          || knownEmployees?.[prediction.employeeID]?.fullName
+          || prediction.employeeID
+          || '—';
+        const employeeID = prediction.employeeID || prediction.employee_id;
+        // The retention task is assigned to the *team leader*, not the high-risk TM,
+        // so we match by the TM's name embedded in the task description.
+        const matchingTask = scopedTasks.find((task) => (
+          isRetentionConversationTask(task)
+          && employeeName
+          && String(task.description || '').includes(String(employeeName))
+        ));
+        const resolved = Boolean(matchingTask && matchingTask.status === 'Done');
+        return {
+          key: `retention-${employeeID || employeeName}`,
+          employeeID,
+          employeeName,
+          team: prediction.team || prediction.department || knownEmployees?.[employeeID]?.team || '—',
+          riskLevel: prediction.riskLevel || 'High',
+          riskScore: typeof prediction.riskScore === 'number'
+            ? prediction.riskScore
+            : Number(prediction.score || prediction.probability || 0),
+          matchingTask,
+          resolved,
+        };
+      })
+      // Hide alerts whose retention conversation task has been completed (§6c).
+      .filter((alert) => !alert.resolved);
+  }, [predictions, scopedTasks, selectedTeam, isHRRole, employeesById, teamNameById]);
 
   const prepareFollowUp = (item) => {
     if (item.kind === 'goal') {
@@ -366,8 +578,8 @@ export function TeamGoalsPage() {
   };
 
   const handleCreateTask = async () => {
-    if (!taskForm.employeeID.trim() || !taskForm.title.trim()) {
-      toast('Employee ID and task title are required.', 'error');
+    if (!taskForm.employeeID.trim() || !taskForm.title.trim() || !Number(taskForm.estimatedHours)) {
+      toast('Employee, title, and estimated hours are required.', 'error');
       return;
     }
 
@@ -377,8 +589,9 @@ export function TeamGoalsPage() {
         ...taskForm,
         employeeID: taskForm.employeeID.trim(),
         progress: Number(taskForm.progress || 0),
-        estimatedHours: Number(taskForm.estimatedHours || 0),
+        estimatedHours: Number(taskForm.estimatedHours),
       });
+      console.log('estimatedHours raw:', taskForm.estimatedHours, typeof taskForm.estimatedHours);
       toast('Task assigned to team member');
       setTaskForm(EMPTY_TASK_FORM);
       await loadData();
@@ -411,6 +624,63 @@ export function TeamGoalsPage() {
     }
   };
 
+  const calendarEvents = useMemo(() => (
+    (Array.isArray(scopedTasks) ? scopedTasks : [])
+      .filter((task) => task?.dueDate)
+      .map((task) => {
+        const date = new Date(`${task.dueDate}T12:00:00`);
+        return {
+          id: task.taskID,
+          title: `${task.title} — ${task.employeeName || task.employeeID}`,
+          start: date,
+          end: date,
+          allDay: true,
+          resource: task,
+        };
+      })
+  ), [scopedTasks]);
+
+  const handleCalendarSlot = (slotInfo) => {
+    const day = slotInfo?.start ? new Date(slotInfo.start) : new Date();
+    const iso = day.toISOString().slice(0, 10);
+    setCalendarSelectedDate(iso);
+    setTaskForm({ ...EMPTY_TASK_FORM, dueDate: iso });
+    setCalendarModalOpen(true);
+  };
+
+  const handleCreateTaskFromCalendar = async () => {
+    await handleCreateTask();
+    if (!taskForm.employeeID.trim() || !taskForm.title.trim()) return;
+    setCalendarModalOpen(false);
+  };
+
+  const handleResolveRetention = async (alert) => {
+    if (!alert?.matchingTask) {
+      toast(t('No retention conversation task is linked to this employee yet.'), 'error');
+      return;
+    }
+    const task = alert.matchingTask;
+    setSavingTaskId(task.taskID);
+    try {
+      await updateTeamTask(task.taskID, {
+        employeeID: task.employeeID,
+        title: task.title,
+        description: task.description || '',
+        priority: task.priority,
+        status: 'Done',
+        progress: 100,
+        estimatedHours: task.estimatedHours,
+        dueDate: task.dueDate,
+      });
+      toast(t('Retention conversation marked as resolved.'));
+      await loadData();
+    } catch (error) {
+      toast(error.message || 'Failed to resolve retention conversation', 'error');
+    } finally {
+      setSavingTaskId(null);
+    }
+  };
+
   const handleApproveTask = async (task) => {
     setSavingTaskId(task.taskID);
     try {
@@ -424,6 +694,54 @@ export function TeamGoalsPage() {
     }
   };
 
+  const teamFilterRow = isHRRole ? (
+    <div className="hr-surface-card" style={{ padding: 16, marginBottom: 24, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ minWidth: 220 }}>
+        <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--gray-500)', marginBottom: 6 }}>{t('Team Filter')}</label>
+        <select
+          value={selectedTeam}
+          onChange={(e) => setSelectedTeam(e.target.value)}
+          style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1px solid #E5E7EB' }}
+        >
+          <option value="">{t('Select a team')}</option>
+          {teamOptions.map((team) => (
+            <option key={`page-team-${team.id}`} value={team.id}>{team.name}</option>
+          ))}
+        </select>
+      </div>
+      {selectedTeam ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Badge label={`${t('Team')}: ${teamNameById[String(selectedTeam)] || selectedTeam}`} color="accent" />
+          <Btn size="sm" variant="ghost" onClick={() => setSelectedTeam('')}>{t('Clear filter')}</Btn>
+        </div>
+      ) : null}
+    </div>
+  ) : null;
+
+  if (requiresTeamSelection) {
+    return (
+      <div className="hr-page-shell" style={{ maxWidth: 1280, margin: '0 auto', padding: '40px 32px 80px' }}>
+        <div className="hr-page-header is-split" style={{ marginBottom: 28 }}>
+          <div>
+            <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>{t('Team Hub')}</h2>
+            <p style={{ fontSize: 13.5, color: 'var(--gray-500)' }}>
+              {t('Manage team goals and day-to-day work tasks from one place.')}
+            </p>
+          </div>
+        </div>
+        {teamFilterRow}
+        <div className="hr-soft-empty" style={{ textAlign: 'center', padding: '64px 24px' }}>
+          <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 6 }}>
+            {t('Select a team to view Team Hub')}
+          </p>
+          <p style={{ fontSize: 13, color: 'var(--gray-500)', margin: 0 }}>
+            {t('Pick a team above to load metrics, tasks, goals, coaching, and retention alerts.')}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="hr-page-shell" style={{ maxWidth: 1280, margin: '0 auto', padding: '40px 32px 80px' }}>
       <div className="hr-page-header is-split" style={{ marginBottom: 28 }}>
@@ -436,6 +754,60 @@ export function TeamGoalsPage() {
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <Btn variant="ghost" onClick={loadData}>{t('Refresh Workspace')}</Btn>
         </div>
+      </div>
+
+      {teamFilterRow}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
+          {[
+            {
+              label: t('Utilization Rate'),
+              value: `${workforceMetrics.avgUtilization}%`,
+              accent: workforceMetrics.avgUtilization > 100 ? '#E8321A'
+                : workforceMetrics.avgUtilization >= 70 ? '#10B981'
+                : '#F59E0B',
+              note: t('Estimated logged effort vs. contracted hours per employee.'),
+              breakdown: workforceMetrics.employeeUtilization,
+            },
+            {
+              label: t('Performance Rate'),
+              value: `${workforceMetrics.performanceRate}%`,
+              accent: workforceMetrics.performanceRate >= 75 ? '#10B981' : workforceMetrics.performanceRate >= 45 ? '#F59E0B' : '#E8321A',
+              note: t('Share of completed tasks finished on or before their due date.'),
+            },
+            {
+              label: t('Completed Tasks'),
+              value: workforceMetrics.completedCount,
+              accent: '#175CD3',
+              note: t('Total tasks marked Done in the active scope.'),
+            },
+          ].map((card) => (
+            <div key={card.label} className="hr-stat-card" style={{ padding: '20px 24px' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-500)', marginBottom: 6 }}>{card.label}</div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: card.accent }}>{card.value}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--gray-500)', marginTop: 6 }}>{card.note}</div>
+              {card.breakdown?.length > 0 && (
+                <div style={{ marginTop: 10, borderTop: '1px solid #F3F4F6', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  {card.breakdown
+                    .sort((a, b) => b.utilizationRate - a.utilizationRate)
+                    .map((emp) => (
+                      <div key={emp.employeeID} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5 }}>
+                        <span style={{ color: 'var(--gray-500)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>
+                          {emp.employeeName}
+                        </span>
+                        <strong style={{
+                          color: emp.utilizationRate > 100 ? '#E8321A'
+                            : emp.utilizationRate >= 70 ? '#10B981'
+                            : '#F59E0B',
+                        }}>
+                          {emp.utilizationRate}%
+                        </strong>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          ))}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
@@ -587,6 +959,90 @@ export function TeamGoalsPage() {
           </div>
         </div>
 
+        {/* Retention Alerts (§6) — non-dismissible, lives only on Leadership Focus Board */}
+        <div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 14, marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#B42318', textTransform: 'uppercase', marginBottom: 4 }}>{t('Retention Alerts')}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>
+                {t('High-risk employees flagged for a retention conversation. Alerts persist until the assigned conversation is marked done.')}
+              </div>
+            </div>
+            <Badge
+              label={`${retentionAlerts.filter((alert) => !alert.resolved).length} ${t('open')}`}
+              color={retentionAlerts.some((alert) => !alert.resolved) ? 'red' : 'green'}
+            />
+          </div>
+
+          {retentionAlerts.length === 0 ? (
+            <div className="hr-soft-empty" style={{ padding: '14px 16px', textAlign: 'center' }}>
+              <p style={{ fontSize: 12.5, color: 'var(--gray-500)', fontWeight: 600, margin: 0 }}>
+                {t('No high-risk retention alerts in the active scope.')}
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+              {retentionAlerts.map((alert) => (
+                <div
+                  key={alert.key}
+                  style={{
+                    border: alert.resolved ? '1px solid #D1FAE5' : '1px solid #FECACA',
+                    borderRadius: 14,
+                    padding: '14px 15px',
+                    background: alert.resolved ? '#F0FDF4' : '#FFF1F0',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--gray-900)' }}>
+                        {alert.employeeName}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 2 }}>
+                        {alert.team || '—'} • {alert.employeeID || '—'}
+                      </div>
+                    </div>
+                    <Badge
+                      label={alert.resolved ? t('Resolved') : t('Active')}
+                      color={alert.resolved ? 'green' : 'red'}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                    <Badge label={`${t('Risk')}: ${t(alert.riskLevel || 'High')}`} color={alert.riskLevel === 'Medium' ? 'orange' : 'red'} />
+                    {Number.isFinite(alert.riskScore) && alert.riskScore > 0 ? (
+                      <Badge label={`${t('Score')}: ${Math.round(alert.riskScore * 100) / 100}`} color="orange" />
+                    ) : null}
+                    {alert.matchingTask ? (
+                      <Badge label={`${t('Conversation')}: ${t(alert.matchingTask.status)}`} color={alert.resolved ? 'green' : 'accent'} />
+                    ) : (
+                      <Badge label={t('Conversation: Not yet assigned')} color="gray" />
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: 'var(--gray-700)', marginTop: 10 }}>
+                    {alert.resolved
+                      ? t('The retention conversation has been completed and is kept here as a resolved log.')
+                      : t('Hold a retention conversation with this employee. The alert remains visible until the conversation task is marked done.')}
+                  </div>
+                  {/* Actions: TL only — HR/Admin views are read-only (§6, §6c) */}
+                  {!alert.resolved && user?.role === 'TeamLeader' && alert.matchingTask ? (
+                    <div style={{ marginTop: 12 }}>
+                      <Btn
+                        size="sm"
+                        variant="primary"
+                        disabled={savingTaskId === alert.matchingTask.taskID}
+                        onClick={() => handleResolveRetention(alert)}
+                      >
+                        {savingTaskId === alert.matchingTask.taskID
+                          ? t('Saving...')
+                          : t('Mark conversation done')}
+                      </Btn>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {leaderFocusItems.length === 0 ? (
           <div className="hr-soft-empty" style={{ padding: '18px 16px', textAlign: 'center' }}>
             <p style={{ fontSize: 12.5, color: 'var(--gray-500)', fontWeight: 600 }}>{t('No urgent team items need attention right now.')}</p>
@@ -638,7 +1094,25 @@ export function TeamGoalsPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 20, alignItems: 'start', marginBottom: 20 }}>
         <div className="hr-surface-card" style={{ padding: 24 }}>
           <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>{t('Assign New Goal')}</h3>
-          <EmployeeSelect label={t('Employee')} value={goalForm.employeeID} onChange={(value) => setGoalForm((prev) => ({ ...prev, employeeID: value }))} placeholder={t('Select an employee')} />
+          {isHRRole && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Team')}</label>
+              <select
+                value={goalFormTeam}
+                onChange={(e) => {
+                  setGoalFormTeam(e.target.value);
+                  setGoalForm((prev) => ({ ...prev, employeeID: '' }));
+                }}
+                style={{ width: '100%', padding: '12px 16px', border: '1.5px solid #E7EAEE', borderRadius: 14, fontSize: 14, fontWeight: 500, background: '#fff' }}
+              >
+                <option value="">{teamOptions.length ? t('All teams') : t('No teams available')}</option>
+                {teamOptions.map((team) => (
+                  <option key={`goal-team-${team.id}`} value={team.id}>{team.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <EmployeeSelect label={t('Employee')} value={goalForm.employeeID} onChange={(value) => setGoalForm((prev) => ({ ...prev, employeeID: value }))} placeholder={t('Select an employee')} teamFilter={isHRRole ? goalFormTeam : ''} />
           <Input label={t('Goal Title')} value={goalForm.title} onChange={(e) => setGoalForm((prev) => ({ ...prev, title: e.target.value }))} placeholder={t('Improve dashboard performance')} />
           <Textarea label={t('Description')} value={goalForm.description} onChange={(e) => setGoalForm((prev) => ({ ...prev, description: e.target.value }))} placeholder={t('Add details or milestones')} />
 
@@ -725,7 +1199,25 @@ export function TeamGoalsPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 20, alignItems: 'start' }}>
         <div className="hr-surface-card" style={{ padding: 24 }}>
           <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 14 }}>{t('Assign New Task')}</h3>
-          <EmployeeSelect label={t('Employee')} value={taskForm.employeeID} onChange={(value) => setTaskForm((prev) => ({ ...prev, employeeID: value }))} placeholder={t('Select an employee')} />
+          {isHRRole && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Team')}</label>
+              <select
+                value={taskFormTeam}
+                onChange={(e) => {
+                  setTaskFormTeam(e.target.value);
+                  setTaskForm((prev) => ({ ...prev, employeeID: '' }));
+                }}
+                style={{ width: '100%', padding: '12px 16px', border: '1.5px solid #E7EAEE', borderRadius: 14, fontSize: 14, fontWeight: 500, background: '#fff' }}
+              >
+                <option value="">{teamOptions.length ? t('All teams') : t('No teams available')}</option>
+                {teamOptions.map((team) => (
+                  <option key={`task-team-${team.id}`} value={team.id}>{team.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <EmployeeSelect label={t('Employee')} value={taskForm.employeeID} onChange={(value) => setTaskForm((prev) => ({ ...prev, employeeID: value }))} placeholder={t('Select an employee')} teamFilter={isHRRole ? taskFormTeam : ''} />
           <Input label={t('Task Title')} value={taskForm.title} onChange={(e) => setTaskForm((prev) => ({ ...prev, title: e.target.value }))} placeholder={t('Prepare release checklist')} />
           <Textarea label={t('Description')} value={taskForm.description} onChange={(e) => setTaskForm((prev) => ({ ...prev, description: e.target.value }))} placeholder={t('Describe the work item and deliverables')} />
 
@@ -738,7 +1230,7 @@ export function TeamGoalsPage() {
             </div>
             <div>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--gray-500)', marginBottom: 6 }}>{t('Est. Hours')}</label>
-              <input type="number" min="0" value={taskForm.estimatedHours} onChange={(e) => setTaskForm((prev) => ({ ...prev, estimatedHours: e.target.value }))} style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1px solid #E5E7EB' }} />
+              <input type="number" min="0" value={taskForm.estimatedHours} onChange={(e) => setTaskForm((prev) => ({ ...prev, estimatedHours: e.target.value === '' ? '' : Number(e.target.value) }))} style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1px solid #E5E7EB' }} />
             </div>
           </div>
 
@@ -808,6 +1300,132 @@ export function TeamGoalsPage() {
           )}
         </div>
       </div>
+
+      {/* ─── Team Task Calendar ──────────────────────────────────────────── */}
+      <div className="hr-surface-card" style={{ padding: 20, marginTop: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+          <div>
+            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 2 }}>{t('Team Task Calendar')}</h3>
+            <p style={{ fontSize: 12.5, color: 'var(--gray-500)', margin: 0 }}>
+              {t('Tasks are placed on their due date. Click any day to assign a new task with that deadline.')}
+            </p>
+          </div>
+          <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>{calendarEvents.length} {t('scheduled')}</span>
+        </div>
+        <div style={{ height: 560 }}>
+          <Calendar
+            localizer={calendarLocalizer}
+            events={calendarEvents}
+            startAccessor="start"
+            endAccessor="end"
+            views={['month']}
+            defaultView="month"
+            popup
+            selectable
+            longPressThreshold={1}
+            onSelectSlot={handleCalendarSlot}
+            onSelectEvent={(event) => {
+              const task = event?.resource;
+              if (task) {
+                setSearchTerm(task.title);
+                setFocusFilter('all');
+              }
+            }}
+            eventPropGetter={(event) => ({
+              style: {
+                background: PRIORITY_EVENT_COLOR[event?.resource?.priority] || '#475467',
+                borderRadius: 6,
+                border: 'none',
+                color: '#fff',
+                fontSize: 11.5,
+                padding: '2px 6px',
+              },
+            })}
+          />
+        </div>
+      </div>
+
+      <Modal
+        open={calendarModalOpen}
+        onClose={() => setCalendarModalOpen(false)}
+        title={`${t('Assign Task')} — ${calendarSelectedDate || ''}`}
+      >
+        <div style={{ display: 'grid', gap: 12 }}>
+          {isHRRole && (
+            <div>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Team')}</label>
+              <select
+                value={taskFormTeam}
+                onChange={(e) => {
+                  setTaskFormTeam(e.target.value);
+                  setTaskForm((prev) => ({ ...prev, employeeID: '' }));
+                }}
+                style={{ width: '100%', padding: '12px 16px', border: '1.5px solid #E7EAEE', borderRadius: 14, fontSize: 14, fontWeight: 500, background: '#fff' }}
+              >
+                <option value="">{teamOptions.length ? t('All teams') : t('No teams available')}</option>
+                {teamOptions.map((team) => (
+                  <option key={`calendar-team-${team.id}`} value={team.id}>{team.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <EmployeeSelect
+            label={t('Employee')}
+            value={taskForm.employeeID}
+            onChange={(value) => setTaskForm((prev) => ({ ...prev, employeeID: value }))}
+            placeholder={t('Select an employee')}
+            teamFilter={isHRRole ? taskFormTeam : ''}
+          />
+          <Input
+            label={t('Task Title')}
+            value={taskForm.title}
+            onChange={(e) => setTaskForm((prev) => ({ ...prev, title: e.target.value }))}
+            placeholder={t('Prepare release checklist')}
+          />
+          <Textarea
+            label={t('Description')}
+            value={taskForm.description}
+            onChange={(e) => setTaskForm((prev) => ({ ...prev, description: e.target.value }))}
+            placeholder={t('Describe the work item and deliverables')}
+          />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--gray-500)', marginBottom: 6 }}>{t('Priority')}</label>
+              <select
+                value={taskForm.priority}
+                onChange={(e) => setTaskForm((prev) => ({ ...prev, priority: e.target.value }))}
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1px solid #E5E7EB' }}
+              >
+                {['Low', 'Medium', 'High'].map((item) => <option key={item} value={item}>{t(item)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--gray-500)', marginBottom: 6 }}>{t('Est. Hours')}</label>
+              <input
+                type="number"
+                min="0"
+                value={taskForm.estimatedHours}
+                onChange={(e) => setTaskForm((prev) => ({ ...prev, estimatedHours: e.target.value }))}
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1px solid #E5E7EB' }}
+              />
+            </div>
+          </div>
+          <Input
+            label={t('Due Date')}
+            type="date"
+            value={taskForm.dueDate}
+            onChange={(e) => setTaskForm((prev) => ({ ...prev, dueDate: e.target.value }))}
+          />
+          <div style={{ display: 'flex', gap: 10, paddingTop: 12, borderTop: '1px solid #F3F4F6' }}>
+            <Btn variant="primary" onClick={handleCreateTaskFromCalendar} disabled={taskSubmitting} style={{ flex: 1 }}>
+              {taskSubmitting ? t('Saving...') : t('Assign Task')}
+            </Btn>
+            <Btn variant="ghost" onClick={() => setCalendarModalOpen(false)} style={{ flex: 1 }}>
+              {t('Cancel')}
+            </Btn>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

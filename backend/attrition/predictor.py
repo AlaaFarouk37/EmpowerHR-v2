@@ -28,6 +28,8 @@ QUESTION_MAP = {
     'innovation': 'innovation opportunities',
     'company_reputation': 'company reputation',
     'employee_recognition': 'employee recognition',
+    'company_tenure': 'years in industry',
+    'overtime': 'overtime',
 }
 
 # Feature order must match exactly what the model was trained on
@@ -57,6 +59,7 @@ FEATURE_NAMES = [
 ]
 
 SEVERITY_ORDER = {'high': 3, 'medium': 2, 'low': 1}
+JOB_LEVEL_MAP = {'Entry': 1, 'Mid': 2, 'Senior': 3}
 PROTECTED_ATTRIBUTE_LABELS = ['Age', 'Gender', 'Marital Status']
 PROTECTED_FEATURE_DEFAULTS = {
     'Age': float(getattr(settings, 'ATTRITION_PROTECTED_DEFAULT_AGE', 35.0)),
@@ -118,6 +121,8 @@ def collect_answer_signals(answers_qs):
         'innovation': _safe_number(get_answer_value(answers, QUESTION_MAP['innovation'])),
         'company_reputation': _safe_number(get_answer_value(answers, QUESTION_MAP['company_reputation'])),
         'employee_recognition': _safe_number(get_answer_value(answers, QUESTION_MAP['employee_recognition'])),
+        'company_tenure': _safe_number(get_answer_value(answers, QUESTION_MAP['company_tenure'])),
+        'overtime': _safe_number(get_answer_value(answers, QUESTION_MAP['overtime'])),
     }
 
 
@@ -129,6 +134,8 @@ FEEDBACK_SIGNAL_LABELS = {
     'innovation': 'Innovation Opportunities',
     'company_reputation': 'Company Reputation',
     'employee_recognition': 'Employee Recognition',
+    'company_tenure': 'Years in Industry',
+    'overtime': 'Overtime',
 }
 
 
@@ -138,7 +145,10 @@ def _build_feedback_signals(answer_values):
         if value is None:
             continue
 
-        if key == 'distance_from_home':
+        if key == 'overtime':
+            severity = 'high' if value == 1 else 'low'
+            summary = 'Employee reported working overtime regularly, which may increase fatigue and attrition risk.'
+        elif key == 'distance_from_home':
             severity = 'high' if value >= 20 else 'medium' if value >= 10 else 'low'
             summary = f'Employee reported a commute distance of {value:.0f}, which may increase day-to-day friction.'
         else:
@@ -188,6 +198,8 @@ def build_feature_vector(employee, answers_qs):
     innovation = get(answer_values['innovation'], 'Innovation Opportunities')
     reputation = get(answer_values['company_reputation'], 'Company Reputation')
     recognition = get(answer_values['employee_recognition'], 'Employee Recognition')
+    tenure = get(answer_values['company_tenure'], 'Company Tenure')
+    overtime_answer = answer_values.get('overtime')
 
     vector = [
         PROTECTED_FEATURE_DEFAULTS['Age'],
@@ -198,13 +210,13 @@ def build_feature_vector(employee, answers_qs):
         job_sat,
         get(employee.performanceRating, 'Performance Rating'),
         get(employee.numberOfPromotions, 'Number of Promotions'),
-        int(employee.overtime) if employee.overtime is not None else get(None, 'Overtime'),
+        int(answer_values['overtime']) if answer_values.get('overtime') is not None else (int(employee.overtime) if employee.overtime is not None else get(None, 'Overtime')),
         distance,
         get(employee.educationLevel, 'Education Level'),
         get(employee.numberOfDependents, 'Number of Dependents'),
-        get(employee.jobLevel, 'Job Level'),
-        get(employee.companySize, 'Company Size'),
-        get(employee.companyTenure, 'Company Tenure'),
+        get(JOB_LEVEL_MAP.get(employee.jobLevel, employee.jobLevel), 'Job Level'),
+        1,  # Company Size — hardcoded to Small (single-company deployment)
+        tenure,  # Company Tenure — from feedback: 'years in industry'
         int(employee.remoteWork) if employee.remoteWork is not None else get(None, 'Remote Work'),
         leadership,
         innovation,

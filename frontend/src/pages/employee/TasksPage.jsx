@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   endMyTask,
   getMyTasks,
+  getTeamTasks,
   markMyTaskDone,
   startMyTask,
   updateMyTaskProgress,
@@ -9,6 +10,18 @@ import {
 import { Badge, Btn, Spinner, useToast } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+
+const isRetentionTask = (task) => {
+  if (!task) return false;
+  const description = String(task.description || '').toLowerCase();
+  const title = String(task.title || '').toLowerCase();
+  const assignedBy = String(task.assignedBy || '').toLowerCase();
+  return (
+    description.startsWith('retention conversation') ||
+    title.includes('retention conversation') ||
+    assignedBy.startsWith('actionplan:')
+  );
+};
 
 const STATUS_COLORS = {
   'To Do': 'gray',
@@ -65,16 +78,22 @@ export function EmployeeTasksPage() {
   const toast = useToast();
   const { t } = useLanguage();
   const [tasks, setTasks] = useState([]);
+  const [assignedByMeTasks, setAssignedByMeTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
   const [drafts, setDrafts] = useState({});
+
+  const isTeamLeader = user?.role === 'TeamLeader';
+  const isTeamMember = user?.role === 'TeamMember';
 
   const loadTasks = async () => {
     if (!user?.employee_id) return;
     setLoading(true);
     try {
       const data = await getMyTasks(user.employee_id);
-      const list = Array.isArray(data) ? data : [];
+      const rawList = Array.isArray(data) ? data : [];
+      // Hide retention conversation tasks from Team Members entirely (§6d).
+      const list = isTeamMember ? rawList.filter((task) => !isRetentionTask(task)) : rawList;
       setTasks(list);
       const nextDrafts = {};
       list.forEach((task) => {
@@ -84,6 +103,26 @@ export function EmployeeTasksPage() {
         };
       });
       setDrafts(nextDrafts);
+
+      if (isTeamLeader) {
+        try {
+          const teamData = await getTeamTasks();
+          const teamList = Array.isArray(teamData) ? teamData : [];
+          const ownerHandles = [user.full_name, user.email]
+            .filter(Boolean)
+            .map((value) => String(value).trim().toLowerCase());
+          const assignedByCurrentUser = teamList.filter((task) => {
+            const assigner = String(task.assignedBy || '').trim().toLowerCase();
+            if (!assigner) return false;
+            return ownerHandles.some((handle) => handle && assigner === handle);
+          });
+          setAssignedByMeTasks(assignedByCurrentUser);
+        } catch {
+          setAssignedByMeTasks([]);
+        }
+      } else {
+        setAssignedByMeTasks([]);
+      }
     } catch (error) {
       toast(error.message || 'Failed to load tasks', 'error');
     } finally {
@@ -93,7 +132,7 @@ export function EmployeeTasksPage() {
 
   useEffect(() => {
     loadTasks();
-  }, [user?.employee_id]);
+  }, [user?.employee_id, user?.role]);
 
   const stats = useMemo(() => ({
     total: tasks.length,
@@ -221,6 +260,9 @@ export function EmployeeTasksPage() {
       } else if (action === 'done') {
         await markMyTaskDone(taskID, payload);
         toast('Task submitted for review');
+      } else if (action === 'progress') {
+        await updateMyTaskProgress(taskID, payload);
+        toast('Task updated');
       }
       await loadTasks();
     } catch (error) {
@@ -235,7 +277,9 @@ export function EmployeeTasksPage() {
       <div className="hr-page-header" style={{ marginBottom: 28 }}>
         <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>{t('My Tasks')}</h2>
         <p style={{ fontSize: 13.5, color: 'var(--gray-500)' }}>
-          {t('Review assigned work items, update progress, and track deadlines.')}
+          {isTeamLeader
+            ? t('Tasks assigned to you. Tasks you have assigned to your team appear below.')
+            : t('Review assigned work items, update progress, and track deadlines.')}
         </p>
       </div>
 
@@ -393,11 +437,12 @@ export function EmployeeTasksPage() {
                   const isSaving = savingId === task.taskID;
                   const open = hasOpenLog(task);
                   const started = Boolean(task.start_time);
+                  const isRetention = isRetentionTask(task);
 
                   if (task.status === 'Done') {
                     return (
                       <div style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>
-                        {t('Approved on')} {formatDateTime(task.updatedAt)}
+                        {isRetention ? t('Conversation completed.') : t('Approved on')} {formatDateTime(task.updatedAt)}
                       </div>
                     );
                   }
@@ -405,6 +450,22 @@ export function EmployeeTasksPage() {
                     return (
                       <div style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>
                         {t('Awaiting team-leader review.')} {task.finished_time ? `(${t('Submitted')} ${formatDateTime(task.finished_time)})` : ''}
+                      </div>
+                    );
+                  }
+
+                  // Retention conversation tasks have a single "Mark as Done" action; no
+                  // start/end/progress workflow (§6c).
+                  if (isRetention) {
+                    return (
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                        <Btn
+                          variant="primary"
+                          disabled={isSaving}
+                          onClick={() => runAction(task.taskID, 'progress', { status: 'Done', progress: 100 })}
+                        >
+                          {isSaving ? t('Saving...') : t('Mark as Done')}
+                        </Btn>
                       </div>
                     );
                   }
@@ -435,28 +496,30 @@ export function EmployeeTasksPage() {
                   );
                 })()}
 
-                {/* Optional progress quick-edit (kept for fallback updates) */}
-                <details style={{ marginTop: 14 }}>
-                  <summary style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-500)', cursor: 'pointer' }}>
-                    {t('Update progress manually')}
-                  </summary>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end', marginTop: 12 }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--gray-500)', marginBottom: 6 }}>{t('Progress %')}</label>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={draft.progress}
-                        onChange={(e) => setDraftField(task.taskID, 'progress', e.target.value)}
-                        style={{ width: '100%' }}
-                      />
+                {/* Optional progress quick-edit (kept for fallback updates) — hidden for retention tasks */}
+                {!isRetentionTask(task) && (
+                  <details style={{ marginTop: 14 }}>
+                    <summary style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-500)', cursor: 'pointer' }}>
+                      {t('Update progress manually')}
+                    </summary>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end', marginTop: 12 }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--gray-500)', marginBottom: 6 }}>{t('Progress %')}</label>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={draft.progress}
+                          onChange={(e) => setDraftField(task.taskID, 'progress', e.target.value)}
+                          style={{ width: '100%' }}
+                        />
+                      </div>
+                      <Btn variant="ghost" onClick={() => handleUpdate(task.taskID)} disabled={savingId === task.taskID}>
+                        {savingId === task.taskID ? t('Saving...') : t('Save')}
+                      </Btn>
                     </div>
-                    <Btn variant="ghost" onClick={() => handleUpdate(task.taskID)} disabled={savingId === task.taskID}>
-                      {savingId === task.taskID ? t('Saving...') : t('Save')}
-                    </Btn>
-                  </div>
-                </details>
+                  </details>
+                )}
 
                 {/* Activity panel — every WorkTaskLog session */}
                 {Array.isArray(task.logs) && task.logs.length > 0 && (
@@ -479,6 +542,63 @@ export function EmployeeTasksPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {isTeamLeader && (
+        <div style={{ marginTop: 32 }}>
+          <div className="hr-page-header" style={{ marginBottom: 16 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{t("Tasks I've Assigned")}</h2>
+            <p style={{ fontSize: 13, color: 'var(--gray-500)' }}>
+              {t('Read-only view of work you assigned to your team. Track delivery from the Team Hub.')}
+            </p>
+          </div>
+
+          {assignedByMeTasks.length === 0 ? (
+            <div className="hr-soft-empty" style={{ textAlign: 'center', padding: '32px 24px' }}>
+              <p style={{ fontSize: 13, color: 'var(--gray-500)', margin: 0 }}>
+                {t('You have not assigned any tasks to teammates yet.')}
+              </p>
+            </div>
+          ) : (
+            <div className="hr-table-card" style={{ overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--gray-50)' }}>
+                      {['Assignee', 'Task', 'Priority', 'Due', 'Status', 'Progress'].map((head) => (
+                        <th key={head} style={{ textAlign: 'left', padding: '12px 16px', fontSize: 12, color: 'var(--gray-500)' }}>{t(head)}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {assignedByMeTasks.map((task) => (
+                      <tr key={`assigned-${task.taskID}`}>
+                        <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}>
+                          <div style={{ fontWeight: 700 }}>{task.employeeName || task.employeeID}</div>
+                          <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{task.team || '—'}</div>
+                        </td>
+                        <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}>
+                          <div style={{ fontWeight: 700 }}>{task.title}</div>
+                          {task.description ? (
+                            <div style={{ fontSize: 12, color: 'var(--gray-500)', maxWidth: 320 }}>{task.description}</div>
+                          ) : null}
+                        </td>
+                        <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}>
+                          <Badge label={t(task.priority || 'Medium')} color={task.priority === 'High' ? 'red' : task.priority === 'Low' ? 'gray' : 'accent'} />
+                        </td>
+                        <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}>{task.dueDate || '—'}</td>
+                        <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}>
+                          <Badge label={t(task.status)} color={STATUS_COLORS[task.status] || 'gray'} />
+                        </td>
+                        <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6', fontWeight: 700 }}>{task.progress ?? 0}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

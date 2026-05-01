@@ -39,16 +39,25 @@ class EmployeeSerializer(serializers.ModelSerializer):
     email = serializers.CharField(read_only=True)
     role = serializers.CharField(read_only=True)
     jobTitle = serializers.CharField(read_only=True)
-    jobLevel = serializers.IntegerField(read_only=True)
+    jobLevel = serializers.CharField(read_only=True)
     currency_preference = serializers.CharField(read_only=True)
+    age = serializers.SerializerMethodField(read_only=True)
+    yearsAtCompany = serializers.SerializerMethodField(read_only=True)
+    numberOfDependents = serializers.IntegerField(read_only=True)
+    
+    def get_age(self, obj):
+        return obj.age
 
+    def get_yearsAtCompany(self, obj):
+        return obj.yearsAtCompany
     class Meta:
         model = Employee
         fields = [
-            'employeeID', 'fullName', 'email', 'jobTitle', 'team', 'department',
+            'employeeID', 'fullName', 'email', 'job', 'jobTitle', 'team', 'department',
             'role', 'employeeType', 'location', 'employmentStatus', 'isDeleted',
-            'age', 'yearsAtCompany', 'monthlyIncome', 'currency_preference', 'performanceRating',
-            'numberOfPromotions', 'jobLevel', 'remoteWork'
+            'age', 'yearsAtCompany', 'monthlyIncome', 'currency_preference', 'jobLevel', 'remoteWork','hiring_date', 'birth_date',
+            'numberOfDependents', 'educationLevel','phoneNumber', 'has_disability', 'gender', 'maritalStatus',
+            'default_clock_in', 'default_clock_out', 'contracted_hours',
         ]
 
 
@@ -57,16 +66,25 @@ class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
     email = serializers.CharField(read_only=True)
     role = serializers.CharField(read_only=True)
     jobTitle = serializers.CharField(read_only=True)
-    jobLevel = serializers.IntegerField(read_only=True)
+    jobLevel = serializers.CharField(read_only=True)
     currency_preference = serializers.CharField(read_only=True)
 
+    age = serializers.SerializerMethodField(read_only=True)
+    yearsAtCompany = serializers.SerializerMethodField(read_only=True)
+
+    def get_age(self, obj):
+        return obj.age
+
+    def get_yearsAtCompany(self, obj):
+        return obj.yearsAtCompany
     class Meta:
         model = Employee
         fields = [
-            'employeeID', 'fullName', 'email', 'jobTitle', 'team', 'department',
+            'employeeID', 'fullName', 'email', 'job', 'jobTitle', 'team', 'department',
             'role', 'employeeType', 'location', 'employmentStatus', 'age',
-            'yearsAtCompany', 'monthlyIncome', 'currency_preference', 'performanceRating',
-            'numberOfPromotions', 'jobLevel', 'remoteWork'
+            'yearsAtCompany', 'monthlyIncome', 'currency_preference',
+            'jobLevel', 'remoteWork','hiring_date', 'birth_date','numberOfDependents', 'educationLevel','phoneNumber', 'has_disability', 'gender', 'maritalStatus',
+            'default_clock_in', 'default_clock_out', 'contracted_hours',
         ]
         read_only_fields = ['employeeID']
 
@@ -87,10 +105,20 @@ class EmployeeJobHistorySerializer(serializers.ModelSerializer):
 
 class EmployeeRoleChangeSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=['Promotion', 'Demotion', 'Role Change'])
-    jobTitle = serializers.CharField(max_length=100, required=False, allow_blank=True)
-    role = serializers.CharField(max_length=50, required=False, allow_blank=True)
-    department = serializers.CharField(max_length=100, required=False, allow_blank=True)
-    team = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    job = serializers.PrimaryKeyRelatedField(
+        queryset=Job.objects.all(), required=False, allow_null=True,
+    )
+    role = serializers.ChoiceField(
+        choices=['TeamMember', 'TeamLeader', 'HRManager', 'Admin'],
+        required=False,
+        allow_blank=True,
+    )
+    department = serializers.PrimaryKeyRelatedField(
+        queryset=Department.objects.all(), required=False, allow_null=True,
+    )
+    team = serializers.PrimaryKeyRelatedField(
+        queryset=Team.objects.all(), required=False, allow_null=True,
+    )
     monthlyIncome = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
     currency_preference = serializers.CharField(max_length=3, required=False, allow_blank=True)
     notes = serializers.CharField(required=False, allow_blank=True)
@@ -141,6 +169,7 @@ class WorkTaskSerializer(serializers.ModelSerializer):
     employeeName = serializers.CharField(source='employee.fullName', read_only=True)
     department = serializers.CharField(source='employee.department', read_only=True)
     team = serializers.CharField(source='employee.team', read_only=True)
+    contractedHours = serializers.IntegerField(source='employee.contracted_hours', read_only=True)  # ← add this
     logs = WorkTaskLogSerializer(many=True, read_only=True)
 
     class Meta:
@@ -148,7 +177,8 @@ class WorkTaskSerializer(serializers.ModelSerializer):
         fields = [
             'taskID', 'employeeID', 'employeeName', 'department', 'team',
             'title', 'description', 'priority', 'status',
-            'progress', 'dueDate', 'start_time', 'finished_time',
+            'progress', 'estimatedHours', 'dueDate', 'assignedBy', 'contractedHours',
+            'start_time', 'finished_time',
             'createdAt', 'updatedAt', 'logs',
         ]
 
@@ -161,6 +191,7 @@ class WorkTaskCreateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=[choice[0] for choice in WorkTask.STATUS_CHOICES], required=False)
     progress = serializers.IntegerField(required=False, min_value=0, max_value=100)
     dueDate = serializers.DateField(required=False, allow_null=True)
+    estimatedHours = serializers.IntegerField(required=False, min_value=0)
 
 
 class WorkTaskProgressSerializer(serializers.Serializer):

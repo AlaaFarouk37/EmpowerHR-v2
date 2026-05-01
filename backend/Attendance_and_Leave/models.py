@@ -1,6 +1,8 @@
 from django.db import models
 import uuid
 
+from employee_management.models import Employee
+
 def gen_id():
     return uuid.uuid4().hex[:20]
 
@@ -78,3 +80,5 @@ class LeaveRequest(models.Model):
 
     def __str__(self):
         return f"{self.employee.fullName} — {self.leaveType} ({self.status})"
+    
+    

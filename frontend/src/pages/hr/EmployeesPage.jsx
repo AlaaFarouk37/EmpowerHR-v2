@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  api,
   hrGetEmployees,
   hrGetRosterHealth,
   hrCreateEmployeeRecord,
@@ -16,23 +17,36 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 
 const EMPTY_FORM = {
-  fullName: '',
-  email: '',
-  jobTitle: '',
-  department: '',
-  team: '',
-  role: 'TeamMember',
-  employeeType: 'Full-time',
-  location: '',
-  employmentStatus: 'Active',
-  yearsAtCompany: '',
-  monthlyIncome: '',
-  currency_preference: 'EGP',
+    fullName:         '',
+    email:            '',
+    role:             'TeamMember',
+    employeeType:     '',
+    location:         '',
+    employmentStatus: 'Active',
+    job:              '',
+    department:       '',
+    team:             '',
+    monthlyIncome:    '',
+    birth_date:       '',
+    hiring_date:      '',
+    performanceRating:  '',
+    numberOfPromotions: '',
+    remoteWork:       false,
+    currency_preference: 'EGP',
+    numberOfDependents: '',
+    educationLevel: '',
+    phoneNumber: '',
+    has_disability: false,
+    gender: '',
+    maritalStatus: '',
+    default_clock_in: '',
+    default_clock_out: '',
+    contracted_hours: '',
 };
 
 const EMPTY_ROLE_CHANGE = {
   action: 'Promotion',
-  jobTitle: '',
+  job: '',
   role: 'TeamMember',
   department: '',
   team: '',
@@ -111,6 +125,9 @@ export function HREmployeesPage() {
   const [filters, setFilters] = useState({ search: '', department: '', role: '', type: '', location: '' });
   const [form, setForm] = useState(EMPTY_FORM);
   const [roleChange, setRoleChange] = useState(EMPTY_ROLE_CHANGE);
+  const [teamOptions, setTeamOptions]           = useState([]);
+  const [departmentOptions, setDepartmentOptions] = useState([]);
+  const [jobOptions, setJobOptions]             = useState([]);
 
   const loadEmployees = async () => {
     setLoading(true);
@@ -137,6 +154,22 @@ export function HREmployeesPage() {
 
   useEffect(() => {
     loadEmployees();
+    const fetchOptions = async () => {
+      try {
+        const [teams, departments, jobs] = await Promise.all([
+          api.get('/employee_management/teams/'),
+          api.get('/employee_management/departments/'),
+          api.get('/employee_management/jobs/'),
+        ]);
+        const toArray = (payload) => Array.isArray(payload) ? payload : (payload?.results || []);
+        setTeamOptions(toArray(teams));
+        setDepartmentOptions(toArray(departments));
+        setJobOptions(toArray(jobs));
+      } catch (error) {
+        toast(error.message || 'Failed to load job/department/team options', 'error');
+      }
+    };
+    fetchOptions();
   }, []);
 
   const filteredEmployees = useMemo(() => {
@@ -274,7 +307,13 @@ export function HREmployeesPage() {
     fullName: form.fullName.trim(),
     email: form.email.trim().toLowerCase(),
     monthlyIncome: form.monthlyIncome === '' ? null : Number(form.monthlyIncome),
-    yearsAtCompany: form.yearsAtCompany === '' ? null : Number(form.yearsAtCompany),
+    birth_date: form.birth_date || null,
+    hiring_date: form.hiring_date || null,
+    job:         form.job         || null,   // FK id
+    team:        form.team        || null,   // FK id
+    department:  form.department  || null,   // FK id
+    numberOfDependents: form.numberOfDependents === '' ? null : Number(form.numberOfDependents),
+    educationLevel: form.educationLevel || null,
   });
 
   const resetForm = () => {
@@ -297,10 +336,10 @@ export function HREmployeesPage() {
     setSelected(employee);
     setRoleChange({
       action: 'Promotion',
-      jobTitle: employee.jobTitle || '',
+      job: employee.job ?? '',
       role: employee.role || 'TeamMember',
-      department: employee.department || '',
-      team: employee.team || '',
+      department: employee.department ?? '',
+      team: employee.team ?? '',
       monthlyIncome: employee.monthlyIncome ?? '',
       currency_preference: employee.currency_preference || 'EGP',
       notes: '',
@@ -390,6 +429,9 @@ export function HREmployeesPage() {
       await hrChangeEmployeeRole(selected.employeeID, {
         ...roleChange,
         monthlyIncome: roleChange.monthlyIncome === '' ? null : Number(roleChange.monthlyIncome),
+        job:           roleChange.job === ''           ? null : Number(roleChange.job),
+        department:    roleChange.department === ''    ? null : Number(roleChange.department),
+        team:          roleChange.team === ''          ? null : Number(roleChange.team),
       });
       toast(`${roleChange.action} saved and logged`);
       setShowRoleChange(false);
@@ -471,57 +513,6 @@ export function HREmployeesPage() {
     if (status === 'Probation') return 'accent';
     return 'gray';
   };
-
-  const FormFields = () => (
-    <div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Input label={t('Full Name *')} value={form.fullName} onChange={setField('fullName')} placeholder="e.g. Salma Mostafa" />
-        <Input label={t('Email *')} type="email" value={form.email} onChange={setField('email')} placeholder="employee@company.com" />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <DatalistInput label={t('Job Title')} value={form.jobTitle} options={jobTitles} onChange={setField('jobTitle')} placeholder="Select or type a job title" />
-        <DatalistInput label={t('Department')} value={form.department} options={departments} onChange={setField('department')} placeholder="Select or type a department" />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <DatalistInput label={t('Team')} value={form.team} options={teams} onChange={setField('team')} placeholder="Select or type a team" />
-        <DatalistInput label={t('Location')} value={form.location} options={locations} onChange={setField('location')} placeholder="Select or type a location" />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
-        <div>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Role')}</label>
-          <select value={form.role} onChange={setField('role')} style={selectStyle}>
-            {ROLE_OPTIONS.map(option => <option key={option} value={option}>{t(`role.${option}`)}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Employee Type')}</label>
-          <select value={form.employeeType} onChange={setField('employeeType')} style={selectStyle}>
-            {TYPE_OPTIONS.map(option => <option key={option} value={option}>{t(option)}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Status')}</label>
-          <select value={form.employmentStatus} onChange={setField('employmentStatus')} style={selectStyle}>
-            {STATUS_OPTIONS.map(option => <option key={option} value={option}>{t(option)}</option>)}
-          </select>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-        <Input label={t('Years at Company')} type="number" min="0" value={form.yearsAtCompany} onChange={setField('yearsAtCompany')} placeholder="0" />
-        <Input label={t('Monthly Income')} type="number" min="0" value={form.monthlyIncome} onChange={setField('monthlyIncome')} placeholder="0" />
-        <div>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('layout.currency')}</label>
-          <select value={form.currency_preference} onChange={setField('currency_preference')} style={selectStyle}>
-            {CURRENCY_OPTIONS.map(option => <option key={option} value={option}>{t(`currency.${option}`)}</option>)}
-          </select>
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <div className="hr-page-shell" style={{ maxWidth: 1280, margin: '0 auto', padding: '40px 32px 80px' }}>
@@ -896,21 +887,379 @@ export function HREmployeesPage() {
       )}
 
       <Modal open={showCreate} onClose={() => { setShowCreate(false); resetForm(); }} title={t('Add Employee Record')} maxWidth={720}>
-        <FormFields />
+        <div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Input label={t('Full Name *')} value={form.fullName} onChange={setField('fullName')} placeholder="e.g. Salma Mostafa" />
+        <Input label={t('Email *')} type="email" value={form.email} onChange={setField('email')} placeholder="employee@company.com" />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+                {t('Job Title')}
+            </label>
+            <select
+                value={form.job}
+                onChange={setField('job')}
+                style={selectStyle}
+            >
+                <option value="">{t('Select a job')}</option>
+                {jobOptions.map(j => (
+                    <option key={j.job_id} value={j.job_id}>{j.title}</option>
+                ))}
+            </select>
+        </div>
+
+        {/* Department — dropdown from Department table */}
+        <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+                {t('Department')}
+            </label>
+            <select value={form.department} onChange={setField('department')} style={selectStyle}>
+                <option value="">{t('Select a department')}</option>
+                {departmentOptions.map(d => (
+                    <option key={d.department_id} value={d.department_id}>{d.name}</option>
+                ))}
+            </select>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {/* Team — dropdown from Team table */}
+        <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+                {t('Team')}
+            </label>
+            <select value={form.team} onChange={setField('team')} style={selectStyle}>
+                <option value="">{t('Select a team')}</option>
+                {teamOptions.map(t => (
+                    <option key={t.team_id} value={t.team_id}>{t.name}</option>
+                ))}
+            </select>
+        </div>
+        <DatalistInput label={t('Location')} value={form.location} options={locations} onChange={setField('location')} placeholder="Select or type a location" />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+    <div>
+        <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+          {t('Education Level')}
+        </label>
+        <select value={form.educationLevel} onChange={setField('educationLevel')} style={selectStyle}>
+          <option value="">{t('Select education level')}</option>
+          <option value={1}>{t('High School')}</option>
+          <option value={2}>{t('Associate Degree')}</option>
+          <option value={3}>{t("Bachelor's Degree")}</option>
+          <option value={4}>{t("Master's Degree")}</option>
+          <option value={5}>{t('PhD')}</option>
+        </select>
+      </div>
+      <Input
+        label={t('Number of Dependents')}
+        type="number"
+        value={form.numberOfDependents}
+        onChange={setField('numberOfDependents')}
+        placeholder="e.g. 2"
+      />
+  </div>            
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+        <div>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Role')}</label>
+          <select value={form.role} onChange={setField('role')} style={selectStyle}>
+            {ROLE_OPTIONS.map(option => <option key={option} value={option}>{t(`role.${option}`)}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Employee Type')}</label>
+          <select value={form.employeeType} onChange={setField('employeeType')} style={selectStyle}>
+            {TYPE_OPTIONS.map(option => <option key={option} value={option}>{t(option)}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Status')}</label>
+          <select value={form.employmentStatus} onChange={setField('employmentStatus')} style={selectStyle}>
+            {STATUS_OPTIONS.map(option => <option key={option} value={option}>{t(option)}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+        <Input label={t('Birth Date')} type="date" value={form.birth_date} onChange={setField('birth_date')} />
+        <Input label={t('Hiring Date')} type="date" value={form.hiring_date} onChange={setField('hiring_date')} />
+        <Input label={t('Monthly Income')} type="number" min="0" value={form.monthlyIncome} onChange={setField('monthlyIncome')} placeholder="0" />
+        <div>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('layout.currency')}</label>
+          <select value={form.currency_preference} onChange={setField('currency_preference')} style={selectStyle}>
+            {CURRENCY_OPTIONS.map(option => <option key={option} value={option}>{t(`currency.${option}`)}</option>)}
+          </select>
+        </div>
+      </div>
+    </div>
+    {/* ── Work Schedule & Personal Details ── */}
+<div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 16, marginTop: 4 }}>
+  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>
+    {t('Work Schedule')}
+  </div>
+  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+    <Input
+      label={t('Default Clock In')}
+      type="time"
+      value={form.default_clock_in}
+      onChange={setField('default_clock_in')}
+    />
+    <Input
+      label={t('Default Clock Out')}
+      type="time"
+      value={form.default_clock_out}
+      onChange={setField('default_clock_out')}
+    />
+    <Input
+      label={t('Contracted Hours / Week')}
+      type="number"
+      min="0"
+      max="168"
+      value={form.contracted_hours}
+      onChange={setField('contracted_hours')}
+      placeholder="e.g. 40"
+    />
+  </div>
+</div>
+
+<div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 16, marginTop: 4 }}>
+  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>
+    {t('Personal Details')}
+  </div>
+  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+    <Input
+      label={t('Phone Number')}
+      type="tel"
+      value={form.phoneNumber}
+      onChange={setField('phoneNumber')}
+      placeholder="+20 100 000 0000"
+    />
+    <div>
+      <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+        {t('Gender')}
+      </label>
+      <select value={form.gender} onChange={setField('gender')} style={selectStyle}>
+        <option value="">{t('Select gender')}</option>
+        <option value="Male">{t('Male')}</option>
+        <option value="Female">{t('Female')}</option>
+      </select>
+    </div>
+    <div>
+      <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+        {t('Marital Status')}
+      </label>
+      <select value={form.maritalStatus} onChange={setField('maritalStatus')} style={selectStyle}>
+        <option value="">{t('Select status')}</option>
+        <option value="Single">{t('Single')}</option>
+        <option value="Married">{t('Married')}</option>
+        <option value="Divorced">{t('Divorced')}</option>
+      </select>
+    </div>
+  </div>
+  <div style={{ marginTop: 12 }}>
+    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--gray-700)' }}>
+      <input
+        type="checkbox"
+        checked={form.has_disability}
+        onChange={(e) => setField('has_disability')({ target: { value: e.target.checked } })}
+        style={{ width: 16, height: 16, cursor: 'pointer' }}
+      />
+      {t('Has Disability')}
+    </label>
+  </div>
+</div>
         <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
           <Btn variant="ghost" onClick={() => { setShowCreate(false); resetForm(); }} style={{ flex: 1 }}>{t('Cancel')}</Btn>
           <Btn onClick={handleCreate} style={{ flex: 1 }} disabled={saving}>{saving ? t('Saving...') : t('Create Employee')}</Btn>
         </div>
       </Modal>
 
-      <Modal open={showEdit} onClose={() => { setShowEdit(false); resetForm(); }} title={t('Edit Employee Record')} maxWidth={720}>
-        <FormFields />
-        <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-          <Btn variant="ghost" onClick={() => { setShowEdit(false); resetForm(); }} style={{ flex: 1 }}>{t('Cancel')}</Btn>
-          <Btn onClick={handleUpdate} style={{ flex: 1 }} disabled={saving}>{saving ? t('Saving...') : t('Save Changes')}</Btn>
+    <Modal open={showEdit} onClose={() => { setShowEdit(false); resetForm(); }} title={t('Edit Employee Record')} maxWidth={720}>
+      <div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Input label={t('Full Name *')} value={form.fullName} onChange={setField('fullName')} placeholder="e.g. Salma Mostafa" />
+          <Input label={t('Email *')} type="email" value={form.email} onChange={setField('email')} placeholder="employee@company.com" />
         </div>
-      </Modal>
 
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+              {t('Job Title')}
+            </label>
+            <select value={form.job} onChange={setField('job')} style={selectStyle}>
+              <option value="">{t('Select a job')}</option>
+              {jobOptions.map(j => (
+                <option key={j.job_id} value={j.job_id}>{j.title}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+              {t('Department')}
+            </label>
+            <select value={form.department} onChange={setField('department')} style={selectStyle}>
+              <option value="">{t('Select a department')}</option>
+              {departmentOptions.map(d => (
+                <option key={d.department_id} value={d.department_id}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+              {t('Team')}
+            </label>
+            <select value={form.team} onChange={setField('team')} style={selectStyle}>
+              <option value="">{t('Select a team')}</option>
+              {teamOptions.map(t => (
+                <option key={t.team_id} value={t.team_id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+          <DatalistInput label={t('Location')} value={form.location} options={locations} onChange={setField('location')} placeholder="Select or type a location" />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+              {t('Education Level')}
+            </label>
+            <select value={form.educationLevel} onChange={setField('educationLevel')} style={selectStyle}>
+              <option value="">{t('Select education level')}</option>
+              <option value={1}>{t('High School')}</option>
+              <option value={2}>{t('Associate Degree')}</option>
+              <option value={3}>{t("Bachelor's Degree")}</option>
+              <option value={4}>{t("Master's Degree")}</option>
+              <option value={5}>{t('PhD')}</option>
+            </select>
+          </div>
+          <Input
+            label={t('Number of Dependents')}
+            type="number"
+            value={form.numberOfDependents}
+            onChange={setField('numberOfDependents')}
+            placeholder="e.g. 2"
+          />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Role')}</label>
+            <select value={form.role} onChange={setField('role')} style={selectStyle}>
+              {ROLE_OPTIONS.map(option => <option key={option} value={option}>{t(`role.${option}`)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Employee Type')}</label>
+            <select value={form.employeeType} onChange={setField('employeeType')} style={selectStyle}>
+              {TYPE_OPTIONS.map(option => <option key={option} value={option}>{t(option)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Status')}</label>
+            <select value={form.employmentStatus} onChange={setField('employmentStatus')} style={selectStyle}>
+              {STATUS_OPTIONS.map(option => <option key={option} value={option}>{t(option)}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <Input label={t('Birth Date')} type="date" value={form.birth_date} onChange={setField('birth_date')} />
+          <Input label={t('Hiring Date')} type="date" value={form.hiring_date} onChange={setField('hiring_date')} />
+          <Input label={t('Monthly Income')} type="number" min="0" value={form.monthlyIncome} onChange={setField('monthlyIncome')} placeholder="0" />
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('layout.currency')}</label>
+            <select value={form.currency_preference} onChange={setField('currency_preference')} style={selectStyle}>
+              {CURRENCY_OPTIONS.map(option => <option key={option} value={option}>{t(`currency.${option}`)}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+      {/* ── Work Schedule & Personal Details ── */}
+<div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 16, marginTop: 4 }}>
+  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>
+    {t('Work Schedule')}
+  </div>
+  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+    <Input
+      label={t('Default Clock In')}
+      type="time"
+      value={form.default_clock_in}
+      onChange={setField('default_clock_in')}
+    />
+    <Input
+      label={t('Default Clock Out')}
+      type="time"
+      value={form.default_clock_out}
+      onChange={setField('default_clock_out')}
+    />
+    <Input
+      label={t('Contracted Hours / Week')}
+      type="number"
+      min="0"
+      max="168"
+      value={form.contracted_hours}
+      onChange={setField('contracted_hours')}
+      placeholder="e.g. 40"
+    />
+  </div>
+</div>
+
+<div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 16, marginTop: 4 }}>
+  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>
+    {t('Personal Details')}
+  </div>
+  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+    <Input
+      label={t('Phone Number')}
+      type="tel"
+      value={form.phoneNumber}
+      onChange={setField('phoneNumber')}
+      placeholder="+20 100 000 0000"
+    />
+    <div>
+      <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+        {t('Gender')}
+      </label>
+      <select value={form.gender} onChange={setField('gender')} style={selectStyle}>
+        <option value="">{t('Select gender')}</option>
+        <option value="Male">{t('Male')}</option>
+        <option value="Female">{t('Female')}</option>
+      </select>
+    </div>
+    <div>
+      <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+        {t('Marital Status')}
+      </label>
+      <select value={form.maritalStatus} onChange={setField('maritalStatus')} style={selectStyle}>
+        <option value="">{t('Select status')}</option>
+        <option value="Single">{t('Single')}</option>
+        <option value="Married">{t('Married')}</option>
+        <option value="Divorced">{t('Divorced')}</option>
+      </select>
+    </div>
+  </div>
+  <div style={{ marginTop: 12 }}>
+    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--gray-700)' }}>
+      <input
+        type="checkbox"
+        checked={form.has_disability}
+        onChange={(e) => setField('has_disability')({ target: { value: e.target.checked } })}
+        style={{ width: 16, height: 16, cursor: 'pointer' }}
+      />
+      {t('Has Disability')}
+    </label>
+  </div>
+</div>
+      <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+        <Btn variant="ghost" onClick={() => { setShowEdit(false); resetForm(); }} style={{ flex: 1 }}>{t('Cancel')}</Btn>
+        <Btn onClick={handleUpdate} style={{ flex: 1 }} disabled={saving}>{saving ? t('Saving...') : t('Save Changes')}</Btn>
+      </div>
+    </Modal>
       <Modal open={showRoleChange} onClose={() => setShowRoleChange(false)} title={`${t('Promote / Demote')} — ${selected?.fullName || ''}`} maxWidth={760}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
@@ -928,7 +1277,15 @@ export function HREmployeesPage() {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-          <DatalistInput label={t('New Job Title')} value={roleChange.jobTitle} options={jobTitles} onChange={setRoleChangeField('jobTitle')} placeholder="Select or type a job title" />
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('New Job Title')}</label>
+            <select value={roleChange.job} onChange={setRoleChangeField('job')} style={selectStyle}>
+              <option value="">{t('Select a job')}</option>
+              {jobOptions.map(j => (
+                <option key={j.job_id} value={j.job_id}>{j.title}</option>
+              ))}
+            </select>
+          </div>
           <Input label={t('New Monthly Income')} type="number" min="0" value={roleChange.monthlyIncome} onChange={setRoleChangeField('monthlyIncome')} placeholder="e.g. 18000" />
           <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('layout.currency')}</label>
@@ -939,8 +1296,24 @@ export function HREmployeesPage() {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <DatalistInput label="Department" value={roleChange.department} options={departments} onChange={setRoleChangeField('department')} placeholder="Select or type a department" />
-          <DatalistInput label="Team" value={roleChange.team} options={teams} onChange={setRoleChangeField('team')} placeholder="Select or type a team" />
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Department')}</label>
+            <select value={roleChange.department} onChange={setRoleChangeField('department')} style={selectStyle}>
+              <option value="">{t('Select a department')}</option>
+              {departmentOptions.map(d => (
+                <option key={d.department_id} value={d.department_id}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Team')}</label>
+            <select value={roleChange.team} onChange={setRoleChangeField('team')} style={selectStyle}>
+              <option value="">{t('Select a team')}</option>
+              {teamOptions.map(tm => (
+                <option key={tm.team_id} value={tm.team_id}>{tm.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <Textarea label={t('Notes')} value={roleChange.notes} onChange={setRoleChangeField('notes')} placeholder={t('Reason for promotion / demotion')} />

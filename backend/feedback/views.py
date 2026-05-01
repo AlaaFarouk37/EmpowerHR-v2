@@ -8,6 +8,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 
 from accounts.permissions import IsHRManager, IsInternalEmployee, IsTeamLeader
+from employee_management.models import Employee
 from .models import (FeedbackForm, FeedbackQuestion,
                      FeedbackSubmission, FeedbackAnswer, AdminUser)
 from .serializers import (

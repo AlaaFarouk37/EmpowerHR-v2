@@ -98,7 +98,19 @@ export function EmployeeDashboardPage() {
 
         setAttendance(Array.isArray(attendanceData) ? attendanceData : []);
         setLeaveRequests(Array.isArray(leaveData) ? leaveData : []);
-        setTasks(Array.isArray(taskData) ? taskData : []);
+        // Hide attrition-risk / retention follow-up tasks from the employee — these are managerial.
+        const visibleTasks = (Array.isArray(taskData) ? taskData : []).filter((task) => {
+          const description = String(task?.description || '').toLowerCase();
+          const title = String(task?.title || '').toLowerCase();
+          const assignedBy = String(task?.assignedBy || '').toLowerCase();
+          return !(
+            description.startsWith('retention conversation')
+            || title.includes('retention conversation')
+            || assignedBy.startsWith('actionplan:')
+            || description.includes('attrition risk')
+          );
+        });
+        setTasks(visibleTasks);
         setGoals(Array.isArray(goalData) ? goalData : []);
         setTraining(Array.isArray(trainingData) ? trainingData : []);
         setCareerPlans(Array.isArray(careerPathData) ? careerPathData : []);

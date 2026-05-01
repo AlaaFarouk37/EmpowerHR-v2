@@ -273,6 +273,7 @@ export function EmployeeSelect({
   size,
   style,
   disabled = false,
+  teamFilter,
 }) {
   const generatedId = useId();
   const inputId = id || generatedId;
@@ -345,7 +346,10 @@ export function EmployeeSelect({
         }}
       >
         {!multiple && <option value="">{loading ? 'Loading employees...' : placeholder}</option>}
-        {employees.map((employee) => (
+        {(teamFilter
+          ? employees.filter((employee) => String(employee?.team || '') === String(teamFilter))
+          : employees
+        ).map((employee) => (
           <option key={employee.employeeID} value={employee.employeeID}>
             {employee.fullName} ({employee.employeeID}){employee.department ? ` — ${employee.department}` : ''}
           </option>

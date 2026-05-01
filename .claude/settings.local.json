@@ -4,7 +4,9 @@
       "Bash(git -C \"c:/Users/Alaa Farouk/Downloads/EmpowerHR-GraduationProject-main/EmpowerHR-GraduationProject-main\" show HEAD:backend/accounts/models.py)",
       "Bash(/c/Python313/python.exe _audit_urls.py)",
       "Bash(/c/Python313/python.exe -c ' *)",
-      "Bash(/c/Python313/python.exe manage.py check)"
+      "Bash(/c/Python313/python.exe manage.py check)",
+      "Bash(npm install *)",
+      "Bash(node -e \"require\\('@babel/parser'\\).parse\\(require\\('fs'\\).readFileSync\\('src/pages/leader/TeamPage.jsx','utf8'\\),{sourceType:'module',plugins:['jsx']}\\); console.log\\('OK'\\);\")"
     ]
   }
 }
