@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 
-from accounts.permissions import IsHRManager
+from accounts.permissions import IsHRManager, IsTeamLeader
 from feedback.models import FeedbackForm, FeedbackSubmission
 from .models import AttritionPrediction
 from .serializers import AttritionPredictionSerializer
@@ -224,7 +224,7 @@ class AttritionPredictionListView(APIView):
 
 
 class AttritionPredictionLatestView(APIView):
-    permission_classes = [IsAuthenticated, IsHRManager]
+    permission_classes = [IsAuthenticated, IsHRManager | IsTeamLeader]
 
     """
     GET /api/attrition/predictions/latest/
