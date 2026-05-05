@@ -6,6 +6,7 @@ import {
   getCandidateApplications,
   getForms,
   getJobs,
+  getMyAttendance,
   getMyDocuments,
   getMyGoals,
   getMyOnboarding,
@@ -140,6 +141,7 @@ const NAV_GROUPS = {
         { path: '/hr/cv-ranking', labelKey: 'nav.cvRanking' },
         { path: '/hr/forms', labelKey: 'nav.forms' },
         { path: '/hr/submissions', labelKey: 'nav.submissions' },
+        { path: '/hr/benchmark-salary', labelKey: 'nav.benchmarkSalary' },
       ],
     },
     { titleKey: 'nav.account', items: [{ path: '/employee/profile', labelKey: 'nav.profile' }] },
@@ -235,12 +237,55 @@ function attachReadState(items, seenIds) {
   }));
 }
 
-function buildEmployeeNotifications({ forms = [], tasks = [], tickets = [], documents = [] }, t) {
+function buildEmployeeNotifications({ forms = [], tasks = [], tickets = [], documents = [], attendance = [] }, t) {
   const items = [];
   const pendingForms = forms.filter((form) => form?.submission?.status !== 'Completed');
   const openTasks = tasks.filter((task) => !['Done', 'Completed'].includes(task?.status));
   const openTickets = tickets.filter((ticket) => !['Resolved', 'Closed'].includes(ticket?.status));
   const documentUpdates = documents.filter((document) => ['Pending', 'In Progress', 'Issued'].includes(document?.status));
+
+  // Overtime that was just reviewed by the TL — overtimeReviewedAt is only set
+  // by the TL action (auto-classified rows leave it null). Surface anything
+  // reviewed in the past 7 days.
+  const sevenDaysAgo = Date.now() - 7 * 86400000;
+  const reviewedOvertime = attendance.filter((record) => {
+    if (!record?.overtimeReviewedAt) return false;
+    const reviewedTs = new Date(record.overtimeReviewedAt).getTime();
+    if (Number.isNaN(reviewedTs) || reviewedTs < sevenDaysAgo) return false;
+    return ['AUTO_APPROVED', 'REJECTED'].includes(record?.overtimeStatus);
+  });
+  const approvedOT = reviewedOvertime.filter((r) => r.overtimeStatus === 'AUTO_APPROVED');
+  const rejectedOT = reviewedOvertime.filter((r) => r.overtimeStatus === 'REJECTED');
+
+  if (approvedOT.length) {
+    items.push({
+      id: `overtime-approved-${approvedOT.map((r) => r.attendanceID).join('|')}`,
+      title: t('Overtime approved'),
+      message: t('Your team leader approved {{count}} overtime entr{{plural}}.', {
+        count: approvedOT.length,
+        plural: approvedOT.length === 1 ? 'y' : 'ies',
+      }),
+      path: '/employee/attendance',
+      tone: 'green',
+      priority: 6,
+      preferenceKey: 'shortlistUpdates',
+    });
+  }
+
+  if (rejectedOT.length) {
+    items.push({
+      id: `overtime-rejected-${rejectedOT.map((r) => r.attendanceID).join('|')}`,
+      title: t('Overtime rejected'),
+      message: t('Your team leader rejected {{count}} overtime entr{{plural}}.', {
+        count: rejectedOT.length,
+        plural: rejectedOT.length === 1 ? 'y' : 'ies',
+      }),
+      path: '/employee/attendance',
+      tone: 'red',
+      priority: 6,
+      preferenceKey: 'shortlistUpdates',
+    });
+  }
 
   if (pendingForms.length) {
     items.push({
@@ -293,8 +338,8 @@ function buildEmployeeNotifications({ forms = [], tasks = [], tickets = [], docu
   return items;
 }
 
-function buildLeaderNotifications({ forms = [], tasks = [], tickets = [], documents = [], teamGoals = [], teamTasks = [] }, t) {
-  const items = buildEmployeeNotifications({ forms, tasks, tickets, documents }, t);
+function buildLeaderNotifications({ forms = [], tasks = [], tickets = [], documents = [], attendance = [], teamGoals = [], teamTasks = [] }, t) {
+  const items = buildEmployeeNotifications({ forms, tasks, tickets, documents, attendance }, t);
   const teamItems = [
     ...teamGoals.filter((goal) => goal?.status !== 'Completed'),
     ...teamTasks.filter((task) => task?.status !== 'Done'),
@@ -812,23 +857,25 @@ export function Navbar() {
         ]);
         items = buildHrNotifications({ leaveRequests, tickets, documents, expenses, jobs, policyCompliance }, t);
       } else if (user.role === 'TeamLeader') {
-        const [forms, tasks, tickets, documents, teamGoals, teamTasks] = await Promise.all([
+        const [forms, tasks, tickets, documents, attendance, teamGoals, teamTasks] = await Promise.all([
           getForms(user.employee_id),
           getMyTasks(user.employee_id),
           getMyTickets(user.employee_id),
           getMyDocuments(user.employee_id),
+          getMyAttendance(user.employee_id).catch(() => []),
           getTeamGoals(),
           getTeamTasks(),
         ]);
-        items = buildLeaderNotifications({ forms, tasks, tickets, documents, teamGoals, teamTasks }, t);
+        items = buildLeaderNotifications({ forms, tasks, tickets, documents, attendance, teamGoals, teamTasks }, t);
       } else {
-        const [forms, tasks, tickets, documents] = await Promise.all([
+        const [forms, tasks, tickets, documents, attendance] = await Promise.all([
           getForms(user.employee_id),
           getMyTasks(user.employee_id),
           getMyTickets(user.employee_id),
           getMyDocuments(user.employee_id),
+          getMyAttendance(user.employee_id).catch(() => []),
         ]);
-        items = buildEmployeeNotifications({ forms, tasks, tickets, documents }, t);
+        items = buildEmployeeNotifications({ forms, tasks, tickets, documents, attendance }, t);
       }
 
       const seenIds = getSeenNotificationIds(user);

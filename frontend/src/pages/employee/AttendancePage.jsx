@@ -381,6 +381,22 @@ export function EmployeeAttendancePage() {
                 <span style={{ fontSize: 12.5, fontWeight: 700 }}>{value}</span>
               </div>
             ))}
+            {user?.role === 'TeamMember' && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: 'var(--gray-50)', borderRadius: 12 }}>
+                <span style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>{t('Overtime')}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>
+                    {Number(todayRecord?.overtimeHours ?? 0) > 0 ? `+${todayRecord.overtimeHours}h` : '—'}
+                  </span>
+                  {Number(todayRecord?.overtimeHours ?? 0) > 0 && todayRecord?.overtimeStatus && todayRecord.overtimeStatus !== 'STANDARD' && (
+                    <Badge
+                      label={t(todayRecord.overtimeStatus === 'AUTO_APPROVED' ? 'Auto-Approved' : 'Pending Review')}
+                      color={todayRecord.overtimeStatus === 'AUTO_APPROVED' ? 'green' : 'yellow'}
+                    />
+                  )}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -429,9 +445,20 @@ export function EmployeeAttendancePage() {
                       {record.clockIn ? new Date(record.clockIn).toLocaleTimeString() : '—'} → {record.clockOut ? new Date(record.clockOut).toLocaleTimeString() : '—'}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <Badge label={t(record.status)} color={getStatusColor(record.status)} />
                     <span style={{ fontSize: 12.5, fontWeight: 700 }}>{record.workedHours ?? '—'}h</span>
+                    {user?.role === 'TeamMember' && Number(record.overtimeHours ?? 0) > 0 && (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#175CD3' }}>+{record.overtimeHours}h</span>
+                        {record.overtimeStatus && record.overtimeStatus !== 'STANDARD' && (
+                          <Badge
+                            label={t(record.overtimeStatus === 'AUTO_APPROVED' ? 'Auto-Approved' : 'Pending Review')}
+                            color={record.overtimeStatus === 'AUTO_APPROVED' ? 'green' : 'yellow'}
+                          />
+                        )}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

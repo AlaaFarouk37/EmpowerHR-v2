@@ -273,7 +273,6 @@ function AdminManagementPage() {
                     <>
                       <th style={thStyle}>{t('Level')}</th>
                       <th style={thStyle}>{t('Base Salary')}</th>
-                      <th style={thStyle}>{t('Benchmark Salary')}</th>
                     </>
                   )}
                   {activeTab === 'leave-types' && <th style={thStyle}>{t('Max Days/Year')}</th>}
@@ -294,9 +293,6 @@ function AdminManagementPage() {
                           </td>
                           <td style={{ ...tdStyle, fontFamily: 'ui-monospace, monospace', color: '#0F766E' }}>
                             EGP {item.base_salary?.toLocaleString()}
-                          </td>
-                          <td style={{ ...tdStyle, fontFamily: 'ui-monospace, monospace', color: '#7C3AED' }}>
-                            EGP {item.benchmark_salary?.toLocaleString()}
                           </td>
                         </>
                       )}

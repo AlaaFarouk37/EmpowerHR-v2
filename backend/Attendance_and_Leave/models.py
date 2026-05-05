@@ -16,17 +16,34 @@ class AttendanceRecord(models.Model):
         (STATUS_PARTIAL, 'Partial'),
     ]
 
-    attendanceID = models.CharField(max_length=50, primary_key=True, default=gen_id)
-    employee     = models.ForeignKey(
-                       'employee_management.Employee', on_delete=models.CASCADE,
-                       db_column='employeeID', related_name='attendance_records')
-    date         = models.DateField()
-    clockIn      = models.DateTimeField(null=True, blank=True)
-    clockOut     = models.DateTimeField(null=True, blank=True)
-    workedHours  = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    status       = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_CLOCKED_IN)
-    notes        = models.TextField(blank=True)
-    createdAt    = models.DateTimeField(auto_now_add=True)
+    OT_STANDARD = 'STANDARD'
+    OT_AUTO_APPROVED = 'AUTO_APPROVED'
+    OT_PENDING_REVIEW = 'PENDING_REVIEW'
+    OT_REJECTED = 'REJECTED'
+    OVERTIME_STATUS_CHOICES = [
+        (OT_STANDARD, 'Standard'),
+        (OT_AUTO_APPROVED, 'Auto-Approved'),
+        (OT_PENDING_REVIEW, 'Pending Review'),
+        (OT_REJECTED, 'Rejected'),
+    ]
+
+    attendanceID         = models.CharField(max_length=50, primary_key=True, default=gen_id)
+    employee             = models.ForeignKey(
+                               'employee_management.Employee', on_delete=models.CASCADE,
+                               db_column='employeeID', related_name='attendance_records')
+    date                 = models.DateField()
+    clockIn              = models.DateTimeField(null=True, blank=True)
+    clockOut             = models.DateTimeField(null=True, blank=True)
+    workedHours          = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    overtimeHours        = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    overtimeStatus       = models.CharField(max_length=20, choices=OVERTIME_STATUS_CHOICES,
+                                            default=OT_STANDARD)
+    overtimeReviewedBy   = models.CharField(max_length=150, blank=True)
+    overtimeReviewedAt   = models.DateTimeField(null=True, blank=True)
+    overtimeReviewNote   = models.TextField(blank=True)
+    status               = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_CLOCKED_IN)
+    notes                = models.TextField(blank=True)
+    createdAt            = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'AttendanceRecord'

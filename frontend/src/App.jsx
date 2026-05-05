@@ -4,6 +4,7 @@ import { LanguageProvider } from "./context/LanguageContext";
 import { ProtectedRoute, RoleRoute } from "./routes/Guards";
 import { AppLayout } from "./routes/AppLayout";
 import { HRJobPostingsPage } from "./pages/hr/JobPostingsPage";
+import { HRBenchmarkSalaryPage } from "./pages/hr/benchmarkSalary";
 import "./auth.css";
 
 // Auth pages
@@ -154,6 +155,7 @@ export default function App() {
                 <Route path="/hr/forms" element={<HRFormsPage />} />
                 <Route path="/hr/submissions" element={<HRSubmissionPage />} />
                 <Route path="/hr/jobs" element={<HRJobPostingsPage />} />
+                <Route path="/hr/benchmark-salary" element={<HRBenchmarkSalaryPage />} />
                 <Route path="/hr/cv-ranking" element={<HRCVRankingPage />} />
                 <Route path="/hr/team" element={<HRTeamPage />} />
                 <Route path="/hr/recognition" element={<HRRecognitionPage />} />

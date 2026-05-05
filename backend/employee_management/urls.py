@@ -3,7 +3,8 @@ from .views import (
     # Infrastructure (admin)
     DepartmentListCreateView, DepartmentDetailView,
     TeamListCreateView, TeamDetailView,
-    JobListCreateView, JobDetailView,
+    JobListCreateView, JobDetailView, JobBenchmarkSalaryView,
+    HRSalaryBenchmarkView,
     LeaveTypeListCreateView, LeaveTypeDetailView,
     # HR — Employee directory
     HREmployeeListCreateView, HREmployeeDetailView, HREmployeeHistoryView,
@@ -56,6 +57,7 @@ urlpatterns = [
     path('teams/<int:pk>/', TeamDetailView.as_view(), name='team-detail'),
     path('jobs/', JobListCreateView.as_view(), name='job-list-create'),
     path('jobs/<int:pk>/', JobDetailView.as_view(), name='job-detail'),
+    path('jobs/<int:pk>/benchmark/', JobBenchmarkSalaryView.as_view(), name='job-benchmark-salary'),
     path('leave-types/', LeaveTypeListCreateView.as_view(), name='leave-type-list-create'),
     path('leave-types/<int:pk>/', LeaveTypeDetailView.as_view(), name='leave-type-detail'),
 
@@ -66,6 +68,9 @@ urlpatterns = [
     path('hr/employees/<str:employee_id>/history/', HREmployeeHistoryView.as_view(), name='hr-employee-history'),
     path('hr/employees/<str:employee_id>/snapshot/', HREmployeeSnapshotView.as_view(), name='hr-employee-snapshot'),
     path('hr/employees/<str:employee_id>/change-role/', HREmployeeRoleChangeView.as_view(), name='hr-employee-role-change'),
+
+    # ─── Salary benchmark (external source) ──────────────────────────────────
+    path('hr/salary-benchmark/', HRSalaryBenchmarkView.as_view(), name='hr-salary-benchmark'),
 
     # ─── HR — Cross-cutting dashboards ───────────────────────────────────────
     path('hr/approvals/snapshot/', HRApprovalSnapshotView.as_view(), name='hr-approval-snapshot'),

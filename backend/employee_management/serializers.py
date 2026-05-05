@@ -24,7 +24,7 @@ class JobSerializer(serializers.ModelSerializer):
     class Meta:
         model = Job
         fields = ['job_id', 'title', 'level', 'base_salary', 'benchmark_salary']
-        read_only_fields = ['job_id', 'benchmark_salary']
+        read_only_fields = ['job_id']
 
 
 class LeaveTypeSerializer(serializers.ModelSerializer):
@@ -177,7 +177,7 @@ class WorkTaskSerializer(serializers.ModelSerializer):
         fields = [
             'taskID', 'employeeID', 'employeeName', 'department', 'team',
             'title', 'description', 'priority', 'status',
-            'progress', 'estimatedHours', 'dueDate', 'assignedBy', 'contractedHours',
+            'progress', 'estimatedHours', 'actualHours', 'dueDate', 'assignedBy', 'contractedHours',
             'start_time', 'finished_time',
             'createdAt', 'updatedAt', 'logs',
         ]

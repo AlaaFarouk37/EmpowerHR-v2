@@ -480,7 +480,7 @@ export function HRAttendancePage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: 'var(--gray-50)' }}>
-                    {['Employee', 'Date', 'Time', 'Hours', 'Status'].map((head) => (
+                    {['Employee', 'Date', 'Time', 'Hours', 'Overtime', 'Status'].map((head) => (
                       <th key={head} style={{ textAlign: 'left', padding: '12px 16px', fontSize: 12, color: 'var(--gray-500)' }}>{t(head)}</th>
                     ))}
                   </tr>
@@ -494,6 +494,19 @@ export function HRAttendancePage() {
                         {record.clockIn ? new Date(record.clockIn).toLocaleTimeString() : '—'} → {record.clockOut ? new Date(record.clockOut).toLocaleTimeString() : '—'}
                       </td>
                       <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}>{record.workedHours ?? '—'}</td>
+                      <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}>
+                        {Number(record.overtimeHours ?? 0) > 0 ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontWeight: 700, color: '#175CD3' }}>+{record.overtimeHours}h</span>
+                            {record.overtimeStatus && record.overtimeStatus !== 'STANDARD' && (
+                              <Badge
+                                label={t(record.overtimeStatus === 'AUTO_APPROVED' ? 'Auto-Approved' : 'Pending Review')}
+                                color={record.overtimeStatus === 'AUTO_APPROVED' ? 'green' : 'yellow'}
+                              />
+                            )}
+                          </span>
+                        ) : '—'}
+                      </td>
                       <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}><Badge label={t(record.status)} color={getStatusColor(record.status)} /></td>
                     </tr>
                   ))}

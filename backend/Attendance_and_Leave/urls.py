@@ -17,6 +17,10 @@ urlpatterns = [
     path('employee/attendance/clock/', views.EmployeeAttendanceClockView.as_view(), name='employee-attendance-clock'),
     path('employee/leave-requests/', views.EmployeeLeaveRequestListCreateView.as_view(), name='employee-leave-request-list-create'),
 
+    # ─── Team-leader overtime review ─────────────────────────────────────────
+    path('team/overtime/', views.TeamOvertimeReviewListView.as_view(), name='team-overtime-review-list'),
+    path('team/overtime/<str:attendance_id>/review/', views.TeamOvertimeReviewActionView.as_view(), name='team-overtime-review-action'),
+
     # ─── HR oversight ────────────────────────────────────────────────────────
     path('hr/attendance/', views.HRAttendanceListView.as_view(), name='hr-attendance-list'),
     path('hr/attendance/watch/', views.HRAttendanceWatchView.as_view(), name='hr-attendance-watch'),

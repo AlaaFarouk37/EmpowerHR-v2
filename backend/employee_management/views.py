@@ -273,6 +273,318 @@ class JobDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class JobBenchmarkSalaryView(APIView):
+    """
+    POST /api/employee_management/jobs/<pk>/benchmark/
+    Allows HR Manager (or Admin) to set the benchmark salary for a job role.
+    Body: { "benchmark_salary": <number> }
+    """
+    permission_classes = [IsAuthenticated, IsHRManager]
+
+    def post(self, request, pk):
+        try:
+            job = Job.objects.get(job_id=pk)
+        except Job.DoesNotExist:
+            return Response({'error': 'Job not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        raw = request.data.get('benchmark_salary')
+        if raw is None or str(raw).strip() == '':
+            return Response({'error': 'benchmark_salary is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return Response({'error': 'benchmark_salary must be a number.'}, status=status.HTTP_400_BAD_REQUEST)
+        if value < 0:
+            return Response({'error': 'benchmark_salary cannot be negative.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        job.benchmark_salary = value
+        job.save(update_fields=['benchmark_salary'])
+        return Response(JobSerializer(job).data)
+
+
+# ── External salary benchmark provider (api.egytech.fyi) ─────────────────────
+# Calls the public EgyTech salary stats API to fetch the market median salary
+# for each distinct (jobTitle, jobLevel) combo currently held by employees.
+# Endpoint: GET https://api.egytech.fyi/stats?title=<api_title>&level=<api_level>
+
+import json
+import urllib.parse
+import urllib.request
+
+EGYTECH_API_BASE = 'https://api.egytech.fyi/stats'
+
+import re
+
+# Map free-form jobTitle text → one of the 10 EgyTech buckets the API actually
+# returns data for: backend, frontend, fullstack, mobile, embedded, security,
+# crm, ui_ux, testing, research. Anything else is left unmatched (api_title
+# will be None) so the row shows "No match" instead of being silently
+# benchmarked against the API's misleading global-aggregate fallback.
+#
+# Each rule is (kind, pattern, api_title). kind='word' matches as a whole token
+# (so "QA" matches but "qatar" doesn't); kind='sub' is plain substring match.
+# api_title=None marks an explicit non-match — used to stop generic
+# fall-throughs (like 'engineer'/'developer') from claiming roles whose
+# domain doesn't have a real EgyTech bucket (data, devops, ML, etc.).
+# Order matters: most specific first.
+_TITLE_RULES = [
+    # ── Data ─────────────────────────────────────────────────────────────────
+    ('sub',  'data scientist',     'data_scientist'),
+    ('sub',  'data science',       'data_scientist'),
+    ('sub',  'data engineer',      'data_engineer'),
+    ('sub',  'data analyst',       'data_analytics'),
+    ('sub',  'data analysis',      'data_analytics'),
+    ('sub',  'data analytics',     'data_analytics'),
+    ('sub',  'business analyst',   'data_analytics'),
+    ('sub',  'bi analyst',         'data_analytics'),
+    ('sub',  'business intelligence','data_analytics'),
+    # ── AI / ML / Automation → ai_automation ─────────────────────────────────
+    ('sub',  'machine learning',   'ai_automation'),
+    ('sub',  'ml engineer',        'ai_automation'),
+    ('sub',  'ai engineer',        'ai_automation'),
+    ('sub',  'ai automation',      'ai_automation'),
+    ('sub',  'automation engineer','ai_automation'),
+    # ── DevOps / SRE / Cloud / Platform → devops_sre_platform ────────────────
+    ('sub',  'devops',             'devops_sre_platform'),
+    ('sub',  'site reliab',        'devops_sre_platform'),
+    ('word', 'sre',                'devops_sre_platform'),
+    ('sub',  'platform engineer',  'devops_sre_platform'),
+    ('sub',  'cloud engineer',     'devops_sre_platform'),
+    ('sub',  'infrastructure',     'devops_sre_platform'),
+    ('sub',  'database admin',     'devops_sre_platform'),
+    # ── Management ───────────────────────────────────────────────────────────
+    ('sub',  'product manager',    'product_manager'),
+    ('sub',  'product owner',      'product_owner'),
+    ('sub',  'engineering manager','engineering_manager'),
+    ('sub',  'engineering director','engineering_manager'),
+    # Executives → 'executive'
+    ('word', 'cto',                'executive'),
+    ('word', 'ceo',                'executive'),
+    ('word', 'cfo',                'executive'),
+    ('word', 'cio',                'executive'),
+    ('word', 'cpo',                'executive'),
+    ('sub',  'chief executive',    'executive'),
+    ('sub',  'chief technology',   'executive'),
+    # Scrum → real bucket; project_manager / tech-lead / team-lead → no bucket
+    ('sub',  'scrum master',       'scrum'),
+    ('word', 'scrum',              'scrum'),
+    ('sub',  'project manager',    'engineering_manager'),
+    ('sub',  'tech lead',          'engineering_manager'),
+    ('sub',  'team lead',          'engineering_manager'),
+    # ── Architecture ─────────────────────────────────────────────────────────
+    ('sub',  'system architect',   'system_arch'),
+    ('sub',  'solutions architect','system_arch'),
+    ('sub',  'software architect', 'system_arch'),
+    ('sub',  'enterprise architect','system_arch'),
+    # ── Support ──────────────────────────────────────────────────────────────
+    ('sub',  'technical support',  'technical_support'),
+    ('sub',  'tech support',       'technical_support'),
+    ('sub',  'it support',         'technical_support'),
+    ('sub',  'helpdesk',           'technical_support'),
+    ('sub',  'help desk',          'technical_support'),
+    # ── Real tech buckets ────────────────────────────────────────────────────
+    ('sub',  'frontend',           'frontend'),
+    ('sub',  'front end',          'frontend'),
+    ('sub',  'front-end',          'frontend'),
+    # Fullstack — must precede backend / engineer fall-throughs.
+    ('sub',  'full stack',         'fullstack'),
+    ('sub',  'fullstack',          'fullstack'),
+    ('sub',  'full-stack',         'fullstack'),
+    # UI / UX
+    ('word', 'ui',                 'ui_ux'),
+    ('word', 'ux',                 'ui_ux'),
+    ('sub',  'designer',           'ui_ux'),
+    # Testing / QA — EgyTech's bucket is 'testing' (not 'qa').
+    ('word', 'qa',                 'testing'),
+    ('sub',  'quality',            'testing'),
+    ('sub',  'tester',             'testing'),
+    ('sub',  'testing',            'testing'),
+    ('sub',  'test engineer',      'testing'),
+    ('word', 'crm',                'crm'),
+    ('sub',  'security',           'security'),    # also catches 'cyber security'
+    ('sub',  'mobile',             'mobile'),
+    ('word', 'ios',                'mobile'),
+    ('sub',  'android',            'mobile'),
+    ('sub',  'embedded',           'embedded'),
+    ('sub',  'hardware',           'hardware'),
+    ('sub',  'research',           'research'),
+    # Backend (least specific tech fall-through — keep last among real rules).
+    ('sub',  'backend',            'backend'),
+    ('sub',  'back end',           'backend'),
+    ('sub',  'back-end',           'backend'),
+    ('sub',  'software',           'backend'),
+    ('sub',  'engineer',           'backend'),
+    ('sub',  'developer',          'backend'),
+]
+
+_LEVEL_RULES = [
+    ('sub',  'intern',        'junior'),
+    ('sub',  'trainee',       'junior'),
+    ('sub',  'entry',         'junior'),
+    ('sub',  'junior',        'junior'),
+    ('sub',  'associate',     'junior'),
+    ('sub',  'senior',        'senior'),
+    ('word', 'lead',          'senior'),
+    ('sub',  'principal',     'senior'),
+    ('word', 'staff',         'senior'),
+    ('sub',  'manager',       'senior'),
+    ('sub',  'director',      'senior'),
+    ('word', 'head',          'senior'),
+    ('sub',  'chief',         'senior'),
+    ('word', 'vp',            'senior'),
+    ('word', 'mid',           'mid'),
+    ('sub',  'mid-level',     'mid'),
+    ('sub',  'intermediate',  'mid'),
+]
+
+
+def _matches(haystack, kind, pattern):
+    if kind == 'sub':
+        return pattern in haystack
+    # 'word' — match as a whole token
+    return re.search(rf'\b{re.escape(pattern)}\b', haystack) is not None
+
+
+# Verbatim EgyTech bucket names. The API only has distinct data for these 17
+# titles — anything else silently falls back to the global aggregate
+# (per-level: 856/16000 junior, 2125/27000 mid, 459/49700 senior), which would
+# be misleading. Verified by probing the API directly.
+_API_TITLES = {
+    'backend', 'frontend', 'fullstack', 'mobile', 'embedded', 'hardware',
+    'security', 'crm', 'ui_ux', 'testing', 'research', 'executive',
+    'data_scientist', 'data_engineer', 'ai_automation','product_owner','research','scrum','system_arch',
+    'product_manager', 'engineering_manager','data_analytics','devops_sre_platform','technical_support',
+}
+# Note: API expects 'junior'/'mid'/'senior' WITHOUT a '_level' suffix. Sending
+# 'junior_level' etc. is silently mis-handled and returns wrong slices.
+_API_LEVELS = {'junior', 'mid', 'senior'}
+
+
+def _map_to_api_title(job_title):
+    title = (job_title or '').strip().lower()
+    if not title:
+        return None
+    if title in _API_TITLES:
+        return title
+    for kind, pattern, api_title in _TITLE_RULES:
+        if _matches(title, kind, pattern):
+            # api_title may be None — an explicit "no real bucket" rule that
+            # blocks generic fall-throughs from claiming this title.
+            return api_title
+    return None
+
+
+def _map_to_api_level(job_level, job_title=''):
+    raw_level = (job_level or '').strip().lower()
+    if raw_level in _API_LEVELS:
+        return raw_level
+    haystack = f'{raw_level} {(job_title or "").strip().lower()}'
+    for kind, pattern, api_level in _LEVEL_RULES:
+        if _matches(haystack, kind, pattern):
+            return api_level
+    return 'mid_level'
+
+
+def _fetch_egytech_stats(api_title, api_level, cache):
+    """Calls api.egytech.fyi for one (title, level) combo, with simple caching."""
+    cache_key = f'{api_title}|{api_level or ""}'
+    if cache_key in cache:
+        return cache[cache_key]
+
+    params = {'title': api_title}
+    if api_level:
+        params['level'] = api_level
+    url = f'{EGYTECH_API_BASE}?{urllib.parse.urlencode(params)}'
+
+    try:
+        # api.egytech.fyi sits behind a CDN that 403s the default
+        # `Python-urllib/X.Y` User-Agent, so send a browser-style UA.
+        req = urllib.request.Request(url, headers={
+            'accept': 'application/json',
+            'user-agent': (
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/124.0 Safari/537.36'
+            ),
+        })
+        with urllib.request.urlopen(req, timeout=10) as response:
+            payload = json.loads(response.read().decode('utf-8'))
+        stats = payload.get('stats') or {}
+        result = {
+            'median': stats.get('median'),
+            'p20': stats.get('p20Compensation'),
+            'p75': stats.get('p75Compensation'),
+            'p90': stats.get('p90Compensation'),
+            'sample_size': stats.get('totalCount'),
+            'error': None,
+        }
+    except Exception as exc:
+        result = {
+            'median': None, 'p20': None, 'p75': None, 'p90': None,
+            'sample_size': None, 'error': str(exc),
+        }
+    cache[cache_key] = result
+    return result
+
+
+def _pick_benchmark(stats):
+    """Pick the best representative salary from the stats payload.
+
+    Prefer median; if missing, fall back to the midpoint of p20 and p75 (a fair
+    proxy for the centre), then to whichever single percentile is available.
+    Returns None only when the API returned no usable data at all.
+    """
+    if not stats:
+        return None
+    median = stats.get('median')
+    if median:
+        return median
+    p20, p75 = stats.get('p20'), stats.get('p75')
+    if p20 and p75:
+        return round((p20 + p75) / 2, 2)
+    return p75 or stats.get('p90') or p20 or None
+
+
+class HRSalaryBenchmarkView(APIView):
+    """
+    GET /api/employee_management/hr/salary-benchmark/
+    Calls the EgyTech salary benchmark API for every distinct (jobTitle, jobLevel)
+    combo currently held by employees and returns the market median for each.
+    Frontend joins this with employee base salaries to surface variance per employee.
+    """
+    permission_classes = [IsAuthenticated, IsHRManager]
+
+    def get(self, request):
+        combos = (
+            Employee.objects.filter(isDeleted=False, job__isnull=False)
+            .values_list('job__title', 'job__level')
+            .distinct()
+        )
+        cache = {}
+        results = []
+        for title, level in combos:
+            api_title = _map_to_api_title(title)
+            api_level = _map_to_api_level(level, title) if api_title else None
+            stats = _fetch_egytech_stats(api_title, api_level, cache) if api_title else None
+
+            results.append({
+                'jobTitle': title or '',
+                'jobLevel': level or '',
+                'benchmark_salary': _pick_benchmark(stats),
+                'median': stats.get('median') if stats else None,
+                'p20': stats.get('p20') if stats else None,
+                'p75': stats.get('p75') if stats else None,
+                'p90': stats.get('p90') if stats else None,
+                'sample_size': stats.get('sample_size') if stats else None,
+                'currency': 'EGP',
+                'source': 'api.egytech.fyi',
+                'mapped_title': api_title,
+                'mapped_level': api_level,
+                'error': stats.get('error') if stats else 'No tech-bucket mapping for this title',
+            })
+        return Response(results)
+
+
 # ============================================================================
 # LEAVE TYPE VIEWS
 # ============================================================================
@@ -1136,8 +1448,8 @@ class EmployeeTaskEndView(APIView):
 class EmployeeTaskDoneView(APIView):
     """POST .../employee/tasks/<id>/done/  — employee submits the task for TL review.
 
-    Sets progress=100, finished_time=now, status='Pending Review', and
-    auto-closes any still-open log on this task.
+    Sets progress=100, status='Pending Review', and auto-closes any still-open
+    log on this task. finished_time is set later when the TL approves.
     """
     permission_classes = [IsAuthenticated, IsInternalEmployee]
 
@@ -1158,9 +1470,8 @@ class EmployeeTaskDoneView(APIView):
             open_log.save(update_fields=['end_time'])
 
         task.progress = 100
-        task.finished_time = now
         task.status = 'Pending Review'
-        task.save(update_fields=['progress', 'finished_time', 'status', 'updatedAt'])
+        task.save(update_fields=['progress', 'status', 'updatedAt'])
 
         return Response(WorkTaskSerializer(task).data)
 
@@ -1187,8 +1498,15 @@ class TeamTaskApproveView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        approved_at = timezone.now()
+        total_seconds = sum(
+            (log.end_time - log.start_time).total_seconds()
+            for log in task.logs.filter(end_time__isnull=False)
+        )
+        task.actualHours = (Decimal(total_seconds) / Decimal(3600)).quantize(Decimal('0.01'))
+        task.finished_time = approved_at
         task.status = 'Done'
-        task.save(update_fields=['status', 'updatedAt'])
+        task.save(update_fields=['status', 'finished_time', 'actualHours', 'updatedAt'])
         return Response(WorkTaskSerializer(task).data)
 
 

@@ -6,7 +6,11 @@
       "Bash(/c/Python313/python.exe -c ' *)",
       "Bash(/c/Python313/python.exe manage.py check)",
       "Bash(npm install *)",
-      "Bash(node -e \"require\\('@babel/parser'\\).parse\\(require\\('fs'\\).readFileSync\\('src/pages/leader/TeamPage.jsx','utf8'\\),{sourceType:'module',plugins:['jsx']}\\); console.log\\('OK'\\);\")"
+      "Bash(node -e \"require\\('@babel/parser'\\).parse\\(require\\('fs'\\).readFileSync\\('src/pages/leader/TeamPage.jsx','utf8'\\),{sourceType:'module',plugins:['jsx']}\\); console.log\\('OK'\\);\")",
+      "Bash(python manage.py shell -c \"exec\\(open\\('_seed_jobs.py'\\).read\\(\\)\\)\")",
+      "Bash(python -c \"import ast,sys; ast.parse\\(open\\(r'c:/Users/Alaa Farouk/Downloads/EmpowerHR-GraduationProject-main/EmpowerHR-GraduationProject-main/backend/employee_management/views.py',encoding='utf-8'\\).read\\(\\)\\); print\\('views.py OK'\\)\")",
+      "Bash(python -c \"import ast,sys; ast.parse\\(open\\(r'c:/Users/Alaa Farouk/Downloads/EmpowerHR-GraduationProject-main/EmpowerHR-GraduationProject-main/backend/employee_management/urls.py',encoding='utf-8'\\).read\\(\\)\\); print\\('urls.py OK'\\)\")",
+      "Bash(python \"c:/Users/Alaa Farouk/Downloads/EmpowerHR-GraduationProject-main/EmpowerHR-GraduationProject-main/backend/_test_routing.py\")"
     ]
   }
 }

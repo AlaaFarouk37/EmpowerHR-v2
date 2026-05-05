@@ -413,6 +413,9 @@ export function EmployeeTasksPage() {
                     <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{task.title}</div>
                     <div style={{ fontSize: 13, color: 'var(--gray-500)' }}>
                       {t('Priority:')} {t(task.priority)} • {t('Due:')} {task.dueDate || '—'} • {t('Est.')} {task.estimatedHours ?? '—'} {t('hrs')}
+                      {task.status === 'Done' && (
+                        <> • {t('Actual')} {task.actualHours ?? '—'} {t('hrs')}</>
+                      )}
                     </div>
                   </div>
                   <Badge label={t(task.status)} color={STATUS_COLORS[task.status] || 'gray'} />

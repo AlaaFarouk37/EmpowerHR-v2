@@ -181,6 +181,8 @@ export const hrGetAttendanceWatch = () => api.get('/attendance_leave/hr/attendan
 export const hrGetLeaveRequests = async () => toList(await api.get('/attendance_leave/hr/leave-requests/'));
 export const hrGetApprovalSnapshot = () => api.get('/employee_management/hr/approvals/snapshot/');
 export const hrReviewLeaveRequest = (id, data) => api.post(`/attendance_leave/hr/leave-requests/${id}/review/`, data);
+export const getTeamPendingOvertime = async () => toList(await api.get('/attendance_leave/team/overtime/'));
+export const reviewTeamOvertime = (attendanceID, data) => api.post(`/attendance_leave/team/overtime/${attendanceID}/review/`, data);
 
 // Payroll
 export const getMyPayroll = async (employeeID) => toList(await api.get(`/payroll/employee/payroll/${employeeID ? `?employee_id=${employeeID}` : ''}`));
@@ -471,6 +473,9 @@ export const adminGetJobs = async () => toList(await api.get('/employee_manageme
 export const adminCreateJob = (data) => api.post('/employee_management/jobs/', data);
 export const adminUpdateJob = (id, data) => api.put(`/employee_management/jobs/${id}/`, data);
 export const adminDeleteJob = (id) => api.delete(`/employee_management/jobs/${id}/`);
+export const hrGetJobs = adminGetJobs;
+export const hrSetJobBenchmark = (id, benchmark_salary) => api.post(`/employee_management/jobs/${id}/benchmark/`, { benchmark_salary });
+export const hrFetchExternalSalaryBenchmark = async () => toList(await api.get('/employee_management/hr/salary-benchmark/'));
 
 // Leave Types
 export const adminGetLeaveTypes = async () => toList(await api.get('/employee_management/leave-types/'));

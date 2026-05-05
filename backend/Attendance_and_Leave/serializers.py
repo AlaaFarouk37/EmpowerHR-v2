@@ -4,6 +4,8 @@ from .models import AttendanceRecord, LeaveRequest
 
 class AttendanceRecordSerializer(serializers.ModelSerializer):
     employeeName = serializers.CharField(source='employee.fullName', read_only=True)
+    employeeTeam = serializers.CharField(source='employee.team', read_only=True)
+    employeeDepartment = serializers.CharField(source='employee.department', read_only=True)
 
     class Meta:
         model = AttendanceRecord

@@ -209,10 +209,6 @@ export function HRJobPostingsPage() {
     } catch { toast('Failed to update job', 'error'); }
   };
 
-  const handleBenchmarkSalary = async (job) => {
-    toast('Benchmark salary calculation not yet implemented', 'info');
-  };
-
   // ── derived pipeline data ────────────────────────────────────────────────────
 
   const pipelineTotals = pipelineHealth?.totals      || {};
@@ -668,9 +664,6 @@ export function HRJobPostingsPage() {
                 {['Title', 'Min. Exp', 'Degree', 'Applicants', 'Status', ''].map(h => (
                   <th key={h} style={{ padding: '14px 20px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', borderBottom: '1px solid #EAECF0' }}>{t(h)}</th>
                 ))}
-                {user?.role === 'hr_manager' && (
-                  <th style={{ padding: '14px 20px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', borderBottom: '1px solid #EAECF0' }}>{t('Benchmark Salary')}</th>
-                )}
               </tr>
             </thead>
             <tbody>
@@ -717,11 +710,6 @@ export function HRJobPostingsPage() {
                             </svg>
                           </Btn>
                         </>
-                      )}
-                      {user?.role === 'hr_manager' && (
-                        <Btn size="sm" variant="primary" onClick={() => handleBenchmarkSalary(job)}>
-                          {t('Benchmark Salary')}
-                        </Btn>
                       )}
                     </div>
                   </td>

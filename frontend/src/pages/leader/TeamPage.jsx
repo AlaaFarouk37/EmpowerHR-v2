@@ -10,8 +10,10 @@ import {
   createTeamTask,
   getPredictions,
   getTeamGoals,
+  getTeamPendingOvertime,
   getTeamTasks,
   hrGetEmployees,
+  reviewTeamOvertime,
   updateTeamGoal,
   updateTeamTask,
 } from '../../api/index.js';
@@ -104,6 +106,8 @@ export function TeamGoalsPage() {
   const [taskSubmitting, setTaskSubmitting] = useState(false);
   const [savingGoalId, setSavingGoalId] = useState(null);
   const [savingTaskId, setSavingTaskId] = useState(null);
+  const [pendingOvertime, setPendingOvertime] = useState([]);
+  const [savingOvertimeId, setSavingOvertimeId] = useState(null);
   const [goalForm, setGoalForm] = useState(EMPTY_GOAL_FORM);
   const [taskForm, setTaskForm] = useState(EMPTY_TASK_FORM);
   const [searchTerm, setSearchTerm] = useState('');
@@ -117,17 +121,19 @@ export function TeamGoalsPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [goalData, taskData, predictionData, teamData, employeeData] = await Promise.all([
+      const [goalData, taskData, predictionData, teamData, employeeData, overtimeData] = await Promise.all([
         getTeamGoals(),
         getTeamTasks(),
         getPredictions().catch(() => []),
         adminGetTeams().catch(() => []),
         isHRRole ? hrGetEmployees().catch(() => []) : Promise.resolve([]),
+        getTeamPendingOvertime().catch(() => []),
       ]);
       setGoals(Array.isArray(goalData) ? goalData : []);
       setTasks(Array.isArray(taskData) ? taskData : []);
       setPredictions(Array.isArray(predictionData) ? predictionData : []);
       setTeams(Array.isArray(teamData) ? teamData : []);
+      setPendingOvertime(Array.isArray(overtimeData) ? overtimeData : []);
       const employeeMap = {};
       (Array.isArray(employeeData) ? employeeData : []).forEach((employee) => {
         if (employee?.employeeID) employeeMap[employee.employeeID] = employee;
@@ -198,6 +204,11 @@ export function TeamGoalsPage() {
     () => (selectedTeam ? tasks.filter(matchesSelectedTeam) : tasks),
     [tasks, selectedTeam],
   );
+  const scopedPendingOvertime = useMemo(() => {
+    if (!selectedTeam) return pendingOvertime;
+    const expectedName = teamNameById[String(selectedTeam)] ?? String(selectedTeam);
+    return pendingOvertime.filter((record) => String(record?.employeeTeam || '') === String(expectedName));
+  }, [pendingOvertime, selectedTeam, teamNameById]);
 
   const todayKey = new Date().toISOString().slice(0, 10);
   const weekAheadKey = new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -694,6 +705,19 @@ export function TeamGoalsPage() {
     }
   };
 
+  const handleOvertimeReview = async (record, action) => {
+    setSavingOvertimeId(record.attendanceID);
+    try {
+      await reviewTeamOvertime(record.attendanceID, { action });
+      toast(action === 'approve' ? t('Overtime approved') : t('Overtime rejected'));
+      await loadData();
+    } catch (error) {
+      toast(error.message || 'Failed to review overtime', 'error');
+    } finally {
+      setSavingOvertimeId(null);
+    }
+  };
+
   const teamFilterRow = isHRRole ? (
     <div className="hr-surface-card" style={{ padding: 16, marginBottom: 24, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
       <div style={{ minWidth: 220 }}>
@@ -1043,6 +1067,87 @@ export function TeamGoalsPage() {
           )}
         </div>
 
+        {/* Pending Overtime Reviews — TLs approve/reject overtime that failed the 80% gate */}
+        <div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 14, marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#B54708', textTransform: 'uppercase', marginBottom: 4 }}>{t('Pending Overtime Reviews')}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>
+                {t('Overtime hours that did not meet the 80% task-time threshold. Approve to count them as paid overtime, or reject to discard.')}
+              </div>
+            </div>
+            <Badge
+              label={`${scopedPendingOvertime.length} ${t('open')}`}
+              color={scopedPendingOvertime.length ? 'yellow' : 'green'}
+            />
+          </div>
+
+          {scopedPendingOvertime.length === 0 ? (
+            <div className="hr-soft-empty" style={{ padding: '14px 16px', textAlign: 'center' }}>
+              <p style={{ fontSize: 12.5, color: 'var(--gray-500)', fontWeight: 600, margin: 0 }}>
+                {t('No overtime is awaiting your review.')}
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+              {scopedPendingOvertime.map((record) => {
+                const ratioRaw = Number(record.workedHours) > 0 && record.taskTimeHours != null
+                  ? (Number(record.taskTimeHours) / Number(record.workedHours)) * 100
+                  : null;
+                const isSaving = savingOvertimeId === record.attendanceID;
+                return (
+                  <div
+                    key={record.attendanceID}
+                    style={{
+                      border: '1px solid #FDE68A',
+                      borderRadius: 14,
+                      padding: '14px 15px',
+                      background: '#FFFBEB',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--gray-900)' }}>
+                          {record.employeeName || record.employeeID}
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 2 }}>
+                          {record.employeeTeam || '—'} • {record.date}
+                        </div>
+                      </div>
+                      <Badge label={t('Pending Review')} color="yellow" />
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                      <Badge label={`${t('Worked')}: ${record.workedHours ?? '—'}h`} color="gray" />
+                      <Badge label={`${t('Overtime')}: +${record.overtimeHours ?? '—'}h`} color="accent" />
+                      {ratioRaw !== null ? (
+                        <Badge label={`${t('Task time')}: ${ratioRaw.toFixed(0)}%`} color={ratioRaw >= 80 ? 'green' : 'red'} />
+                      ) : null}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                      <Btn
+                        size="sm"
+                        variant="primary"
+                        disabled={isSaving}
+                        onClick={() => handleOvertimeReview(record, 'approve')}
+                      >
+                        {isSaving ? t('Saving...') : t('Approve')}
+                      </Btn>
+                      <Btn
+                        size="sm"
+                        variant="ghost"
+                        disabled={isSaving}
+                        onClick={() => handleOvertimeReview(record, 'reject')}
+                      >
+                        {isSaving ? t('Saving...') : t('Reject')}
+                      </Btn>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {leaderFocusItems.length === 0 ? (
           <div className="hr-soft-empty" style={{ padding: '18px 16px', textAlign: 'center' }}>
             <p style={{ fontSize: 12.5, color: 'var(--gray-500)', fontWeight: 600 }}>{t('No urgent team items need attention right now.')}</p>
@@ -1272,7 +1377,12 @@ export function TeamGoalsPage() {
                       </td>
                       <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}>
                         <div style={{ fontWeight: 700 }}>{task.title}</div>
-                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{t(task.priority)} • {task.estimatedHours ?? '—'} {t('hrs')}</div>
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>
+                          {t(task.priority)} • {t('Est.')} {task.estimatedHours ?? '—'} {t('hrs')}
+                          {task.status === 'Done' && (
+                            <> • {t('Actual')} {task.actualHours ?? '—'} {t('hrs')}</>
+                          )}
+                        </div>
                         <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           <Badge label={t(task.priority || 'Medium')} color={PRIORITY_COLORS[task.priority] || 'accent'} />
                           {task.dueDate && task.dueDate < todayKey && task.status !== 'Done' ? <Badge label={t('Overdue')} color="red" /> : null}

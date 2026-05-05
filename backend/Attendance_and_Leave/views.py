@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -5,10 +7,57 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.utils import timezone
 from django.db.models import Q
-from accounts.permissions import IsHRManager, IsAdmin, IsInternalEmployee
-from employee_management.models import Employee
+from accounts.permissions import IsHRManager, IsAdmin, IsInternalEmployee, IsTeamLeader
+from employee_management.models import Employee, WorkTaskLog
 from .models import AttendanceRecord, LeaveRequest
 from .serializers import AttendanceRecordSerializer, LeaveRequestSerializer, AttendanceClockSerializer, LeaveRequestCreateSerializer
+
+
+def _compute_overtime(record):
+    """Populate record.overtimeHours and record.overtimeStatus for TeamMembers.
+
+    Rules (TeamMembers only):
+      raw_overtime = max(0, attendance_time - contracted_hours_day)
+      AUTO_APPROVED if raw_overtime > 0 and task_time/attendance_time >= 0.8
+      PENDING_REVIEW if raw_overtime > 0 but the 80% gate fails
+      STANDARD otherwise
+    Non-TeamMembers and records missing the inputs are left as STANDARD/0.
+    """
+    record.overtimeHours = Decimal('0.00')
+    record.overtimeStatus = AttendanceRecord.OT_STANDARD
+
+    employee = record.employee
+    try:
+        user_account = employee.user_account
+    except Employee.user_account.RelatedObjectDoesNotExist:
+        user_account = None
+    if not user_account or user_account.role != 'TeamMember':
+        return
+
+    attendance_time = record.workedHours
+    daily_baseline = employee.contracted_hours_day
+    if attendance_time is None or daily_baseline is None:
+        return
+
+    raw_overtime = attendance_time - daily_baseline
+    if raw_overtime <= 0:
+        return
+
+    task_seconds = sum(
+        (log.end_time - log.start_time).total_seconds()
+        for log in WorkTaskLog.objects.filter(
+            task__employee=employee,
+            start_time__date=record.date,
+            end_time__isnull=False,
+        )
+    )
+    task_time = Decimal(task_seconds) / Decimal(3600)
+
+    record.overtimeHours = raw_overtime.quantize(Decimal('0.01'))
+    if attendance_time > 0 and (task_time / attendance_time) >= Decimal('0.8'):
+        record.overtimeStatus = AttendanceRecord.OT_AUTO_APPROVED
+    else:
+        record.overtimeStatus = AttendanceRecord.OT_PENDING_REVIEW
 
 
 
@@ -120,8 +169,9 @@ def clock_out_view(request):
     record.clockOut = timezone.now()
     if record.clockIn and record.clockOut:
         duration = record.clockOut - record.clockIn
-        record.workedHours = duration.total_seconds() / 3600
+        record.workedHours = Decimal(duration.total_seconds() / 3600).quantize(Decimal('0.01'))
         record.status = AttendanceRecord.STATUS_PRESENT
+    _compute_overtime(record)
     record.save()
 
     serializer = AttendanceRecordSerializer(record)
@@ -288,12 +338,111 @@ class EmployeeAttendanceClockView(APIView):
             record.clockOut = now
             if record.clockIn:
                 duration = record.clockOut - record.clockIn
-                record.workedHours = duration.total_seconds() / 3600
+                record.workedHours = Decimal(duration.total_seconds() / 3600).quantize(Decimal('0.01'))
             record.notes = (record.notes or '') + f'\nClock out: {notes}'.strip()
+            _compute_overtime(record)
             record.save()
             return Response(AttendanceRecordSerializer(record).data)
 
         return Response({'error': 'Invalid action.'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TeamOvertimeReviewListView(APIView):
+    """GET /attendance_leave/team/overtime/  — pending OT records the TL can review.
+
+    Each record is augmented with `taskTimeHours` (the sum of that day's
+    WorkTaskLog durations), so the TL can see exactly how far below the 80%
+    gate the employee landed.
+    """
+    permission_classes = [IsAuthenticated, IsTeamLeader]
+
+    def get(self, request):
+        records = (
+            AttendanceRecord.objects
+            .select_related('employee')
+            .filter(
+                overtimeStatus=AttendanceRecord.OT_PENDING_REVIEW,
+                employee__isDeleted=False,
+            )
+            .order_by('-date')
+        )
+
+        if getattr(request.user, 'role', None) == 'TeamLeader':
+            leader_employee = Employee.objects.filter(
+                employeeID=getattr(request.user, 'employee_id', None),
+                isDeleted=False,
+            ).first()
+            if leader_employee and leader_employee.team_id:
+                records = records.filter(employee__team=leader_employee.team)
+            else:
+                records = records.none()
+
+        records = list(records)
+        payload = AttendanceRecordSerializer(records, many=True).data
+        for record, item in zip(records, payload):
+            task_seconds = sum(
+                (log.end_time - log.start_time).total_seconds()
+                for log in WorkTaskLog.objects.filter(
+                    task__employee=record.employee,
+                    start_time__date=record.date,
+                    end_time__isnull=False,
+                )
+            )
+            item['taskTimeHours'] = float(
+                (Decimal(task_seconds) / Decimal(3600)).quantize(Decimal('0.01'))
+            )
+        return Response(payload)
+
+
+class TeamOvertimeReviewActionView(APIView):
+    """POST /attendance_leave/team/overtime/<attendanceID>/review/
+
+    Body: {"action": "approve" | "reject", "reviewNote"?: ""}
+
+    Approve flips overtimeStatus to AUTO_APPROVED; reject flips it to REJECTED.
+    Either way the reviewer + timestamp + note are recorded.
+    """
+    permission_classes = [IsAuthenticated, IsTeamLeader]
+
+    def post(self, request, attendance_id):
+        try:
+            record = AttendanceRecord.objects.select_related('employee').get(pk=attendance_id)
+        except AttendanceRecord.DoesNotExist:
+            return Response({'error': 'Attendance record not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not _can_manage_employee(request.user, record.employee):
+            return Response(
+                {'error': 'You do not have permission to review this overtime.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if record.overtimeStatus != AttendanceRecord.OT_PENDING_REVIEW:
+            return Response(
+                {'error': "Only overtime in 'PENDING_REVIEW' can be reviewed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        action = (request.data.get('action') or '').strip().lower()
+        if action not in ('approve', 'reject'):
+            return Response(
+                {'error': "action must be 'approve' or 'reject'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        record.overtimeStatus = (
+            AttendanceRecord.OT_AUTO_APPROVED if action == 'approve'
+            else AttendanceRecord.OT_REJECTED
+        )
+        record.overtimeReviewedBy = (
+            getattr(request.user, 'full_name', '') or getattr(request.user, 'email', '')
+        )
+        record.overtimeReviewedAt = timezone.now()
+        record.overtimeReviewNote = request.data.get('reviewNote', '') or ''
+        record.save(update_fields=[
+            'overtimeStatus', 'overtimeReviewedBy', 'overtimeReviewedAt', 'overtimeReviewNote',
+        ])
+
+        return Response(AttendanceRecordSerializer(record).data)
 
 
 class HRAttendanceWatchView(APIView):

@@ -12,7 +12,7 @@ from django.db.models.functions import ExtractYear, Now
 class Job(models.Model):
     job_id = models.AutoField(primary_key=True)
     title = models.CharField(max_length=100)
-    level = models.CharField(max_length=100, null=True,choices=[('Entry', 'Entry'), ('Mid', 'Mid'), ('Senior', 'Senior')]) # e.g. Entry, Mid, Senior
+    level = models.CharField(max_length=100, null=True, blank=True)  # free-form (Junior, Senior, Director, etc.)
     base_salary = models.DecimalField(max_digits=10, decimal_places=2)
     benchmark_salary = models.DecimalField(max_digits=10, decimal_places=2, default=0, null=True, blank=True)
 
@@ -147,6 +147,9 @@ class Employee(models.Model):
     contracted_hours   = models.DecimalField(max_digits=5, decimal_places=2,
                                              null=True, blank=True,
                                              help_text="Contracted weekly hours")
+    contracted_hours_day = models.DecimalField(max_digits=4, decimal_places=2,
+                                               null=True, blank=True,
+                                               help_text="Baseline work hours required per day (used for overtime calculation)")
 
     # ── Attrition model fields ─────────────────
     gender             = models.CharField(max_length=10, choices=GENDER_CHOICES,
@@ -545,6 +548,7 @@ class WorkTask(models.Model):
     finished_time   = models.DateTimeField(null=True, blank=True)
     createdAt       = models.DateTimeField(auto_now_add=True)
     updatedAt       = models.DateTimeField(auto_now=True)
+    actualHours     = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
 
     class Meta:
         db_table = 'WorkTask'

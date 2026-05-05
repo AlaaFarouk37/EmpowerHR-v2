@@ -59,6 +59,35 @@ FEATURE_NAMES = [
 ]
 
 SEVERITY_ORDER = {'high': 3, 'medium': 2, 'low': 1}
+# Job.level is a free-form CharField (Junior, Senior, Director, VP, …). The
+# predictor needs a numeric rank, so we keyword-match into 1–5. Anything
+# unrecognised collapses to the mid bucket (2) so it never leaks a non-numeric
+# value into the feature vector.
+JOB_LEVEL_DEFAULT = 2
+_JOB_LEVEL_KEYWORDS = [
+    (('intern', 'trainee', 'entry', 'junior', 'associate'), 1),
+    (('mid', 'intermediate'), 2),
+    (('senior', 'lead', 'staff'), 3),
+    (('principal', 'manager', 'head'), 4),
+    (('director', 'vp', 'chief', 'cto', 'ceo', 'cfo', 'cio'), 5),
+]
+
+
+def map_job_level(value):
+    if value is None:
+        return JOB_LEVEL_DEFAULT
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = str(value).strip().lower()
+    if not text:
+        return JOB_LEVEL_DEFAULT
+    for keywords, rank in _JOB_LEVEL_KEYWORDS:
+        if any(kw in text for kw in keywords):
+            return rank
+    return JOB_LEVEL_DEFAULT
+
+
+# Back-compat alias for any external callers that imported the dict directly.
 JOB_LEVEL_MAP = {'Entry': 1, 'Mid': 2, 'Senior': 3}
 PROTECTED_ATTRIBUTE_LABELS = ['Age', 'Gender', 'Marital Status']
 PROTECTED_FEATURE_DEFAULTS = {
@@ -214,7 +243,7 @@ def build_feature_vector(employee, answers_qs):
         distance,
         get(employee.educationLevel, 'Education Level'),
         get(employee.numberOfDependents, 'Number of Dependents'),
-        get(JOB_LEVEL_MAP.get(employee.jobLevel, employee.jobLevel), 'Job Level'),
+        map_job_level(employee.jobLevel),
         1,  # Company Size — hardcoded to Small (single-company deployment)
         tenure,  # Company Tenure — from feedback: 'years in industry'
         int(employee.remoteWork) if employee.remoteWork is not None else get(None, 'Remote Work'),

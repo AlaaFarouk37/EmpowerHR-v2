@@ -78,6 +78,80 @@ function uniqueValues(items, key) {
   return [...new Set(items.map(item => item?.[key]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
 }
 
+function JobTitleLevelPicker({ jobs, value, onChange, t, selectStyle }) {
+  const jobsArr = Array.isArray(jobs) ? jobs : [];
+  const savedJob = jobsArr.find(j => String(j.job_id) === String(value)) || null;
+
+  // Local title sticks even when no job_id is locked in yet (i.e. user picked
+  // a title that has multiple levels and is still choosing the level).
+  const [pendingTitle, setPendingTitle] = useState(savedJob?.title || '');
+
+  // Sync from outside when the saved job_id changes (modal open/edit/reset).
+  useEffect(() => {
+    setPendingTitle(savedJob?.title || '');
+  }, [savedJob?.title]);
+
+  const selectedTitle = savedJob?.title || pendingTitle || '';
+  const selectedLevel = savedJob?.level || '';
+
+  const titles = [...new Set(jobsArr.map(j => j.title).filter(Boolean))]
+    .sort((a, b) => String(a).localeCompare(String(b)));
+
+  const levelsForTitle = jobsArr
+    .filter(j => j.title === selectedTitle)
+    .map(j => j.level || '')
+    .filter((v, i, a) => a.indexOf(v) === i);
+
+  const handleTitleChange = (e) => {
+    const newTitle = e.target.value;
+    setPendingTitle(newTitle);
+    if (!newTitle) { onChange(''); return; }
+    const matching = jobsArr.filter(j => j.title === newTitle);
+    if (matching.length === 1) onChange(matching[0].job_id);
+    else onChange('');
+  };
+
+  const handleLevelChange = (e) => {
+    const newLevel = e.target.value;
+    const job = jobsArr.find(
+      j => j.title === selectedTitle && (j.level || '') === newLevel,
+    );
+    onChange(job ? job.job_id : '');
+  };
+
+  return (
+    <>
+      <div>
+        <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+          {t('Job Title')}
+        </label>
+        <select value={selectedTitle} onChange={handleTitleChange} style={selectStyle}>
+          <option value="">{t('Select a job title')}</option>
+          {titles.map(title => (
+            <option key={title} value={title}>{title}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+          {t('Job Level')}
+        </label>
+        <select
+          value={selectedLevel}
+          onChange={handleLevelChange}
+          style={selectStyle}
+          disabled={!selectedTitle}
+        >
+          <option value="">{t('Select a job level')}</option>
+          {levelsForTitle.map(level => (
+            <option key={level || '__none'} value={level}>{level || t('— none —')}</option>
+          ))}
+        </select>
+      </div>
+    </>
+  );
+}
+
 function formatMoney(value, currency = 'EGP') {
   if (value === null || value === undefined || value === '') return '—';
   const locale = typeof document !== 'undefined' && document.documentElement.lang === 'ar' ? 'ar-EG' : 'en-US';
@@ -894,22 +968,16 @@ export function HREmployeesPage() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <div>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
-                {t('Job Title')}
-            </label>
-            <select
-                value={form.job}
-                onChange={setField('job')}
-                style={selectStyle}
-            >
-                <option value="">{t('Select a job')}</option>
-                {jobOptions.map(j => (
-                    <option key={j.job_id} value={j.job_id}>{j.title}</option>
-                ))}
-            </select>
-        </div>
+        <JobTitleLevelPicker
+          jobs={jobOptions}
+          value={form.job}
+          onChange={(jobId) => setField('job')({ target: { value: jobId } })}
+          t={t}
+          selectStyle={selectStyle}
+        />
+      </div>
 
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {/* Department — dropdown from Department table */}
         <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
@@ -922,9 +990,7 @@ export function HREmployeesPage() {
                 ))}
             </select>
         </div>
-      </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {/* Team — dropdown from Team table */}
         <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
@@ -937,6 +1003,9 @@ export function HREmployeesPage() {
                 ))}
             </select>
         </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
         <DatalistInput label={t('Location')} value={form.location} options={locations} onChange={setField('location')} placeholder="Select or type a location" />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -1084,17 +1153,16 @@ export function HREmployeesPage() {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
-              {t('Job Title')}
-            </label>
-            <select value={form.job} onChange={setField('job')} style={selectStyle}>
-              <option value="">{t('Select a job')}</option>
-              {jobOptions.map(j => (
-                <option key={j.job_id} value={j.job_id}>{j.title}</option>
-              ))}
-            </select>
-          </div>
+          <JobTitleLevelPicker
+            jobs={jobOptions}
+            value={form.job}
+            onChange={(jobId) => setField('job')({ target: { value: jobId } })}
+            t={t}
+            selectStyle={selectStyle}
+          />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
               {t('Department')}
@@ -1106,9 +1174,6 @@ export function HREmployeesPage() {
               ))}
             </select>
           </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
               {t('Team')}
@@ -1120,6 +1185,9 @@ export function HREmployeesPage() {
               ))}
             </select>
           </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
           <DatalistInput label={t('Location')} value={form.location} options={locations} onChange={setField('location')} placeholder="Select or type a location" />
         </div>
 
