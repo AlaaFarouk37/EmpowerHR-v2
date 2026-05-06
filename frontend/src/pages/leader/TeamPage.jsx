@@ -18,6 +18,7 @@ import {
   updateTeamTask,
 } from '../../api/index.js';
 import { Badge, Btn, EmployeeSelect, Input, Modal, Spinner, Textarea, useToast } from '../../components/shared/index.jsx';
+import ContactEmailModal from '../../components/shared/ContactEmailModal.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -117,6 +118,19 @@ export function TeamGoalsPage() {
   const [selectedTeam, setSelectedTeam] = useState('');
   const [goalFormTeam, setGoalFormTeam] = useState('');
   const [taskFormTeam, setTaskFormTeam] = useState('');
+  const [contactEmail, setContactEmail] = useState(null);
+
+  const isTeamMemberRole = user?.role === 'TeamMember';
+
+  const openContactModal = (task) => {
+    const taskTitle = task?.title || '';
+    const memberEmail = task?.employeeEmail || '';
+    const tlEmail = isTeamMemberRole ? (task?.assignedByEmail || '') : '';
+    setContactEmail({
+      to: isTeamMemberRole ? tlEmail : memberEmail,
+      subject: taskTitle ? `Re: ${taskTitle}` : '',
+    });
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -1392,15 +1406,30 @@ export function TeamGoalsPage() {
                       <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}><Badge label={t(task.status)} color={TASK_STATUS_COLORS[task.status] || 'gray'} /></td>
                       <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6', fontWeight: 700 }}>{task.progress}%</td>
                       <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}>
-                        {task.status === 'Pending Review' ? (
-                          <Btn size="sm" variant="primary" onClick={() => handleApproveTask(task)} disabled={savingTaskId === task.taskID}>
-                            {savingTaskId === task.taskID ? t('Saving...') : t('Approve')}
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {task.status === 'Pending Review' ? (
+                            <Btn size="sm" variant="primary" onClick={() => handleApproveTask(task)} disabled={savingTaskId === task.taskID}>
+                              {savingTaskId === task.taskID ? t('Saving...') : t('Approve')}
+                            </Btn>
+                          ) : task.status === 'Done' ? (
+                            <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>{t('Done')}</span>
+                          ) : (
+                            <span style={{ fontSize: 12, color: 'var(--gray-400)' }}>{t('Awaiting employee')}</span>
+                          )}
+                          <Btn
+                            size="sm"
+                            variant="danger"
+                            onClick={() => openContactModal(task)}
+                            aria-label={t('Contact via email')}
+                            title={t('Contact via email')}
+                            style={{ padding: '7px 10px' }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                              <polyline points="22,6 12,13 2,6"/>
+                            </svg>
                           </Btn>
-                        ) : task.status === 'Done' ? (
-                          <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>{t('Done')}</span>
-                        ) : (
-                          <span style={{ fontSize: 12, color: 'var(--gray-400)' }}>{t('Awaiting employee')}</span>
-                        )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1534,8 +1563,37 @@ export function TeamGoalsPage() {
               {t('Cancel')}
             </Btn>
           </div>
+          {(taskForm.employeeID && taskForm.title) ? (
+            <Btn
+              variant="danger"
+              onClick={() => {
+                const member = employeesById?.[taskForm.employeeID];
+                openContactModal({
+                  title: taskForm.title,
+                  employeeEmail: member?.email || '',
+                });
+              }}
+              aria-label={t('Contact via email')}
+              title={t('Contact via email')}
+              style={{ alignSelf: 'flex-end', padding: '10px 14px' }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                <polyline points="22,6 12,13 2,6"/>
+              </svg>
+            </Btn>
+          ) : null}
         </div>
       </Modal>
+
+      {contactEmail ? (
+        <ContactEmailModal
+          to={contactEmail.to}
+          subject={contactEmail.subject}
+          onClose={() => setContactEmail(null)}
+          onSent={() => toast.success(t('Email sent'))}
+        />
+      ) : null}
     </div>
   );
 }

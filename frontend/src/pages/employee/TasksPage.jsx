@@ -8,6 +8,7 @@ import {
   updateMyTaskProgress,
 } from '../../api/index.js';
 import { Badge, Btn, Spinner, useToast } from '../../components/shared/index.jsx';
+import ContactEmailModal from '../../components/shared/ContactEmailModal.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -82,6 +83,7 @@ export function EmployeeTasksPage() {
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
   const [drafts, setDrafts] = useState({});
+  const [contactEmail, setContactEmail] = useState(null);
 
   const isTeamLeader = user?.role === 'TeamLeader';
   const isTeamMember = user?.role === 'TeamMember';
@@ -418,7 +420,25 @@ export function EmployeeTasksPage() {
                       )}
                     </div>
                   </div>
-                  <Badge label={t(task.status)} color={STATUS_COLORS[task.status] || 'gray'} />
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <Badge label={t(task.status)} color={STATUS_COLORS[task.status] || 'gray'} />
+                    <Btn
+                      size="sm"
+                      variant="danger"
+                      onClick={() => setContactEmail({
+                        to: task.teamLeadEmail || '',
+                        subject: task.title ? `Re: ${task.title}` : '',
+                      })}
+                      aria-label={t('Email team lead about this task')}
+                      title={t('Email team lead about this task')}
+                      style={{ padding: '7px 10px' }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                        <polyline points="22,6 12,13 2,6"/>
+                      </svg>
+                    </Btn>
+                  </div>
                 </div>
 
                 {task.description && (
@@ -604,6 +624,15 @@ export function EmployeeTasksPage() {
           )}
         </div>
       )}
+
+      {contactEmail ? (
+        <ContactEmailModal
+          to={contactEmail.to}
+          subject={contactEmail.subject}
+          onClose={() => setContactEmail(null)}
+          onSent={() => toast.success(t('Email sent'))}
+        />
+      ) : null}
     </div>
   );
 }

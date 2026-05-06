@@ -167,20 +167,37 @@ class WorkTaskLogSerializer(serializers.ModelSerializer):
 class WorkTaskSerializer(serializers.ModelSerializer):
     employeeID = serializers.CharField(source='employee.employeeID', read_only=True)
     employeeName = serializers.CharField(source='employee.fullName', read_only=True)
+    employeeEmail = serializers.CharField(source='employee.email', read_only=True)
     department = serializers.CharField(source='employee.department', read_only=True)
     team = serializers.CharField(source='employee.team', read_only=True)
     contractedHours = serializers.IntegerField(source='employee.contracted_hours', read_only=True)  # ← add this
+    teamLeadEmail = serializers.SerializerMethodField()
     logs = WorkTaskLogSerializer(many=True, read_only=True)
 
     class Meta:
         model = WorkTask
         fields = [
-            'taskID', 'employeeID', 'employeeName', 'department', 'team',
+            'taskID', 'employeeID', 'employeeName', 'employeeEmail', 'department', 'team',
             'title', 'description', 'priority', 'status',
             'progress', 'estimatedHours', 'actualHours', 'dueDate', 'assignedBy', 'contractedHours',
+            'teamLeadEmail',
             'start_time', 'finished_time',
             'createdAt', 'updatedAt', 'logs',
         ]
+
+    def get_teamLeadEmail(self, obj):
+        team = getattr(obj.employee, 'team', None)
+        if not team:
+            return ''
+        leader = (
+            Employee.objects
+            .filter(team=team, user_account__role='TeamLeader')
+            .select_related('user_account')
+            .first()
+        )
+        if not leader:
+            return ''
+        return leader.email or ''
 
 
 class WorkTaskCreateSerializer(serializers.Serializer):

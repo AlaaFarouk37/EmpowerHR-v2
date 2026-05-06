@@ -2,13 +2,15 @@ from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import path, include
 
+from .views import SendEmailView
+
 
 def root_status(_request):
     return JsonResponse(
         {
             "status": "ok",
             "message": "EmpowerHR backend is running.",
-            
+
             "available_routes": [
                 "/admin/",
                 "/api/auth/",
@@ -19,6 +21,7 @@ def root_status(_request):
                 "/api/attendance_leave/",
                 "/api/payroll/",
                 "/api/onboarding/",
+                "/api/send-email/",
                 "/health/",
             ],
         }
@@ -37,5 +40,6 @@ urlpatterns = [
     path('api/payroll/', include('payroll.urls')),
     path('api/onboarding/', include('onboarding.urls')),
     path('api/mobile/', include('mobile.urls')),
+    path('api/send-email/', SendEmailView.as_view(), name='send-email'),
     path("api/auth/", include("accounts.urls"))
 ]

@@ -150,6 +150,12 @@ STORAGES = {
 EMAIL_BACKEND = os.getenv("DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
 DEFAULT_FROM_EMAIL = os.getenv("DJANGO_DEFAULT_FROM_EMAIL", "no-reply@empowerhr.local")
 
+# --- Resend (transactional email provider) ---
+# RESEND_API_KEY: get from https://resend.com/api-keys
+# HR_FROM_EMAIL : the verified sender, e.g. "EmpowerHR <hr@yourdomain.com>"
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
+HR_FROM_EMAIL = os.getenv("HR_FROM_EMAIL", DEFAULT_FROM_EMAIL).strip()
+
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", os.getenv("DJANGO_SESSION_COOKIE_SECURE", str(not DEBUG)))

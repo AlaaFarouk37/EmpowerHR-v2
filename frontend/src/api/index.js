@@ -483,6 +483,9 @@ export const adminCreateLeaveType = (data) => api.post('/employee_management/lea
 export const adminUpdateLeaveType = (id, data) => api.put(`/employee_management/leave-types/${id}/`, data);
 export const adminDeleteLeaveType = (id) => api.delete(`/employee_management/leave-types/${id}/`);
 
+// Email (Resend)
+export const sendEmail = (data) => api.post('/send-email/', data);
+
 // Auth
 export const loginUser           = (data) => api.post('/auth/login/', data);
 export const logoutUser          = (refresh) => api.post('/auth/logout/', { refresh });
