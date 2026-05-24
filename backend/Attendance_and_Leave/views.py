@@ -318,7 +318,7 @@ class EmployeeAttendanceClockView(APIView):
         record, _ = AttendanceRecord.objects.get_or_create(
             employee=employee,
             date=today,
-            defaults={'status': AttendanceRecord.STATUS_ABSENT}
+            defaults={'status': AttendanceRecord.STATUS_CLOCKED_IN}
         )
 
         if action == 'clock_in':

@@ -1,0 +1,55 @@
+.hr-surface-card {
+  background: var(--neural-white);
+  border: 1px solid var(--gray-100);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hr-surface-card.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  color: var(--neural-white);
+}
+
+.hr-stat-card {
+  padding: 20px;
+  border-radius: var(--radius-md);
+  background: var(--neural-white);
+  border: 1px solid var(--gray-100);
+}
+
+.hr-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.hr-badge-red { background: var(--red-light); color: var(--red); }
+.hr-badge-gray { background: var(--gray-100); color: var(--gray-700); }
+.hr-badge-blue { background: #eff6ff; color: #2563eb; }
+
+.app-search-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid #eaecf0;
+  background: #fcfcfd;
+}
+
+.app-search-input {
+  border: none;
+  background: transparent;
+  color: var(--gray-900);
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
+}

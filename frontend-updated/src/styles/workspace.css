@@ -1,0 +1,119 @@
+.workspace-shell-card {
+  background: var(--neural-white);
+  border: 1px solid var(--gray-200);
+  box-shadow: var(--shadow-sm);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.workspace-shell-topline {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--neural-red);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 12px;
+}
+
+.workspace-shell-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--gray-900);
+}
+
+.workspace-shell-subtitle {
+  font-size: 14px;
+  color: var(--gray-500);
+  margin-top: 4px;
+}
+
+.workspace-shell-meta {
+  display: flex;
+  gap: 16px;
+  margin-top: 16px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gray-400);
+}
+
+.workspace-shell-meta span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workspace-journey-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.workspace-journey-card {
+  padding: 20px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--gray-200);
+  background: var(--neural-white);
+  box-shadow: var(--shadow-xs);
+  transition: all 0.2s ease;
+}
+
+.workspace-journey-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--neural-red-border);
+}
+
+.workspace-journey-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gray-400);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.workspace-journey-value {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--gray-900);
+  margin-bottom: 4px;
+}
+
+.workspace-journey-note {
+  font-size: 12px;
+  color: var(--gray-500);
+  line-height: 1.4;
+}
+
+.workspace-focus-card {
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: var(--gray-50);
+  border: 1px solid var(--gray-100);
+}
+
+.workspace-focus-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gray-500);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.workspace-focus-note {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.workspace-chip {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--neural-red-soft);
+  color: var(--neural-red);
+  border: 1px solid var(--neural-red-border);
+}

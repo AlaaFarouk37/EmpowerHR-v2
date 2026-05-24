@@ -1,0 +1,109 @@
+.neural-command-wrapper {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  padding-top: 15vh;
+  animation: neural-fade-in 0.2s var(--ease-neural);
+}
+
+.neural-command-bar {
+  width: 100%;
+  max-width: 680px;
+  max-height: 80vh;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 20px;
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(220, 38, 38, 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: neural-slide-up 0.3s var(--ease-neural);
+}
+
+.neural-input-container {
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-surface);
+}
+
+.neural-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+.neural-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.neural-results-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  min-height: 100px;
+}
+
+.neural-result-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-neural);
+  text-align: left;
+}
+
+.neural-result-item:hover,
+.neural-result-item.is-active {
+  background: var(--bg-secondary);
+  transform: translateX(4px);
+}
+
+.neural-result-item.is-active {
+  box-shadow: inset 0 0 0 1px var(--neural-red);
+}
+
+@keyframes neural-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes neural-slide-up {
+  from { transform: translateY(20px) scale(0.98); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* Scrollbar Styling */
+.neural-results-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.neural-results-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.neural-results-list::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+  border-radius: 10px;
+}
+
+.neural-results-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}

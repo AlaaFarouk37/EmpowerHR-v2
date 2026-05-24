@@ -1,0 +1,56 @@
+@import './styles/variables.css';
+@import './styles/base.css';
+@import './styles/layout.css';
+@import './styles/components.css';
+@import './styles/components/NeuralCommandBar.css';
+@import './styles/admin.css';
+@import './styles/workspace.css';
+@import './styles/design-system.css';
+@import './styles/employee-portal.css';
+@import './styles/dark-mode-overrides.css';
+
+/* Responsive Utilities (Mobile/Tablet Overrides) */
+@media (max-width: 1100px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .app-sidebar { display: none; } /* Simplified mobile handling */
+  .hr-panel-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 768px) {
+  .hr-page-shell { padding: 20px 16px; }
+  .hr-stats-grid { grid-template-columns: 1fr; }
+}
+
+/* Page Specific Overrides (Optional: can be moved to CSS Modules later) */
+.hr-page-header.is-split {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+/* Executive Command Brief (PDF Engine) - Print Styles */
+@media print {
+  body { background: white !important; color: black !important; padding: 20mm !important; }
+  .app-sidebar, .app-header, button, .btn, .page-nav, .no-print, .log-out-btn { display: none !important; }
+  .page-content { 
+    padding: 0 !important; 
+    margin: 0 !important; 
+    width: 100% !important; 
+    background: white !important; 
+    position: absolute;
+    left: 0;
+    top: 0;
+  }
+  .card { 
+    border: 1px solid #E5E7EB !important; 
+    break-inside: avoid; 
+    margin-bottom: 20px !important; 
+    box-shadow: none !important; 
+    background: white !important; 
+    border-radius: 12px !important;
+  }
+  h1 { font-size: 28pt !important; margin-top: 0 !important; letter-spacing: -0.04em !important; }
+  .badge { border: 1px solid #000 !important; color: black !important; background: transparent !important; }
+}

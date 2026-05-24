@@ -9,7 +9,7 @@ class JobSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Job
         fields = [
-            "id", "title", "description", "required_skills",
+            "id", "title", "level", "description", "required_skills",
             "min_experience_years", "required_degree",
             "weight_skills", "weight_experience", "weight_education", "weight_semantic",
             "is_active", "created_at", "submission_count",
@@ -24,6 +24,30 @@ class JobSerializer(serializers.ModelSerializer):
         total = round(ws + we + wu + wm, 10)
         if abs(total - 1.0) > 0.001:
             raise serializers.ValidationError(f"Weights must sum to 1.0. Got: {total:.3f}")
+
+        # Enforce that (title, level) exists in the position catalog so job postings
+        # always reference a real Employee position. HR picks from the dropdown
+        # sourced from /api/employee_management/jobs/.
+        from employee_management.models import Job as EmploymentJob
+
+        raw_title = data.get("title", self.instance.title if self.instance else "")
+        title = (raw_title or "").strip()
+        raw_level = data.get("level", self.instance.level if self.instance else None)
+        level = (raw_level or "").strip() or None
+
+        if not title:
+            raise serializers.ValidationError({"title": "Job title is required."})
+
+        catalog = EmploymentJob.objects.filter(title__iexact=title)
+        catalog = catalog.filter(level__iexact=level) if level else catalog.filter(level__isnull=True)
+        if not catalog.exists():
+            raise serializers.ValidationError({
+                "title": (
+                    f"Position '{title}' with level '{level or '(none)'}' is not in the position catalog. "
+                    "Pick an existing position or have an admin add it first."
+                )
+            })
+
         return data
 
 

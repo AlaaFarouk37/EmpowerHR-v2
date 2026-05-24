@@ -29,10 +29,7 @@ def gen_id():
     return uuid.uuid4().hex[:20]
     
 def generate_employee_id():
-    """
-    Auto-generates the next employee ID in the format EMP00001, EMP00002, etc.
-    Looks at the highest existing employeeID and increments it.
-    """
+
     last = (
         Employee.objects.filter(employeeID__startswith="EMP")
         .order_by("employeeID")
@@ -63,10 +60,6 @@ class Team(models.Model):
 
 
 
-# ──────────────────────────────────────────────
-# Custom QuerySet & Manager
-# ──────────────────────────────────────────────
-
 class EmployeeQuerySet(models.QuerySet):
     def with_computed_fields(self):
         today = date.today()
@@ -87,9 +80,6 @@ class EmployeeManager(models.Manager):
         return EmployeeQuerySet(self.model, using=self._db).with_computed_fields()
 
 
-# ──────────────────────────────────────────────
-# Employee Model
-# ──────────────────────────────────────────────
 
 class Employee(models.Model):
     """
@@ -103,11 +93,9 @@ class Employee(models.Model):
     MARITAL_CHOICES      = [('Single', 'Single'), ('Married', 'Married'),
                              ('Divorced', 'Divorced')]
 
-    # ── Identity ──────────────────────────────
     employeeID         = models.CharField(max_length=50, primary_key=True, default=generate_employee_id)
     fullName           = models.CharField(max_length=150)
 
-    # ── Relations ─────────────────────────────
     job = models.ForeignKey(
         'Job',
         on_delete=models.SET_NULL,
@@ -127,7 +115,6 @@ class Employee(models.Model):
         related_name='employees'
     )
 
-    # ── Employment info ───────────────────────
     employeeType       = models.CharField(max_length=30, null=True, blank=True)
     location           = models.CharField(max_length=100, null=True, blank=True)
     employmentStatus   = models.CharField(max_length=30, default='Active')
@@ -151,7 +138,6 @@ class Employee(models.Model):
                                                null=True, blank=True,
                                                help_text="Baseline work hours required per day (used for overtime calculation)")
 
-    # ── Attrition model fields ─────────────────
     gender             = models.CharField(max_length=10, choices=GENDER_CHOICES,
                                           null=True, blank=True)
     monthlyIncome      = models.IntegerField(null=True, blank=True)
@@ -167,7 +153,6 @@ class Employee(models.Model):
     maritalStatus      = models.CharField(max_length=20, choices=MARITAL_CHOICES,
                                           null=True, blank=True)
 
-    # ── Custom manager ────────────────────────
     objects = EmployeeManager()
 
     class Meta:
@@ -176,9 +161,6 @@ class Employee(models.Model):
     def __str__(self):
         return f"{self.fullName} ({self.employeeID})"
 
-    # ── Computed: age & yearsAtCompany ────────
-    # These are set by the manager annotation when fetched from DB.
-    # The @property below is a fallback for unsaved / in-memory instances.
 
     @property
     def age(self):

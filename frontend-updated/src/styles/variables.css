@@ -1,0 +1,135 @@
+:root {
+  /* --- Core Design System (Red-White-Pink-Black) --- */
+  
+  /* Red Family */
+  --red-50:  #FEF2F2;
+  --red-100: #FEE2E2;
+  --red-200: #FECACA;
+  --red-400: #F87171;
+  --red-500: #EF4444;
+  --red-600: #DC2626; /* Primary Red (Vibrant) */
+  --red-800: #991B1B;
+  --red-900: #7F1D1D;
+
+  /* Pink Family */
+  --pink-50:  #FBEAF0;
+  --pink-100: #F4C0D1;
+  --pink-200: #ED93B1;
+  --pink-400: #D4537E;
+  --pink-600: #993556; /* Primary Pink */
+  --pink-800: #72243E;
+  --pink-900: #4B1528;
+
+  /* Neutrals */
+  --pure-white: #FFFFFF;
+  --off-white:  #F8F8F8; /* Page Background */
+  --warm-white: #F1EFE8; /* Card Surface */
+  --gray-100:   #D3D1C7; /* Borders */
+  --gray-400:   #888780; /* Secondary Text */
+  --gray-800:   #444441; /* Primary Text */
+  --true-black: #1A1A1A; /* Black */
+
+  /* Mapping to Functional Variables */
+  --color-primary-red:   var(--red-600);
+  --color-secondary-pink: var(--pink-600);
+  
+  --color-text-primary:      var(--gray-800);
+  --color-text-secondary:    var(--gray-400);
+  --color-text-tertiary:     var(--gray-400);
+  
+  --color-background-primary:   var(--pure-white);
+  --color-background-secondary: var(--off-white);
+  --color-background-info:      var(--pink-50);
+  
+  --color-border-primary:    var(--gray-100);
+  --color-border-secondary:  var(--red-200);
+  --color-border-tertiary:   var(--gray-100);
+
+  /* Semantic Definitions */
+  --color-danger:            var(--red-600);
+  --color-danger-tint:       var(--red-50);
+  --color-warning:           var(--pink-600);
+  --color-warning-tint:      var(--pink-50);
+  --color-success:           var(--red-600); 
+  --color-success-tint:      var(--red-50);
+
+  /* Legacy Backward Compatibility (Restored to professional teal) */
+  --color-primary-teal:      #10B981; 
+  --color-primary-teal-mid:  #34D399;
+  --color-primary-teal-light: #6EE7B7;
+  --color-primary-teal-tint:  #ECFDF5;
+  
+  --color-secondary-blue:    var(--pink-600);
+  --blue-600:                var(--pink-400);
+  --blue-700:                var(--pink-600);
+  --color-ai-purple:         var(--pink-600);
+  --neural-red:              var(--red-600);
+  --neural-blue:             var(--pink-600);
+
+  /* Layout & Density Tokens */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --border-radius-sm:  6px;
+  --border-radius-md:  8px;
+  --border-radius-lg:  10px;
+  --border-radius-xl:  12px;
+  --border-radius-full: 99px;
+
+  /* Shadows & Interaction */
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 8px 24px -4px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 16px 32px -8px rgba(0, 0, 0, 0.12);
+  --focus-ring-red:  0 0 0 3px rgba(163, 45, 45, 0.12);
+  --focus-ring-pink: 0 0 0 3px rgba(153, 53, 86, 0.12);
+
+  /* Motion */
+  --ease-neural: cubic-bezier(0.22, 1, 0.36, 1);
+  --transition-fast: 0.15s ease;
+  --transition-slow: 0.3s ease;
+
+  /* Surface Mappings */
+  --bg-primary:    var(--pure-white);
+  --bg-secondary:  #F8FAFC; /* Slate-50 background for employee portal */
+  --bg-surface:    var(--pure-white);
+  --text-primary:   #1E293B; /* Slate-800 */
+  --text-secondary: #64748B; /* Slate-500 */
+  --text-muted:     #94A3B8; /* Slate-400 */
+  --border-primary: #E2E8F0; /* Slate-200 */
+  
+  --shadow-neural: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+  --shadow-red: 0 10px 15px -3px rgba(220, 38, 38, 0.1);
+
+  --card-bg: var(--pure-white);
+  --card-border: var(--border-primary);
+  --glass-bg: rgba(255, 255, 255, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.5);
+}
+
+.theme-dark {
+  --bg-primary:    #0F172A; /* Slate-900 */
+  --bg-secondary:  #1E293B; /* Slate-800 */
+  --bg-surface:    #334155; /* Slate-700 */
+  
+  --text-primary:   #F8FAFC; /* Slate-50 */
+  --text-secondary: #CBD5E1; /* Slate-300 */
+  --text-muted:     #94A3B8; /* Slate-400 */
+  
+  --border-primary: rgba(255, 255, 255, 0.08);
+  --border-secondary: rgba(255, 255, 255, 0.15);
+
+  --color-text-primary:      var(--text-primary);
+  --color-text-secondary:    var(--text-secondary);
+  --color-text-tertiary:     var(--text-muted);
+  
+  --color-background-primary:   var(--bg-primary);
+  --color-background-secondary: var(--bg-secondary);
+  --color-background-info:      var(--bg-surface);
+  
+  --color-border-primary:    var(--border-primary);
+  --color-border-secondary:  var(--border-secondary);
+
+  /* Overrides for specific components in dark mode */
+  --glass-bg: rgba(30, 41, 59, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --card-bg: var(--bg-secondary);
+  --card-border: var(--border-primary);
+}

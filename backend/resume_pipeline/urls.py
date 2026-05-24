@@ -4,6 +4,7 @@ from .views import (
     SubmitResumeView, CandidateApplicationListView, JobSubmissionsView, SubmissionDetailView, SubmissionStageUpdateView, JobCVRankingView,
     SuccessionPlanListCreateView, SuccessionPlanDetailView,
     HRSuccessionWatchView, HRSuccessionPlanListCreateView,
+    AtRiskEmployeeListView, EmployeeSuccessorListView,
 )
 
 urlpatterns = [
@@ -21,5 +22,7 @@ urlpatterns = [
     path("succession-plans/<str:pk>/", SuccessionPlanDetailView.as_view(), name='succession-plan-detail'),
     path("hr/succession/watch/", HRSuccessionWatchView.as_view(), name='hr-succession-watch'),
     path("hr/succession/", HRSuccessionPlanListCreateView.as_view(), name='hr-succession-list-create'),
+    path("succession/at-risk/", AtRiskEmployeeListView.as_view(), name='succession-at-risk'),
+    path("succession/employees/<str:employee_id>/successors/", EmployeeSuccessorListView.as_view(), name='succession-successors'),
 ]
 

@@ -8,8 +8,9 @@ def generate_tracking_code():
 
 
 class Job(models.Model):
-    """A job posting with its JD text and scoring weights."""
     title                = models.CharField(max_length=255)
+    level                = models.CharField(max_length=100, null=True, blank=True,
+                                            help_text="Must match an employee_management.Job (title, level) pair.")
     description          = models.TextField(help_text="Full job description text")
     required_skills      = models.JSONField(default=list)   # extracted from JD automatically
     min_experience_years = models.FloatField(default=0)
@@ -29,8 +30,6 @@ class Job(models.Model):
 
 
 class Submission(models.Model):
-    """A candidate resume submitted against a Job."""
-
     class Status(models.TextChoices):
         PENDING    = "pending",    "Pending"
         PROCESSING = "processing", "Processing"
@@ -57,14 +56,12 @@ class Submission(models.Model):
     stage_history   = models.JSONField(default=list, blank=True)
     error_message   = models.TextField(blank=True)
 
-    # ── Extracted fields ──────────────────────────────────────────────────────
     raw_text               = models.TextField(blank=True)
     candidate_skills       = models.JSONField(default=list)
     candidate_degree       = models.CharField(max_length=20, default="Unknown")
     candidate_years_exp    = models.FloatField(default=0.0)
     exp_extraction_method  = models.CharField(max_length=50, blank=True)
 
-    # ── Scores (0–100) ────────────────────────────────────────────────────────
     skills_score     = models.FloatField(null=True)
     experience_score = models.FloatField(null=True)
     education_score  = models.FloatField(null=True)

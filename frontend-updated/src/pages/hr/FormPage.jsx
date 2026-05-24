@@ -1,0 +1,446 @@
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  hrGetForms,
+  hrGetFormDetail,
+  hrCreateForm,
+  hrAddQuestion,
+  hrDeleteQuestion,
+} from '../../api/index.js';
+import { Spinner, Badge, Btn, useToast, Input, Modal, Textarea } from '../../components/shared/index.jsx';
+import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '../../context/LanguageContext';
+import { 
+  Search, 
+  Filter, 
+  Plus, 
+  Eye, 
+  MessageSquare, 
+  Activity, 
+  BarChart3, 
+  Smile,
+  ChevronRight,
+  Zap,
+  Globe,
+  Layers,
+  ChevronDown,
+  Sparkles,
+  SearchCode,
+  MoreVertical,
+  ClipboardList,
+  Trash2
+} from 'lucide-react';
+
+export function HRFormsPage() {
+  const toast = useToast();
+  const { t } = useLanguage();
+  const navigate = useNavigate();
+  const { resolvePath } = useAuth();
+  
+  const [forms, setForms] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState('All Intelligence Forms');
+
+  const [selectedForm, setSelectedForm] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [showAddQ, setShowAddQ] = useState(false);
+  const [formData, setFormData] = useState({ title: '', description: '' });
+  const [qData, setQData] = useState({ questionText: '', fieldType: 'score_1_4', order: 0 });
+  const [saving, setSaving] = useState(false);
+
+  const FIELD_TYPES = ['score_1_4', 'decimal', 'boolean'];
+  const FIELD_LABELS = { score_1_4: 'Score 1-4', boolean: 'Yes / No', decimal: 'Decimal' };
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await hrGetForms();
+      setForms(Array.isArray(data) ? data : []);
+    } catch { toast('Failed to load feedback forms', 'error'); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const openForm = async (form) => {
+    setSelectedForm(form);
+    try {
+      const detail = await hrGetFormDetail(form.formID);
+      if (detail?.formID) setSelectedForm(detail);
+    } catch {
+      // fall back to the list payload
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!formData.title.trim()) { toast('Title is required', 'error'); return; }
+    setSaving(true);
+    try {
+      const res = await hrCreateForm(formData);
+      if (res?.formID) {
+        toast('Form created');
+        setShowCreate(false);
+        setFormData({ title: '', description: '' });
+        await load();
+      } else {
+        toast('Failed to create form', 'error');
+      }
+    } catch (err) {
+      toast(err?.message || 'Failed to create form', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAddQuestion = async () => {
+    if (!selectedForm?.formID) { toast('Select a form first', 'error'); return; }
+    if (!qData.questionText.trim()) { toast('Question text is required', 'error'); return; }
+    setSaving(true);
+    try {
+      const res = await hrAddQuestion(selectedForm.formID, qData);
+      if (res?.questionID) {
+        toast('Question added');
+        setShowAddQ(false);
+        setQData({ questionText: '', fieldType: 'score_1_4', order: 0 });
+        const detail = await hrGetFormDetail(selectedForm.formID);
+        if (detail?.formID) setSelectedForm(detail);
+        await load();
+      } else {
+        toast('Failed to add question', 'error');
+      }
+    } catch (err) {
+      toast(err?.message || 'Failed to add question', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteQuestion = async (q) => {
+    if (!selectedForm?.formID) return;
+    if (!window.confirm('Delete this question?')) return;
+    try {
+      await hrDeleteQuestion(q.questionID);
+      toast('Question deleted');
+      const detail = await hrGetFormDetail(selectedForm.formID);
+      if (detail?.formID) setSelectedForm(detail);
+      await load();
+    } catch (err) {
+      toast(err?.message || 'Failed to delete question', 'error');
+    }
+  };
+
+  const filteredForms = useMemo(() => {
+    return forms.filter(f => {
+      const matchesSearch = f.title?.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesSearch;
+    });
+  }, [forms, searchQuery]);
+
+  const formStats = useMemo(() => {
+    const totalSubs = forms.reduce((acc, f) => acc + (f.submissionCount || 0), 0);
+    return [
+      { label: 'Active Intelligence Nodes', value: forms.filter(f => f.isActive).length, icon: MessageSquare, color: '#1E293B', bg: '#F8FAFC' },
+      { label: 'Total Data Payloads', value: totalSubs, icon: BarChart3, color: 'var(--red-600)', bg: 'var(--red-50)' },
+      { label: 'Network Participation', value: '74.2%', icon: Activity, color: 'var(--red-800)', bg: 'var(--red-50)' },
+      { label: 'Global Sentiment Index', value: '4.2/5', icon: Smile, color: '#10B981', bg: '#ECFDF5' },
+    ];
+  }, [forms]);
+
+  if (loading) return (
+    <div style={{ height: '80vh', display: 'grid', placeItems: 'center' }}>
+       <div style={{ textAlign: 'center' }}>
+          <div style={{ width: 64, height: 64, margin: '0 auto 24px', border: '3px solid var(--red-100)', borderTopColor: 'var(--red-600)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+          <div style={{ fontSize: 14, fontWeight: 900, color: '#1E293B', letterSpacing: '0.1em' }}>SYNCHRONIZING FEEDBACK GRID...</div>
+       </div>
+    </div>
+  );
+
+  return (
+    <div className="page-content animate-in" style={{ background: '#F8FAFC', minHeight: '100vh', padding: '40px 60px' }}>
+      {/* Strategic Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 48 }}>
+        <div>
+           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--red-600)', display: 'grid', placeItems: 'center', boxShadow: '0 8px 16px rgba(220, 38, 38, 0.2)' }}>
+                 <ClipboardList size={22} style={{ color: '#fff' }} />
+              </div>
+              <h1 style={{ fontSize: 32, fontWeight: 900, color: '#1E293B', margin: 0, letterSpacing: '-0.02em' }}>Organizational Feedback Command</h1>
+           </div>
+           <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>Deploy workforce intelligence surveys, monitor network sentiment, and audit form payloads.</p>
+        </div>
+
+        <Btn
+          onClick={() => { setFormData({ title: '', description: '' }); setShowCreate(true); }}
+          variant="primary"
+          style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
+        >
+           <Zap size={18} style={{ marginRight: 8 }} /> {t('Deploy Intelligence Form')}
+        </Btn>
+      </div>
+
+      {/* Intelligence Telemetry Strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, marginBottom: 48 }}>
+        {formStats.map(s => (
+          <div key={s.label} style={{ padding: '24px', borderRadius: 28, background: '#fff', border: '1.5px solid #F1F5F9', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 20 }}>
+            <div style={{ width: 48, height: 48, borderRadius: 14, background: s.bg, color: s.color, display: 'grid', placeItems: 'center' }}>
+              <s.icon size={22} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t(s.label)}</div>
+              <div style={{ fontSize: 24, fontWeight: 900, color: '#1E293B' }}>{s.value}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Control Bar */}
+      <div style={{ background: '#fff', padding: '16px 24px', borderRadius: 24, border: '1.5px solid #F1F5F9', marginBottom: 32, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+           <div style={{ position: 'relative' }}>
+              <select 
+                value={activeTab}
+                onChange={(e) => setActiveTab(e.target.value)}
+                style={{ height: 44, padding: '0 40px 0 16px', borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', fontSize: 13, fontWeight: 800, color: '#1E293B', outline: 'none', appearance: 'none', minWidth: 200 }}
+              >
+                 <option value="All Intelligence Forms">{t('All Intelligence Forms')}</option>
+                 <option value="Performance">{t('Performance Nodes')}</option>
+                 <option value="Sentiment">{t('Sentiment Analysis')}</option>
+              </select>
+              <ChevronDown size={14} style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', pointerEvents: 'none' }} />
+           </div>
+           
+           <div style={{ position: 'relative' }}>
+              <Search size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+              <input 
+                type="text" 
+                placeholder={t('Search feedback nodes...')}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ height: 44, padding: '0 16px 0 48px', borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', fontSize: 13, fontWeight: 600, width: 320, outline: 'none' }} 
+              />
+           </div>
+        </div>
+        
+        <div style={{ display: 'flex', gap: 12 }}>
+           <Btn variant="secondary" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
+              <Filter size={16} style={{ marginRight: 8 }} /> {t('Neural Filters')}
+           </Btn>
+           <Btn variant="outline" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
+              <BarChart3 size={16} style={{ marginRight: 8 }} /> {t('Global Analytics')}
+           </Btn>
+        </div>
+      </div>
+
+      {/* Split layout: forms list (left) + selected form's questions (right) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 480px', gap: 24, alignItems: 'flex-start' }}>
+        {/* Left pane: Neural Feedback Ledger */}
+        <div style={{ background: '#fff', borderRadius: 32, border: '1.5px solid #F1F5F9', overflow: 'hidden', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.03)' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#F8FAFC', borderBottom: '1.5px solid #F1F5F9' }}>
+                {['Intelligence Node', 'Data Payload', 'Status', 'Actions'].map(h => (
+                  <th key={h} style={{ padding: '20px 24px', textAlign: 'left', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t(h)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredForms.map((form, idx) => {
+                const isActive = form.isActive;
+                const isSelected = selectedForm?.formID === form.formID;
+
+                return (
+                  <tr
+                    key={idx}
+                    onClick={() => openForm(form)}
+                    style={{
+                      borderBottom: '1px solid #F1F5F9',
+                      transition: 'background 0.2s',
+                      background: isSelected ? 'var(--red-50)' : isActive ? 'rgba(220, 38, 38, 0.01)' : 'transparent',
+                      borderLeft: isSelected ? '4px solid var(--red-600)' : '4px solid transparent',
+                      cursor: 'pointer',
+                    }}
+                    className="form-row"
+                  >
+                    <td style={{ padding: '20px 24px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <div style={{
+                          width: 40, height: 40, borderRadius: 12, background: isSelected || isActive ? 'var(--red-50)' : '#F8FAFC',
+                          display: 'grid', placeItems: 'center', color: isSelected || isActive ? 'var(--red-600)' : '#94A3B8', border: `1px solid ${isSelected || isActive ? 'var(--red-100)' : '#F1F5F9'}`
+                        }}>
+                          <MessageSquare size={18} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 900, color: '#1E293B' }}>{form.title}</div>
+                          <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 800 }}>FRM-00{form.formID}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ padding: '20px 24px' }}>
+                      <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--red-600)' }}>
+                        {form.submissionCount || 0}
+                      </div>
+                      <div style={{ fontSize: 9, color: '#94A3B8', fontWeight: 800, textTransform: 'uppercase' }}>Submissions</div>
+                    </td>
+                    <td style={{ padding: '20px 24px' }}>
+                      <Badge
+                        label={isActive ? 'LIVE NODE' : 'DRAFT'}
+                        color={isActive ? 'green' : 'gray'}
+                      />
+                    </td>
+                    <td style={{ padding: '20px 24px' }}>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button className="action-btn" title="Open Questions" onClick={(e) => { e.stopPropagation(); openForm(form); }}><SearchCode size={18} /></button>
+                        <button className="action-btn" title="Add Question" onClick={(e) => { e.stopPropagation(); openForm(form).then(() => setShowAddQ(true)); }}><Plus size={18} /></button>
+                        <button className="action-btn" title="Tactical Options"><MoreVertical size={18} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Right pane: questions for the selected form */}
+        <div style={{ background: '#fff', borderRadius: 32, border: '1.5px solid #F1F5F9', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.03)', overflow: 'hidden', position: 'sticky', top: 24 }}>
+          {!selectedForm ? (
+            <div style={{ padding: '64px 32px', textAlign: 'center' }}>
+              <div style={{ width: 64, height: 64, borderRadius: 18, background: '#F8FAFC', color: '#94A3B8', display: 'grid', placeItems: 'center', margin: '0 auto 16px', border: '1px solid #F1F5F9' }}>
+                <ClipboardList size={28} />
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 900, color: '#1E293B', marginBottom: 6 }}>{t('Select a form to view its questions')}</div>
+              <div style={{ fontSize: 13, color: '#94A3B8', fontWeight: 600 }}>{t('Click any Intelligence Node on the left to manage its questions.')}</div>
+            </div>
+          ) : (
+            <>
+              <div style={{ padding: '24px 28px', borderBottom: '1.5px solid #F1F5F9', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>FRM-00{selectedForm.formID}</div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: '#1E293B', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedForm.title}</div>
+                  {selectedForm.description && (
+                    <div style={{ fontSize: 13, color: '#64748B', fontWeight: 600, marginTop: 4 }}>{selectedForm.description}</div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                    <Badge label={selectedForm.isActive ? t('Live') : t('Draft')} color={selectedForm.isActive ? 'green' : 'gray'} />
+                    <Badge label={`${selectedForm.questions?.length || selectedForm.questionCount || 0} ${t('questions')}`} color="indigo" />
+                    <Badge label={`${selectedForm.submissionCount || 0} ${t('submissions')}`} color="gray" />
+                  </div>
+                </div>
+                <Btn onClick={() => setShowAddQ(true)} style={{ borderRadius: 12, fontWeight: 800, padding: '10px 18px', minWidth: 160 }}>
+                  <Plus size={16} style={{ marginRight: 6 }} /> {t('Add Question')}
+                </Btn>
+              </div>
+              <div style={{ padding: '20px 28px 28px', maxHeight: 'calc(100vh - 280px)', overflowY: 'auto' }}>
+                {(!selectedForm.questions || selectedForm.questions.length === 0) ? (
+                  <div style={{ textAlign: 'center', padding: '32px 16px' }}>
+                    <Sparkles size={32} color="#94A3B8" style={{ marginBottom: 12 }} />
+                    <div style={{ fontSize: 14, fontWeight: 800, color: '#1E293B', marginBottom: 4 }}>{t('No questions yet')}</div>
+                    <div style={{ fontSize: 13, color: '#94A3B8', fontWeight: 600 }}>{t('Add your first question to start collecting answers.')}</div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {selectedForm.questions.map((q, i) => (
+                      <div key={q.questionID} style={{ position: 'relative', background: '#F8FAFC', border: '1px solid #F1F5F9', borderRadius: 14, padding: '14px 44px 14px 16px' }}>
+                        <button
+                          onClick={() => handleDeleteQuestion(q)}
+                          title={t('Delete question')}
+                          style={{
+                            position: 'absolute', top: 10, right: 10,
+                            width: 28, height: 28, padding: 0, border: 'none',
+                            background: 'transparent', color: '#94A3B8',
+                            borderRadius: 8, display: 'grid', placeItems: 'center',
+                            cursor: 'pointer', transition: 'all 0.2s',
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--red-600)'; e.currentTarget.style.background = 'var(--red-50)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = '#94A3B8'; e.currentTarget.style.background = 'transparent'; }}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--red-600)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>
+                          {FIELD_LABELS[q.fieldType] || q.fieldType}
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#1E293B' }}>{i + 1}. {q.questionText}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        .form-row:hover { background: #FBFBFF; }
+        .action-btn {
+          width: 36px; height: 36px; border: 1.5px solid #F1F5F9; background: #fff;
+          color: #94A3B8; border-radius: 10px; display: grid; placeItems: center;
+          cursor: pointer; transition: all 0.2s;
+        }
+        .action-btn:hover { color: var(--red-600); border-color: var(--red-100); background: var(--red-50); }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}} />
+
+      {/* Create form modal */}
+      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t('Deploy Intelligence Form')}>
+        <Input
+          label={t('Form Title')}
+          value={formData.title}
+          onChange={(e) => setFormData((d) => ({ ...d, title: e.target.value }))}
+          placeholder="e.g. Q1 2026 Employee Satisfaction"
+        />
+        <Textarea
+          label={t('Description (optional)')}
+          value={formData.description}
+          onChange={(e) => setFormData((d) => ({ ...d, description: e.target.value }))}
+          placeholder="Brief description of the form..."
+        />
+        <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+          <Btn variant="ghost" onClick={() => setShowCreate(false)} style={{ flex: 1 }}>{t('Cancel')}</Btn>
+          <Btn onClick={handleCreate} disabled={saving} style={{ flex: 1 }}>{saving ? t('Creating...') : t('Create Form')}</Btn>
+        </div>
+      </Modal>
+
+      {/* Add question modal */}
+      <Modal open={showAddQ} onClose={() => setShowAddQ(false)} title={t('Add Question')}>
+        <Textarea
+          label={t('Question Text')}
+          value={qData.questionText}
+          onChange={(e) => setQData((d) => ({ ...d, questionText: e.target.value }))}
+          placeholder="e.g. How would you rate your work-life balance?"
+        />
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 8 }}>{t('Field Type')}</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {FIELD_TYPES.map((fieldType) => (
+              <button
+                key={fieldType}
+                onClick={() => setQData((d) => ({ ...d, fieldType }))}
+                style={{
+                  flex: 1, padding: '10px 8px', borderRadius: 12, fontSize: 12, fontWeight: 700,
+                  border: '2px solid', cursor: 'pointer', transition: 'all .15s',
+                  borderColor: qData.fieldType === fieldType ? 'var(--red-600)' : '#E2E8F0',
+                  background: qData.fieldType === fieldType ? 'var(--red-50)' : '#fff',
+                  color: qData.fieldType === fieldType ? 'var(--red-600)' : '#64748B',
+                }}
+              >
+                {t(FIELD_LABELS[fieldType])}
+              </button>
+            ))}
+          </div>
+        </div>
+        <Input
+          label={t('Display Order')}
+          type="number"
+          value={qData.order}
+          onChange={(e) => setQData((d) => ({ ...d, order: parseInt(e.target.value, 10) || 0 }))}
+        />
+        <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+          <Btn variant="ghost" onClick={() => setShowAddQ(false)} style={{ flex: 1 }}>{t('Cancel')}</Btn>
+          <Btn onClick={handleAddQuestion} disabled={saving} style={{ flex: 1 }}>{saving ? t('Adding...') : t('Add Question')}</Btn>
+        </div>
+      </Modal>
+    </div>
+  );
+}

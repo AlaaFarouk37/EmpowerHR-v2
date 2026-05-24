@@ -4,7 +4,7 @@ import io
 import math
 from collections import Counter
 from difflib import SequenceMatcher
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 from pathlib import Path
 from threading import Timer
 from django.conf import settings
@@ -171,8 +171,13 @@ def _promote_candidate_to_employee(submission, actor):
         employee.employmentStatus = 'Active'
         update_fields.append('employmentStatus')
 
+    # Match the position by (title, level) — recruitment Jobs are constrained to
+    # the catalog at creation time, so this should always resolve. The
+    # defensive get_or_create remains for legacy rows posted before that
+    # constraint existed.
     target_job, _ = EmploymentJob.objects.get_or_create(
         title=submission.job.title,
+        level=submission.job.level,
         defaults={'base_salary': 0},
     )
     if employee.job_id != target_job.pk:
@@ -1608,3 +1613,238 @@ class HRSuccessionPlanListCreateView(APIView):
             createdBy=getattr(request.user, 'full_name', '') or getattr(request.user, 'email', ''),
         )
         return Response(SuccessionPlanSerializer(plan).data, status=status.HTTP_201_CREATED)
+
+
+# ── Succession matching (filter/rank existing talent pool against at-risk employees) ──
+
+
+def _succession_freshness_label(submitted_at, now):
+    if submitted_at is None:
+        return ''
+    delta = now - submitted_at
+    days = max(delta.days, 0)
+    if days < 1:
+        return 'today'
+    if days < 30:
+        return f"{days} day{'s' if days != 1 else ''} ago"
+    months = days // 30
+    if months < 12:
+        return f"{months} month{'s' if months != 1 else ''} ago"
+    years = days // 365
+    return f"{years} year{'s' if years != 1 else ''} ago"
+
+
+class AtRiskEmployeeListView(APIView):
+    """GET /api/recruitment/succession/at-risk/?threshold=70
+
+    Returns employees whose latest attrition prediction is at or above the
+    threshold (0-100, default 70), sorted by riskScore desc.
+    """
+    permission_classes = [IsAuthenticated, IsHRManager]
+
+    def get(self, request):
+        from django.db.models import Max
+        from attrition.models import AttritionPrediction
+
+        try:
+            raw_threshold = float(request.query_params.get('threshold', '70'))
+        except (TypeError, ValueError):
+            raw_threshold = 70.0
+        raw_threshold = max(0.0, min(raw_threshold, 100.0))
+        threshold_normalized = raw_threshold / 100.0
+
+        latest_ids = (
+            AttritionPrediction.objects
+            .values('employeeID')
+            .annotate(latest=Max('predictedAt'))
+        )
+
+        predictions = []
+        for entry in latest_ids:
+            pred = (
+                AttritionPrediction.objects
+                .select_related('employeeID', 'employeeID__department', 'employeeID__team', 'employeeID__job')
+                .get(employeeID_id=entry['employeeID'], predictedAt=entry['latest'])
+            )
+            if pred.riskScore is None or pred.riskScore < threshold_normalized:
+                continue
+            employee = pred.employeeID
+            if not employee or getattr(employee, 'isDeleted', False):
+                continue
+            predictions.append(pred)
+
+        predictions.sort(key=lambda p: p.riskScore, reverse=True)
+
+        results = [
+            {
+                'employeeID': pred.employeeID.employeeID,
+                'fullName': pred.employeeID.fullName,
+                'jobTitle': pred.employeeID.jobTitle,
+                'department': _label(pred.employeeID.department),
+                'team': _label(pred.employeeID.team),
+                'riskScore': round(pred.riskScore, 4),
+                'riskScorePct': round(pred.riskScore * 100, 1),
+                'riskLevel': pred.riskLevel,
+                'predictedAt': pred.predictedAt,
+            }
+            for pred in predictions
+        ]
+
+        return Response({
+            'threshold': raw_threshold,
+            'count': len(results),
+            'results': results,
+        })
+
+
+class EmployeeSuccessorListView(APIView):
+    """GET /api/recruitment/succession/employees/<employee_id>/successors/
+
+    Ranks talent-pool Submissions as potential successors for the given employee.
+    All filters optional and combinable. Base constraints always applied:
+      talent_pool=True, status=DONE, review_stage != Hired.
+
+    Query params (all optional):
+      job_title          str   — defaults to the at-risk employee's current job title
+      level              str   — optional, restricts to that job level (e.g. "Senior")
+      min_ats_score      float — default 70
+      recency_days       int   — default 365
+      recency_disabled   bool  — if true, recency filter is skipped
+      review_stages      csv   — restrict to these stages (e.g. "Shortlisted,Interview")
+      limit              int   — default 10, max 100
+
+    Results sorted by ats_score desc, submitted_at desc.
+    """
+    permission_classes = [IsAuthenticated, IsHRManager]
+
+    DEFAULT_MIN_ATS = 70.0
+    DEFAULT_RECENCY_DAYS = 365
+    DEFAULT_LIMIT = 10
+    MAX_LIMIT = 100
+
+    @staticmethod
+    def _bool_param(value):
+        if value is None:
+            return False
+        return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+    def get(self, request, employee_id):
+        from attrition.models import AttritionPrediction
+
+        employee = (
+            Employee.objects
+            .select_related('job', 'department', 'team')
+            .filter(pk=employee_id, isDeleted=False)
+            .first()
+        )
+        if not employee:
+            return Response({'detail': 'Employee not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Resolve filters
+        job_title = (request.query_params.get('job_title') or employee.jobTitle or '').strip()
+        level = (request.query_params.get('level') or '').strip()
+
+        try:
+            min_ats = float(request.query_params.get('min_ats_score', self.DEFAULT_MIN_ATS))
+        except (TypeError, ValueError):
+            min_ats = self.DEFAULT_MIN_ATS
+
+        recency_disabled = self._bool_param(request.query_params.get('recency_disabled'))
+        try:
+            recency_days = int(request.query_params.get('recency_days', self.DEFAULT_RECENCY_DAYS))
+        except (TypeError, ValueError):
+            recency_days = self.DEFAULT_RECENCY_DAYS
+
+        review_stages_raw = (request.query_params.get('review_stages') or '').strip()
+        requested_stages = [s.strip() for s in review_stages_raw.split(',') if s.strip()] if review_stages_raw else []
+        valid_stages = {choice for choice, _ in Submission.ReviewStage.choices}
+        review_stages = [s for s in requested_stages if s in valid_stages]
+
+        try:
+            limit = int(request.query_params.get('limit', self.DEFAULT_LIMIT))
+        except (TypeError, ValueError):
+            limit = self.DEFAULT_LIMIT
+        limit = max(1, min(limit, self.MAX_LIMIT))
+
+        # Base constraints — always applied
+        qs = (
+            Submission.objects
+            .select_related('job')
+            .filter(talent_pool=True, status=Submission.Status.DONE)
+            .exclude(review_stage=Submission.ReviewStage.HIRED)
+        )
+
+        if job_title:
+            qs = qs.filter(job__title__iexact=job_title)
+        if level:
+            qs = qs.filter(job__level__iexact=level)
+        if min_ats is not None:
+            qs = qs.filter(ats_score__gte=min_ats)
+        if not recency_disabled and recency_days and recency_days > 0:
+            cutoff = timezone.now() - timedelta(days=recency_days)
+            qs = qs.filter(submitted_at__gte=cutoff)
+        if review_stages:
+            qs = qs.filter(review_stage__in=review_stages)
+
+        qs = qs.order_by('-ats_score', '-submitted_at')[:limit]
+
+        now = timezone.now()
+        results = []
+        for sub in qs:
+            resume_url = ''
+            if sub.resume_file:
+                try:
+                    resume_url = sub.resume_file.url
+                except Exception:
+                    resume_url = ''
+            results.append({
+                'submission_id': sub.id,
+                'candidate_name': sub.candidate_name or 'Candidate',
+                'candidate_email': sub.candidate_email or '',
+                'tracking_code': sub.tracking_code,
+                'ats_score': sub.ats_score,
+                'skills_score': sub.skills_score,
+                'experience_score': sub.experience_score,
+                'education_score': sub.education_score,
+                'semantic_score': sub.semantic_score,
+                'job': {
+                    'id': sub.job_id,
+                    'title': sub.job.title if sub.job else '',
+                },
+                'review_stage': sub.review_stage,
+                'submitted_at': sub.submitted_at,
+                'freshness_label': _succession_freshness_label(sub.submitted_at, now),
+                'resume_file_url': resume_url,
+            })
+
+        latest_pred = (
+            AttritionPrediction.objects
+            .filter(employeeID_id=employee.employeeID)
+            .order_by('-predictedAt')
+            .first()
+        )
+
+        return Response({
+            'employee': {
+                'employeeID': employee.employeeID,
+                'fullName': employee.fullName,
+                'jobTitle': employee.jobTitle,
+                'department': _label(employee.department),
+                'team': _label(employee.team),
+                'riskScore': round(latest_pred.riskScore, 4) if latest_pred else None,
+                'riskScorePct': round(latest_pred.riskScore * 100, 1) if latest_pred else None,
+                'riskLevel': latest_pred.riskLevel if latest_pred else None,
+                'predictedAt': latest_pred.predictedAt if latest_pred else None,
+            },
+            'filters_applied': {
+                'job_title': job_title,
+                'level': level,
+                'min_ats_score': min_ats,
+                'recency_days': None if recency_disabled else recency_days,
+                'recency_disabled': recency_disabled,
+                'review_stages': review_stages,
+                'limit': limit,
+            },
+            'count': len(results),
+            'results': results,
+        })

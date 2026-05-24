@@ -1,0 +1,527 @@
+/* ============================================================
+   DARK MODE — COMPREHENSIVE OVERRIDES (v2.0)
+   
+   Strategy: Two-pronged approach
+   1. Class-based overrides for known CSS class names
+   2. Ultra-aggressive element-level overrides inside 
+      .theme-dark for ALL inline-styled elements using 
+      !important, with careful carve-outs for elements 
+      that should keep their accent colors.
+   ============================================================ */
+
+
+/* =============================================================
+   SECTION 1: PAGE-LEVEL BACKGROUNDS
+   ============================================================= */
+.theme-dark .page-content,
+.theme-dark .page-content.animate-in,
+.theme-dark .employee-portal-bg,
+.theme-dark .hr-main-area {
+  background: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Main content padding area */
+.theme-dark .neural-animate-entry {
+  background: transparent !important;
+}
+
+
+/* =============================================================
+   SECTION 2: GLASS CARDS & SURFACE CARDS
+   ============================================================= */
+.theme-dark .glass-card-employee {
+  background: var(--bg-primary) !important;
+  border-color: var(--border-primary) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+}
+
+.theme-dark .card,
+.theme-dark .hr-stat-card,
+.theme-dark .hr-surface-card {
+  background: var(--bg-primary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+
+/* =============================================================
+   SECTION 3: ADMIN / WORKSPACE SHELL OVERRIDES
+   ============================================================= */
+.theme-dark .admin-owned-shell {
+  background: var(--bg-secondary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+.theme-dark .admin-focus-card {
+  background: var(--bg-primary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+.theme-dark .admin-chip {
+  background: rgba(220, 38, 38, 0.1) !important;
+  border-color: rgba(220, 38, 38, 0.2) !important;
+}
+
+.theme-dark .workspace-shell-card,
+.theme-dark .workspace-journey-card {
+  background: var(--bg-primary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+.theme-dark .workspace-focus-card {
+  background: var(--bg-secondary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+.theme-dark .workspace-shell-title,
+.theme-dark .workspace-journey-value,
+.theme-dark .workspace-focus-note {
+  color: var(--text-primary) !important;
+}
+
+.theme-dark .workspace-shell-subtitle,
+.theme-dark .workspace-journey-note,
+.theme-dark .workspace-focus-label,
+.theme-dark .workspace-shell-meta,
+.theme-dark .workspace-journey-title {
+  color: var(--text-muted) !important;
+}
+
+
+/* =============================================================
+   SECTION 4: TABLE OVERRIDES (Ultra-aggressive)
+   ============================================================= */
+.theme-dark table {
+  border-color: var(--border-primary) !important;
+}
+
+.theme-dark table thead tr {
+  background: var(--bg-primary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+.theme-dark table thead th {
+  background: var(--bg-primary) !important;
+  color: var(--text-muted) !important;
+  border-color: var(--border-primary) !important;
+}
+
+.theme-dark table tbody td {
+  background: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+.theme-dark table tbody tr {
+  border-color: var(--border-primary) !important;
+}
+
+.theme-dark table tbody tr:hover td {
+  background: var(--bg-surface) !important;
+}
+
+.theme-dark .employee-table th {
+  color: var(--text-muted) !important;
+}
+
+.theme-dark .employee-table td {
+  background: var(--bg-primary) !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+
+/* =============================================================
+   SECTION 5: FORM CONTROLS (inputs, selects, textareas)
+   ============================================================= */
+.theme-dark input,
+.theme-dark select,
+.theme-dark textarea {
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+.theme-dark input:focus,
+.theme-dark select:focus,
+.theme-dark textarea:focus {
+  border-color: var(--red-600) !important;
+  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.1) !important;
+  background: var(--bg-primary) !important;
+}
+
+.theme-dark input::placeholder,
+.theme-dark textarea::placeholder {
+  color: var(--text-muted) !important;
+}
+
+/* Labels */
+.theme-dark label {
+  color: var(--text-muted) !important;
+}
+
+
+/* =============================================================
+   SECTION 6: TEXT COLOR OVERRIDES (Headlines, Body, Muted)
+   ============================================================= */
+.theme-dark h1, .theme-dark h2, .theme-dark h3, .theme-dark h4 {
+  color: var(--text-primary) !important;
+}
+
+.theme-dark p {
+  color: var(--text-secondary) !important;
+}
+
+
+/* =============================================================
+   SECTION 7: MODAL / DIALOG / OVERLAY BACKGROUNDS
+   ============================================================= */
+.theme-dark .modal-content,
+.theme-dark div[role="dialog"] {
+  background: var(--bg-primary) !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+
+/* =============================================================
+   SECTION 8: ACTION BUTTONS (icon action buttons in tables)
+   ============================================================= */
+.theme-dark .action-btn,
+.theme-dark button.action-btn,
+.theme-dark .page-content .action-btn,
+.theme-dark .action-btn-large {
+  background: var(--bg-primary) !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-muted) !important;
+}
+
+.theme-dark .action-btn:hover,
+.theme-dark button.action-btn:hover,
+.theme-dark .action-btn-large:hover {
+  background: rgba(220, 38, 38, 0.1) !important;
+  color: var(--red-600) !important;
+  border-color: var(--red-600) !important;
+}
+
+.theme-dark .delete-btn:hover {
+  background: rgba(220, 38, 38, 0.2) !important;
+  color: #ef4444 !important;
+}
+
+
+/* =============================================================
+   SECTION 9: SIDEBAR REFINEMENTS
+   ============================================================= */
+.theme-dark .app-sidebar-item:hover {
+  background: var(--bg-surface) !important;
+}
+
+.theme-dark .app-sidebar-item.active {
+  background: rgba(220, 38, 38, 0.15) !important;
+}
+
+.theme-dark .app-sidebar-collapse-btn:hover {
+  background: var(--bg-surface) !important;
+}
+
+
+/* =============================================================
+   SECTION 10: BADGE & STATUS ADJUSTMENTS
+   ============================================================= */
+.theme-dark .badge-red,
+.theme-dark .b-rejected,
+.theme-dark .b-resolved {
+  background: rgba(220, 38, 38, 0.2) !important;
+  color: #ff8080 !important;
+}
+
+.theme-dark .badge-blue,
+.theme-dark .b-inprogress {
+  background: rgba(37, 99, 235, 0.2) !important;
+  color: #93c5fd !important;
+}
+
+.theme-dark .b-approved,
+.theme-dark .b-pending,
+.theme-dark .b-ai,
+.theme-dark .badge-green {
+  background: rgba(16, 185, 129, 0.15) !important;
+  color: #6ee7b7 !important;
+}
+
+.theme-dark .b-neutral,
+.theme-dark .badge-gray,
+.theme-dark .hr-badge-gray {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: var(--text-muted) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+
+.theme-dark .btn-ghost {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.theme-dark .btn-ghost:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: var(--text-primary) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Alert Boxes */
+.theme-dark .alert-critical {
+  background: rgba(220, 38, 38, 0.1) !important;
+  border-color: rgba(220, 38, 38, 0.2) !important;
+  color: #ff8080 !important;
+}
+
+.theme-dark .alert-attention {
+  background: rgba(153, 53, 86, 0.1) !important;
+  border-color: rgba(153, 53, 86, 0.2) !important;
+  color: #ed93b1 !important;
+}
+
+
+/* =============================================================
+   SECTION 15: SIDEBAR & NAVIGATION (DARK PARITY)
+   ============================================================= */
+.theme-dark .app-sidebar {
+  background: #0F172A !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.theme-dark .app-sidebar-item:hover,
+.theme-dark .app-sidebar-collapse-btn:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: var(--neural-red) !important;
+}
+
+.theme-dark .app-sidebar-item.active {
+  background: rgba(220, 38, 38, 0.1) !important;
+  color: var(--neural-red) !important;
+  box-shadow: inset 2px 0 0 var(--neural-red) !important;
+}
+
+.theme-dark .app-sidebar-logout {
+  background: rgba(220, 38, 38, 0.1) !important;
+  color: #ff8080 !important;
+  border: 1px solid rgba(220, 38, 38, 0.2) !important;
+}
+
+.theme-dark .app-sidebar-logout:hover {
+  background: var(--red-600) !important;
+  color: white !important;
+}
+
+.theme-dark .app-sidebar-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+/* =============================================================
+   SECTION 16: ADMIN PAGE SPECIFIC OVERRIDES (HARDCODED SURFACES)
+   ============================================================= */
+/* Bulk Data Hub & Activity Logs */
+.theme-dark .glass-card-employee,
+.theme-dark .card-surface,
+.theme-dark div[style*="background: #fff"],
+.theme-dark div[style*="background: white"],
+.theme-dark section[style*="background: #fff"] {
+  background-color: #1E293B !important;
+  color: var(--text-primary) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Fix for specific hardcoded white buttons in admin pages */
+.theme-dark button[style*="background: #fff"],
+.theme-dark .btn-outline[style*="background: #fff"] {
+  background-color: #1E293B !important;
+  color: var(--text-primary) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* System Health Table Rows */
+.theme-dark tr[style*="background: #fff"] {
+  background-color: #1E293B !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* =============================================================
+   SECTION 17: TRANSITIONS & POLISH
+   ============================================================= */
+.theme-dark * {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.theme-dark .animate-pulse {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+
+/* =============================================================
+   SECTION 11: SKELETON / LOADING
+   ============================================================= */
+.theme-dark .ui-skeleton,
+.theme-dark .ui-skeleton::after {
+  background: var(--bg-surface) !important;
+}
+
+
+/* =============================================================
+   SECTION 12: PROGRESS BARS & SWITCHES
+   ============================================================= */
+.theme-dark .prog-wrap,
+.theme-dark .progress-bar-red {
+  background: var(--bg-surface) !important;
+}
+
+.theme-dark .sw-off {
+  background: var(--bg-surface) !important;
+}
+
+
+/* =============================================================
+   SECTION 13: SCROLLBAR
+   ============================================================= */
+.theme-dark ::-webkit-scrollbar-track {
+  background: var(--bg-primary) !important;
+}
+
+.theme-dark ::-webkit-scrollbar-thumb {
+  background: var(--bg-surface) !important;
+}
+
+
+/* =============================================================
+   SECTION 14: ROW HOVERS (from dangerouslySetInnerHTML)
+   These styles come from inline <style> tags in page components.
+   We override them with !important at a higher specificity.
+   ============================================================= */
+.theme-dark .approval-row:hover,
+.theme-dark .asset-row:hover,
+.theme-dark .bench-row:hover,
+.theme-dark .course-row:hover,
+.theme-dark .doc-row:hover,
+.theme-dark .fiscal-row:hover,
+.theme-dark .form-row:hover,
+.theme-dark .gov-row:hover,
+.theme-dark .hover-row:hover,
+.theme-dark .integration-row:hover,
+.theme-dark .logistics-row:hover,
+.theme-dark .node-row:hover,
+.theme-dark .payroll-row:hover,
+.theme-dark .plan-row:hover,
+.theme-dark .presence-row:hover,
+.theme-dark .program-row:hover,
+.theme-dark .regulatory-row:hover,
+.theme-dark .review-row:hover,
+.theme-dark .risk-row:hover,
+.theme-dark .sub-row:hover,
+.theme-dark .succession-row:hover,
+.theme-dark .support-row:hover,
+.theme-dark .job-card:hover,
+.theme-dark .talent-node:hover,
+.theme-dark .toggle-node:hover {
+  background: var(--bg-surface) !important;
+}
+
+/* Tooltips */
+.theme-dark .tooltip-content {
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-primary) !important;
+}
+
+/* Force input focus backgrounds in dark mode to prevent white-out */
+.theme-dark .page-content input:focus,
+.theme-dark .page-content textarea:focus,
+.theme-dark .page-content select:focus,
+.theme-dark .search-input:focus {
+  background: var(--bg-primary) !important;
+  border-color: var(--red-600) !important;
+}
+
+
+/* =============================================================
+   SECTION 15: THE NUCLEAR OPTION — INLINE STYLE OVERRIDES
+   
+   This section uses the data-dark-surface attribute approach.
+   A small JS MutationObserver in AppLayout.jsx adds this 
+   attribute to elements with hardcoded light backgrounds.
+   ============================================================= */
+.theme-dark [data-dark-surface="primary"] {
+  background: var(--bg-primary) !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+.theme-dark [data-dark-surface="secondary"] {
+  background: var(--bg-secondary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+.theme-dark [data-dark-surface="surface"] {
+  background: var(--bg-surface) !important;
+  border-color: var(--border-primary) !important;
+}
+
+/* Also provide a text-light attribute for text overrides */
+.theme-dark [data-dark-text="primary"] {
+  color: var(--text-primary) !important;
+}
+
+.theme-dark [data-dark-text="secondary"] {
+  color: var(--text-secondary) !important;
+}
+
+.theme-dark [data-dark-text="muted"] {
+  color: var(--text-muted) !important;
+}
+
+/* =============================================================
+   SECTION 18: NEURAL PULSE ANIMATIONS
+   ============================================================= */
+@keyframes neural-pulse {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+  70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+
+.neural-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--neural-red);
+  display: inline-block;
+  margin-right: 8px;
+  animation: neural-pulse 2s infinite;
+}
+
+.neural-active-text {
+  animation: neural-text-glow 3s infinite ease-in-out;
+}
+
+@keyframes neural-text-glow {
+  0%, 100% { opacity: 0.8; text-shadow: 0 0 4px rgba(220, 38, 38, 0); }
+  50% { opacity: 1; text-shadow: 0 0 10px rgba(220, 38, 38, 0.5); }
+}
+
+
+/* =============================================================
+   SECTION 16: DASHED EMPTY STATES
+   ============================================================= */
+.theme-dark .page-content div[style*="dashed"] {
+  background: var(--bg-primary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+
+/* =============================================================
+   SECTION 17: TOPBAR / HEADER
+   ============================================================= */
+.theme-dark .app-header,
+.theme-dark .app-topbar-inner {
+  background: var(--glass-bg) !important;
+  border-color: var(--border-primary) !important;
+}
