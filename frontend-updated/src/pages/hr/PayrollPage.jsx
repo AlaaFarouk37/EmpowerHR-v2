@@ -34,6 +34,8 @@ export function HRPayrollPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDept, setActiveDept] = useState('All Departments');
+  const [savingId, setSavingId] = useState(null);
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   const loadPayroll = async () => {
     setLoading(true);
@@ -48,6 +50,39 @@ export function HRPayrollPage() {
   };
 
   useEffect(() => { loadPayroll(); }, []);
+
+  const handleMarkPaid = async (record) => {
+    if (!record?.payrollID || savingId === record.payrollID) return;
+    setSavingId(record.payrollID);
+    try {
+      await hrMarkPayrollPaid(record.payrollID);
+      toast(`${record.employeeName}: payroll marked paid`, 'success');
+      await loadPayroll();
+    } catch (err) {
+      toast(err?.message || 'Failed to mark payroll as paid', 'error');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const handleAuthorizeDisbursement = async () => {
+    const unpaid = records.filter((r) => r.status !== 'Paid' && r.payrollID);
+    if (!unpaid.length) {
+      toast(t('No unpaid records to authorize.'), 'info');
+      return;
+    }
+    if (!window.confirm(`Mark ${unpaid.length} unpaid record(s) as Paid?`)) return;
+    setBulkSaving(true);
+    try {
+      const results = await Promise.allSettled(unpaid.map((r) => hrMarkPayrollPaid(r.payrollID)));
+      const ok = results.filter((r) => r.status === 'fulfilled').length;
+      const fail = results.length - ok;
+      toast(fail ? `Authorized ${ok} of ${results.length} (${fail} failed)` : `Authorized ${ok} records`, fail ? 'error' : 'success');
+      await loadPayroll();
+    } finally {
+      setBulkSaving(false);
+    }
+  };
 
   const filteredRecords = useMemo(() => {
     return records.filter(r => {
@@ -104,9 +139,10 @@ export function HRPayrollPage() {
            <Btn variant="secondary" style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 800 }}>
               <ShieldCheck size={18} style={{ marginRight: 8 }} /> {t('Audit Cycle')}
            </Btn>
-           <Btn 
-             onClick={() => toast(t('Initializing Mass Disbursement Protocol...'), 'info')}
-             variant="primary" 
+           <Btn
+             onClick={handleAuthorizeDisbursement}
+             loading={bulkSaving}
+             variant="primary"
              style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
            >
               <Zap size={18} style={{ marginRight: 8 }} /> {t('Authorize Disbursement')}
@@ -224,7 +260,14 @@ export function HRPayrollPage() {
                   <td style={{ padding: '24px 32px' }}>
                     <div style={{ display: 'flex', gap: 10 }}>
                        {!isPaid ? (
-                         <Btn variant="primary" style={{ height: 36, background: 'var(--red-600)', border: 'none', borderRadius: 10, fontSize: 11, fontWeight: 900 }}>Approve</Btn>
+                         <Btn
+                           variant="primary"
+                           onClick={() => handleMarkPaid(item)}
+                           loading={savingId === item.payrollID}
+                           style={{ height: 36, background: 'var(--red-600)', border: 'none', borderRadius: 10, fontSize: 11, fontWeight: 900 }}
+                         >
+                           Approve
+                         </Btn>
                        ) : (
                          <Badge label="Distributed" color="green" />
                        )}

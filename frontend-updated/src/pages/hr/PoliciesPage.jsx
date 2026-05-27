@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hrGetPolicies } from '../../api/index.js';
-import { Badge, Btn, Spinner, useToast, Input } from '../../components/shared/index.jsx';
+import { hrGetPolicies, hrCreatePolicy, hrSendPolicyReminder } from '../../api/index.js';
+import { Badge, Btn, Spinner, useToast, Input, Modal, Textarea } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { 
@@ -38,6 +38,11 @@ export function HRPoliciesPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All Policies');
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [remindingId, setRemindingId] = useState(null);
+  const EMPTY_POLICY = { title: '', category: 'Policy', audience: 'All Employees', content: '', status: 'Draft', effectiveDate: '' };
+  const [createForm, setCreateForm] = useState(EMPTY_POLICY);
 
   const loadPolicies = async () => {
     setLoading(true);
@@ -52,6 +57,40 @@ export function HRPoliciesPage() {
   };
 
   useEffect(() => { loadPolicies(); }, []);
+
+  const handleCreate = async () => {
+    if (!createForm.title.trim() || !createForm.content.trim()) {
+      toast('Title and content are required', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = { ...createForm };
+      if (!payload.effectiveDate) delete payload.effectiveDate;
+      await hrCreatePolicy(payload);
+      toast('Policy created', 'success');
+      setShowCreate(false);
+      setCreateForm(EMPTY_POLICY);
+      await loadPolicies();
+    } catch (err) {
+      toast(err?.message || 'Failed to create policy', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSendReminder = async (policy) => {
+    if (!policy?.policyID || remindingId === policy.policyID) return;
+    setRemindingId(policy.policyID);
+    try {
+      await hrSendPolicyReminder(policy.policyID, {});
+      toast(`Reminder sent for "${policy.title}"`, 'success');
+    } catch (err) {
+      toast(err?.message || 'Failed to send reminder', 'error');
+    } finally {
+      setRemindingId(null);
+    }
+  };
 
   const filteredPolicies = useMemo(() => {
     return policies.filter(p => {
@@ -99,9 +138,9 @@ export function HRPoliciesPage() {
            <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>Audit organizational regulatory assets, monitor compliance telemetry, and manage policy distribution.</p>
         </div>
 
-        <Btn 
-          onClick={() => toast(t('Initializing New Regulatory Asset...'), 'info')}
-          variant="primary" 
+        <Btn
+          onClick={() => { setCreateForm(EMPTY_POLICY); setShowCreate(true); }}
+          variant="primary"
           style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
         >
            <Zap size={18} style={{ marginRight: 8 }} /> {t('Initialize Asset')}
@@ -211,6 +250,7 @@ export function HRPoliciesPage() {
                   <td style={{ padding: '24px 32px' }}>
                     <div style={{ display: 'flex', gap: 10 }}>
                        <button className="action-btn" title="Audit Regulatory Asset"><SearchCode size={18} /></button>
+                       <button className="action-btn" title="Send Reminder" onClick={() => handleSendReminder(policy)} disabled={remindingId === policy.policyID}><AlertCircle size={18} /></button>
                        <button className="action-btn" title="Modify Parameters"><Edit3 size={18} /></button>
                        <button className="action-btn" title="Tactical Options"><MoreVertical size={18} /></button>
                     </div>
@@ -232,6 +272,47 @@ export function HRPoliciesPage() {
         .action-btn:hover { color: var(--red-600); border-color: var(--red-100); background: var(--red-50); }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}} />
+
+      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t('Initialize Regulatory Asset')} maxWidth={620}>
+        <div style={{ display: 'grid', gap: 14 }}>
+          <Input label={t('Title')} value={createForm.title} onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })} placeholder="e.g. Remote Work Policy 2026" />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{t('Category')}</label>
+              <select value={createForm.category} onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px' }}>
+                <option value="Policy">Policy</option>
+                <option value="Announcement">Announcement</option>
+                <option value="Compliance">Compliance</option>
+                <option value="Procedure">Procedure</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{t('Audience')}</label>
+              <select value={createForm.audience} onChange={(e) => setCreateForm({ ...createForm, audience: e.target.value })} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px' }}>
+                <option value="All Employees">All Employees</option>
+                <option value="Managers">Managers</option>
+                <option value="Engineering">Engineering</option>
+                <option value="Operations">Operations</option>
+              </select>
+            </div>
+          </div>
+          <Textarea label={t('Content')} value={createForm.content} onChange={(e) => setCreateForm({ ...createForm, content: e.target.value })} placeholder="Full policy text..." />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{t('Status')}</label>
+              <select value={createForm.status} onChange={(e) => setCreateForm({ ...createForm, status: e.target.value })} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px' }}>
+                <option value="Draft">Draft</option>
+                <option value="Published">Published</option>
+              </select>
+            </div>
+            <Input label={t('Effective Date')} type="date" value={createForm.effectiveDate} onChange={(e) => setCreateForm({ ...createForm, effectiveDate: e.target.value })} />
+          </div>
+        </div>
+        <div style={{ marginTop: 20, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+          <Btn variant="ghost" onClick={() => setShowCreate(false)}>{t('Cancel')}</Btn>
+          <Btn onClick={handleCreate} disabled={saving}>{saving ? t('Creating...') : t('Create Policy')}</Btn>
+        </div>
+      </Modal>
     </div>
   );
 }

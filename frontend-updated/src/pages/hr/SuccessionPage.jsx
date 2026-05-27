@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hrGetSuccessionPlans } from '../../api/index.js';
-import { Badge, Btn, Spinner, useToast, Input } from '../../components/shared/index.jsx';
+import { hrGetSuccessionPlans, hrCreateSuccessionPlan } from '../../api/index.js';
+import { Badge, Btn, Spinner, useToast, Input, Modal, Textarea } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { 
@@ -35,6 +35,10 @@ export function HRSuccessionPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All Critical Roles');
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const EMPTY_PLAN = { employeeID: '', targetRole: '', readiness: 'Developing', status: 'Active', retentionRisk: 'Medium', developmentActions: '', notes: '' };
+  const [createForm, setCreateForm] = useState(EMPTY_PLAN);
 
   const loadPlans = async () => {
     setLoading(true);
@@ -49,6 +53,23 @@ export function HRSuccessionPage() {
   };
 
   useEffect(() => { loadPlans(); }, []);
+
+  const handleCreate = async () => {
+    if (!createForm.employeeID.trim()) { toast('Employee ID is required', 'error'); return; }
+    if (!createForm.targetRole.trim()) { toast('Target role is required', 'error'); return; }
+    setSaving(true);
+    try {
+      await hrCreateSuccessionPlan(createForm);
+      toast('Succession plan created', 'success');
+      setShowCreate(false);
+      setCreateForm(EMPTY_PLAN);
+      await loadPlans();
+    } catch (err) {
+      toast(err?.message || 'Failed to create succession plan', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const filteredPlans = useMemo(() => {
     return plans.filter(p => {
@@ -91,7 +112,7 @@ export function HRSuccessionPage() {
         </div>
 
         <Btn 
-          onClick={() => toast(t('Initializing Succession Protocol...'), 'info')}
+          onClick={() => { setCreateForm(EMPTY_PLAN); setShowCreate(true); }}
           variant="primary" 
           style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
         >
@@ -245,6 +266,49 @@ export function HRSuccessionPage() {
         .action-btn:hover { color: var(--red-600); border-color: var(--red-100); background: var(--red-50); }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}} />
+
+      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t('Initialize Succession Plan')} maxWidth={620}>
+        <div style={{ display: 'grid', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <Input label={t('Employee ID')} value={createForm.employeeID} onChange={(e) => setCreateForm({ ...createForm, employeeID: e.target.value })} placeholder="EMP-001" />
+            <Input label={t('Target Role')} value={createForm.targetRole} onChange={(e) => setCreateForm({ ...createForm, targetRole: e.target.value })} placeholder="Senior Engineering Manager" />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{t('Readiness')}</label>
+              <select value={createForm.readiness} onChange={(e) => setCreateForm({ ...createForm, readiness: e.target.value })} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px' }}>
+                <option value="Ready Now">Ready Now</option>
+                <option value="Ready 1 Year">Ready 1 Year</option>
+                <option value="Ready 2-3 Years">Ready 2-3 Years</option>
+                <option value="Developing">Developing</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{t('Status')}</label>
+              <select value={createForm.status} onChange={(e) => setCreateForm({ ...createForm, status: e.target.value })} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px' }}>
+                <option value="Active">Active</option>
+                <option value="On Hold">On Hold</option>
+                <option value="Acknowledged">Acknowledged</option>
+                <option value="Closed">Closed</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{t('Retention Risk')}</label>
+              <select value={createForm.retentionRisk} onChange={(e) => setCreateForm({ ...createForm, retentionRisk: e.target.value })} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px' }}>
+                <option value="Low">Low</option>
+                <option value="Medium">Medium</option>
+                <option value="High">High</option>
+              </select>
+            </div>
+          </div>
+          <Textarea label={t('Development Actions')} value={createForm.developmentActions} onChange={(e) => setCreateForm({ ...createForm, developmentActions: e.target.value })} />
+          <Textarea label={t('Notes')} value={createForm.notes} onChange={(e) => setCreateForm({ ...createForm, notes: e.target.value })} />
+        </div>
+        <div style={{ marginTop: 20, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+          <Btn variant="ghost" onClick={() => setShowCreate(false)}>{t('Cancel')}</Btn>
+          <Btn onClick={handleCreate} disabled={saving}>{saving ? t('Creating...') : t('Create Plan')}</Btn>
+        </div>
+      </Modal>
     </div>
   );
 }

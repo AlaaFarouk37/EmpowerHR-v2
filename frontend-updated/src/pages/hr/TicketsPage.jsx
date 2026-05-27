@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hrGetTickets } from '../../api/index.js';
+import { hrGetTickets, hrUpdateTicketStatus } from '../../api/index.js';
 import { Badge, Btn, Spinner, useToast, Input } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -23,7 +23,8 @@ import {
   Globe,
   Sparkles,
   SearchCode,
-  Tag
+  Tag,
+  XCircle
 } from 'lucide-react';
 
 export function HRTicketsPage() {
@@ -35,6 +36,7 @@ export function HRTicketsPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activePriority, setActivePriority] = useState('All Priorities');
+  const [savingId, setSavingId] = useState(null);
 
   const loadTickets = async () => {
     setLoading(true);
@@ -49,6 +51,20 @@ export function HRTicketsPage() {
   };
 
   useEffect(() => { loadTickets(); }, []);
+
+  const handleUpdateStatus = async (ticket, status) => {
+    if (!ticket?.ticketID || savingId === ticket.ticketID) return;
+    setSavingId(ticket.ticketID);
+    try {
+      await hrUpdateTicketStatus(ticket.ticketID, { status, note: '' });
+      toast(`Ticket "${ticket.subject}" → ${status}`, 'success');
+      await loadTickets();
+    } catch (err) {
+      toast(err?.message || 'Failed to update ticket', 'error');
+    } finally {
+      setSavingId(null);
+    }
+  };
 
   const filteredTickets = useMemo(() => {
     return tickets.filter(t => {
@@ -230,7 +246,28 @@ export function HRTicketsPage() {
                   <td style={{ padding: '24px 32px' }}>
                     <div style={{ display: 'flex', gap: 10 }}>
                        <button className="action-btn" title="Audit Triage Vector"><SearchCode size={18} /></button>
-                       <button className="action-btn" title="Assign Tactical Agent"><UserPlus size={18} /></button>
+                       {ticket.status !== 'Resolved' && ticket.status !== 'Closed' && (
+                         <button
+                           className="action-btn"
+                           title="Mark Resolved"
+                           style={{ color: '#22C55E' }}
+                           disabled={savingId === ticket.ticketID}
+                           onClick={() => handleUpdateStatus(ticket, 'Resolved')}
+                         >
+                           <CheckCircle size={18} />
+                         </button>
+                       )}
+                       {ticket.status !== 'Closed' && (
+                         <button
+                           className="action-btn"
+                           title="Close Ticket"
+                           style={{ color: '#EF4444' }}
+                           disabled={savingId === ticket.ticketID}
+                           onClick={() => handleUpdateStatus(ticket, 'Closed')}
+                         >
+                           <XCircle size={18} />
+                         </button>
+                       )}
                        <button className="action-btn" title="Tactical Options"><MoreVertical size={18} /></button>
                     </div>
                   </td>

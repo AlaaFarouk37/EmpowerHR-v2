@@ -12,6 +12,7 @@ import { HRDashboardPage  } from "../pages/hr/DashboardPage";
 import { HRFormsPage      } from "../pages/hr/FormPage";
 import { HRSubmissionPage } from "../pages/hr/SubmissionPage";
 import { HRJobPostingsPage } from "../pages/hr/JobPostingsPage";
+import { HRJobsPage } from "../pages/hr/JobsPage";
 import { HRCVRankingPage  } from "../pages/hr/CVRankingPage";
 import { HREmployeesPage  } from "../pages/hr/EmployeesPage";
 import { HRAttendancePage } from "../pages/hr/AttendancePage";
@@ -194,6 +195,7 @@ export const PROTECTED_ROUTES = [
   { path: "/hr/forms", element: <HRFormsPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/submissions", element: <HRSubmissionPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/jobs", element: <HRJobPostingsPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
+  { path: "/hr/jobs-alt", element: <HRJobsPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/cv-ranking", element: <HRCVRankingPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/team", element: <HRTeamPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/recognition", element: <HRRecognitionPage />, roles: ["HRManager"], permission: "hr.workspace.access" },

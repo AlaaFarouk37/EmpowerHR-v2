@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hrGetBenchmarking } from '../../api/index.js';
+import { hrGetEmployees } from '../../api/index.js';
 import { Badge, Btn, Spinner, useToast, Input } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -39,8 +39,49 @@ export function BenchmarkingPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await hrGetBenchmarking();
-      setBenchmarks(Array.isArray(data?.benchmarks) ? data.benchmarks : []);
+      const employees = await hrGetEmployees();
+      const list = Array.isArray(employees) ? employees : [];
+
+      // Compute company-wide median monthlyIncome per jobTitle (used as the
+      // "market median" reference until a true external benchmark API is wired).
+      const medianBy = (arr) => {
+        const sorted = arr.filter(Boolean).map(Number).filter(n => !Number.isNaN(n)).sort((a, b) => a - b);
+        if (!sorted.length) return 0;
+        const m = Math.floor(sorted.length / 2);
+        return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
+      };
+
+      const byRole = {};
+      list.forEach(e => {
+        const role = e.jobTitle || 'Unspecified';
+        if (!byRole[role]) byRole[role] = [];
+        byRole[role].push(e.monthlyIncome);
+      });
+      const roleMedian = Object.fromEntries(
+        Object.entries(byRole).map(([role, vals]) => [role, medianBy(vals)])
+      );
+
+      // Group by (department, jobTitle) and compute internal average.
+      const byCell = {};
+      list.forEach(e => {
+        const key = `${e.department || 'Unassigned'}||${e.jobTitle || 'Unspecified'}`;
+        if (!byCell[key]) byCell[key] = { department: e.department || 'Unassigned', jobTitle: e.jobTitle || 'Unspecified', salaries: [] };
+        if (e.monthlyIncome) byCell[key].salaries.push(Number(e.monthlyIncome));
+      });
+
+      const rows = Object.values(byCell)
+        .filter(c => c.salaries.length)
+        .map(c => {
+          const internalAvg = c.salaries.reduce((s, v) => s + v, 0) / c.salaries.length;
+          const marketMedian = roleMedian[c.jobTitle] || internalAvg;
+          const variance = internalAvg
+            ? Math.round(((marketMedian - internalAvg) / internalAvg) * 100)
+            : 0;
+          return { department: c.department, jobTitle: c.jobTitle, internalAvg, marketMedian, variance };
+        })
+        .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
+
+      setBenchmarks(rows);
     } catch (error) {
       toast('Failed to load benchmarking data', 'error');
     } finally {

@@ -41,8 +41,11 @@ export function HREmployeesPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All Nodes');
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const EMPTY_CREATE = { fullName: '', department: '', employeeType: 'Full-time', location: '', monthlyIncome: '' };
+  const [createForm, setCreateForm] = useState(EMPTY_CREATE);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -121,6 +124,34 @@ export function HREmployeesPage() {
     }
   };
 
+  const handleCreate = async () => {
+    if (!createForm.fullName?.trim()) {
+      toast(t('Full name is required'), 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        ...createForm,
+        monthlyIncome: createForm.monthlyIncome ? Number(createForm.monthlyIncome) : undefined,
+      };
+      const created = await hrCreateEmployeeRecord(payload);
+      toast(t('Employee record created'), 'success');
+      setIsCreateModalOpen(false);
+      setCreateForm(EMPTY_CREATE);
+      if (created?.employeeID) {
+        setEmployees(prev => [created, ...prev]);
+      } else {
+        const fresh = await hrGetEmployees().catch(() => []);
+        setEmployees(Array.isArray(fresh) ? fresh : []);
+      }
+    } catch (error) {
+      toast(error?.message || t('Failed to create employee record'), 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading || authLoading) {
     return (
       <div style={{ padding: '40px 60px', background: '#F8FAFC', minHeight: '100vh' }}>
@@ -165,13 +196,13 @@ export function HREmployeesPage() {
           >
              <Globe size={18} /> Export Index
           </Btn>
-          <Btn 
-            onClick={() => toast(t('Initializing Node Addition Protocol...'), 'info')}
-            variant="primary" 
-            style={{ 
-              height: 52, borderRadius: 16, padding: '0 28px', fontWeight: 900, 
-              background: 'linear-gradient(135deg, #DC2626, #B91C1C)', border: 'none', 
-              boxShadow: '0 10px 25px -5px rgba(220, 38, 38, 0.4)' 
+          <Btn
+            onClick={() => { setCreateForm(EMPTY_CREATE); setIsCreateModalOpen(true); }}
+            variant="primary"
+            style={{
+              height: 52, borderRadius: 16, padding: '0 28px', fontWeight: 900,
+              background: 'linear-gradient(135deg, #DC2626, #B91C1C)', border: 'none',
+              boxShadow: '0 10px 25px -5px rgba(220, 38, 38, 0.4)'
             }}
           >
              <Zap size={18} fill="currentColor" /> Onboard Node
@@ -395,6 +426,40 @@ export function HREmployeesPage() {
         <div style={{ marginTop: 32, display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
            <Btn variant="outline" onClick={() => setIsEditModalOpen(false)}>Cancel</Btn>
            <Btn variant="primary" loading={saving} onClick={handleSave}>Synchronize Ledger</Btn>
+        </div>
+      </Modal>
+
+      {/* Onboard Node modal */}
+      <Modal
+        open={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        title={t('Onboard Strategic Node')}
+        maxWidth={560}
+      >
+        <div style={{ display: 'grid', gap: 16 }}>
+          <Input label={t('Full Name')} value={createForm.fullName} onChange={(e) => setCreateForm({ ...createForm, fullName: e.target.value })} placeholder="e.g. Salma Mostafa" />
+          <Input label={t('Department')} value={createForm.department} onChange={(e) => setCreateForm({ ...createForm, department: e.target.value })} placeholder="e.g. Engineering" />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{t('Employee Type')}</label>
+              <select
+                value={createForm.employeeType}
+                onChange={(e) => setCreateForm({ ...createForm, employeeType: e.target.value })}
+                style={{ width: '100%', height: 48, borderRadius: 14, border: '1.5px solid #F1F5F9', padding: '0 16px', background: '#F8FAFC' }}
+              >
+                <option value="Full-time">Full-time</option>
+                <option value="Part-time">Part-time</option>
+                <option value="Contract">Contract</option>
+                <option value="Intern">Intern</option>
+              </select>
+            </div>
+            <Input label={t('Monthly Income')} type="number" value={createForm.monthlyIncome} onChange={(e) => setCreateForm({ ...createForm, monthlyIncome: e.target.value })} />
+          </div>
+          <Input label={t('Location')} value={createForm.location} onChange={(e) => setCreateForm({ ...createForm, location: e.target.value })} placeholder="e.g. Cairo Headquarters" />
+        </div>
+        <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+          <Btn variant="outline" onClick={() => setIsCreateModalOpen(false)}>{t('Cancel')}</Btn>
+          <Btn variant="primary" loading={saving} onClick={handleCreate}>{t('Onboard')}</Btn>
         </div>
       </Modal>
 

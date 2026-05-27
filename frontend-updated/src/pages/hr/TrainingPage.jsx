@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hrGetTraining } from '../../api/index.js';
+import { hrGetTraining, hrCreateTraining } from '../../api/index.js';
 import { ReportingEngine } from '../../utils/exportEngine.js';
-import { Badge, Btn, Spinner, useToast, Input } from '../../components/shared/index.jsx';
+import { Badge, Btn, Spinner, useToast, Input, Modal, Textarea } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { 
@@ -38,6 +38,10 @@ export function HRTrainingPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All Categories');
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const EMPTY_COURSE = { title: '', description: '', category: 'Technical', durationHours: '', dueDate: '' };
+  const [createForm, setCreateForm] = useState(EMPTY_COURSE);
 
   const loadCourses = async () => {
     setLoading(true);
@@ -52,6 +56,26 @@ export function HRTrainingPage() {
   };
 
   useEffect(() => { loadCourses(); }, []);
+
+  const handleCreate = async () => {
+    if (!createForm.title.trim()) { toast('Title is required', 'error'); return; }
+    setSaving(true);
+    try {
+      const payload = { ...createForm };
+      if (createForm.durationHours) payload.durationHours = Number(createForm.durationHours);
+      else delete payload.durationHours;
+      if (!payload.dueDate) delete payload.dueDate;
+      await hrCreateTraining(payload);
+      toast('Training course created', 'success');
+      setShowCreate(false);
+      setCreateForm(EMPTY_COURSE);
+      await loadCourses();
+    } catch (err) {
+      toast(err?.message || 'Failed to create training course', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const filteredCourses = useMemo(() => {
     return courses.filter(c => {
@@ -121,7 +145,7 @@ export function HRTrainingPage() {
         </div>
 
         <Btn 
-          onClick={() => toast(t('Initializing New Asset Protocol...'), 'info')}
+          onClick={() => { setCreateForm(EMPTY_COURSE); setShowCreate(true); }}
           variant="primary" 
           style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
         >
@@ -253,6 +277,31 @@ export function HRTrainingPage() {
         .action-btn:hover { color: var(--red-600); border-color: var(--red-100); background: var(--red-50); }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}} />
+
+      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t('Initialize Training Course')} maxWidth={620}>
+        <div style={{ display: 'grid', gap: 14 }}>
+          <Input label={t('Course Title')} value={createForm.title} onChange={(e) => setCreateForm({ ...createForm, title: e.target.value })} placeholder="e.g. Leadership Fundamentals" />
+          <Textarea label={t('Description')} value={createForm.description} onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{t('Category')}</label>
+              <select value={createForm.category} onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px' }}>
+                <option value="Technical">Technical</option>
+                <option value="Leadership">Leadership</option>
+                <option value="Compliance">Compliance</option>
+                <option value="Soft Skills">Soft Skills</option>
+                <option value="Onboarding">Onboarding</option>
+              </select>
+            </div>
+            <Input label={t('Duration (hours)')} type="number" min={1} value={createForm.durationHours} onChange={(e) => setCreateForm({ ...createForm, durationHours: e.target.value })} />
+            <Input label={t('Due Date')} type="date" value={createForm.dueDate} onChange={(e) => setCreateForm({ ...createForm, dueDate: e.target.value })} />
+          </div>
+        </div>
+        <div style={{ marginTop: 20, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+          <Btn variant="ghost" onClick={() => setShowCreate(false)}>{t('Cancel')}</Btn>
+          <Btn onClick={handleCreate} disabled={saving}>{saving ? t('Creating...') : t('Create Course')}</Btn>
+        </div>
+      </Modal>
     </div>
   );
 }

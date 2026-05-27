@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hrGetReviews } from '../../api/index.js';
-import { Badge, Btn, Spinner, useToast, Input } from '../../components/shared/index.jsx';
+import { hrGetReviews, hrCreateReview } from '../../api/index.js';
+import { Badge, Btn, Spinner, useToast, Input, Modal, Textarea } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { 
@@ -36,6 +36,10 @@ export function HRReviewsPage() {
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const EMPTY_REVIEW = { employeeID: '', reviewPeriod: '', reviewType: 'Annual', overallRating: 4, strengths: '', improvementAreas: '', goalsSummary: '', reviewDate: '' };
+  const [createForm, setCreateForm] = useState(EMPTY_REVIEW);
 
   const loadReviews = async () => {
     setLoading(true);
@@ -50,6 +54,25 @@ export function HRReviewsPage() {
   };
 
   useEffect(() => { loadReviews(); }, []);
+
+  const handleCreate = async () => {
+    if (!createForm.employeeID.trim()) { toast('Employee ID is required', 'error'); return; }
+    if (!createForm.reviewPeriod.trim()) { toast('Review period is required', 'error'); return; }
+    setSaving(true);
+    try {
+      const payload = { ...createForm, overallRating: Number(createForm.overallRating) };
+      if (!payload.reviewDate) delete payload.reviewDate;
+      await hrCreateReview(payload);
+      toast('Review created', 'success');
+      setShowCreate(false);
+      setCreateForm(EMPTY_REVIEW);
+      await loadReviews();
+    } catch (err) {
+      toast(err?.message || 'Failed to create review', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const filteredReviews = useMemo(() => {
     return reviews.filter(r => {
@@ -101,9 +124,9 @@ export function HRReviewsPage() {
            <Btn variant="secondary" style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 800 }}>
               <BarChart3 size={18} style={{ marginRight: 8, color: 'var(--red-600)' }} /> {t('Strategic Insights')}
            </Btn>
-           <Btn 
-             onClick={() => toast(t('Initializing Excellence Cycle...'), 'info')}
-             variant="primary" 
+           <Btn
+             onClick={() => { setCreateForm(EMPTY_REVIEW); setShowCreate(true); }}
+             variant="primary"
              style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
            >
               <Zap size={18} style={{ marginRight: 8 }} /> {t('Initialize Cycle')}
@@ -245,6 +268,35 @@ export function HRReviewsPage() {
         .action-btn:hover { color: var(--red-600); border-color: var(--red-100); background: var(--red-50); }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}} />
+
+      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t('Initialize Performance Cycle')} maxWidth={620}>
+        <div style={{ display: 'grid', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <Input label={t('Employee ID')} value={createForm.employeeID} onChange={(e) => setCreateForm({ ...createForm, employeeID: e.target.value })} placeholder="EMP-001" />
+            <Input label={t('Review Period')} value={createForm.reviewPeriod} onChange={(e) => setCreateForm({ ...createForm, reviewPeriod: e.target.value })} placeholder="Q1 2026" />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{t('Review Type')}</label>
+              <select value={createForm.reviewType} onChange={(e) => setCreateForm({ ...createForm, reviewType: e.target.value })} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px' }}>
+                <option value="Annual">Annual</option>
+                <option value="Mid-Year">Mid-Year</option>
+                <option value="Quarterly">Quarterly</option>
+                <option value="Probation">Probation</option>
+              </select>
+            </div>
+            <Input label={t('Overall Rating (1-5)')} type="number" min={1} max={5} value={createForm.overallRating} onChange={(e) => setCreateForm({ ...createForm, overallRating: e.target.value })} />
+            <Input label={t('Review Date')} type="date" value={createForm.reviewDate} onChange={(e) => setCreateForm({ ...createForm, reviewDate: e.target.value })} />
+          </div>
+          <Textarea label={t('Strengths')} value={createForm.strengths} onChange={(e) => setCreateForm({ ...createForm, strengths: e.target.value })} placeholder="Key strengths observed during this cycle..." />
+          <Textarea label={t('Improvement Areas')} value={createForm.improvementAreas} onChange={(e) => setCreateForm({ ...createForm, improvementAreas: e.target.value })} placeholder="Areas of growth..." />
+          <Textarea label={t('Goals Summary')} value={createForm.goalsSummary} onChange={(e) => setCreateForm({ ...createForm, goalsSummary: e.target.value })} placeholder="Goals for the next cycle..." />
+        </div>
+        <div style={{ marginTop: 20, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+          <Btn variant="ghost" onClick={() => setShowCreate(false)}>{t('Cancel')}</Btn>
+          <Btn onClick={handleCreate} disabled={saving}>{saving ? t('Creating...') : t('Create Review')}</Btn>
+        </div>
+      </Modal>
     </div>
   );
 }

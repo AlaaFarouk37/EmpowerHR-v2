@@ -4,6 +4,10 @@ import {
   hrGetForms,
   hrGetFormDetail,
   hrCreateForm,
+  hrUpdateForm,
+  hrDeleteForm,
+  hrActivateForm,
+  hrDeactivateForm,
   hrAddQuestion,
   hrDeleteQuestion,
 } from '../../api/index.js';
@@ -28,7 +32,9 @@ import {
   SearchCode,
   MoreVertical,
   ClipboardList,
-  Trash2
+  Trash2,
+  Pencil,
+  Power
 } from 'lucide-react';
 
 export function HRFormsPage() {
@@ -44,10 +50,13 @@ export function HRFormsPage() {
 
   const [selectedForm, setSelectedForm] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const [showAddQ, setShowAddQ] = useState(false);
   const [formData, setFormData] = useState({ title: '', description: '' });
+  const [editData, setEditData] = useState({ title: '', description: '' });
   const [qData, setQData] = useState({ questionText: '', fieldType: 'score_1_4', order: 0 });
   const [saving, setSaving] = useState(false);
+  const [toggling, setToggling] = useState(false);
 
   const FIELD_TYPES = ['score_1_4', 'decimal', 'boolean'];
   const FIELD_LABELS = { score_1_4: 'Score 1-4', boolean: 'Yes / No', decimal: 'Decimal' };
@@ -127,6 +136,71 @@ export function HRFormsPage() {
       await load();
     } catch (err) {
       toast(err?.message || 'Failed to delete question', 'error');
+    }
+  };
+
+  const openEdit = () => {
+    if (!selectedForm) return;
+    setEditData({
+      title: selectedForm.title || '',
+      description: selectedForm.description || '',
+    });
+    setShowEdit(true);
+  };
+
+  const handleUpdate = async () => {
+    if (!selectedForm?.formID) { toast('Select a form first', 'error'); return; }
+    if (!editData.title.trim()) { toast('Title is required', 'error'); return; }
+    setSaving(true);
+    try {
+      const res = await hrUpdateForm(selectedForm.formID, editData);
+      if (res?.formID) {
+        toast('Form updated');
+        setShowEdit(false);
+        const detail = await hrGetFormDetail(selectedForm.formID).catch(() => res);
+        setSelectedForm(detail?.formID ? detail : res);
+        await load();
+      } else {
+        toast('Failed to update form', 'error');
+      }
+    } catch (err) {
+      toast(err?.message || 'Failed to update form', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleActive = async () => {
+    if (!selectedForm?.formID || toggling) return;
+    setToggling(true);
+    try {
+      if (selectedForm.isActive) {
+        await hrDeactivateForm(selectedForm.formID);
+        toast(`"${selectedForm.title}" deactivated`);
+      } else {
+        await hrActivateForm(selectedForm.formID);
+        toast(`"${selectedForm.title}" is now active`);
+      }
+      const detail = await hrGetFormDetail(selectedForm.formID).catch(() => null);
+      if (detail?.formID) setSelectedForm(detail);
+      await load();
+    } catch (err) {
+      toast(err?.message || 'Failed to update form status', 'error');
+    } finally {
+      setToggling(false);
+    }
+  };
+
+  const handleDeleteForm = async () => {
+    if (!selectedForm?.formID) return;
+    if (!window.confirm(`Delete "${selectedForm.title}"? This cannot be undone.`)) return;
+    try {
+      await hrDeleteForm(selectedForm.formID);
+      toast('Form deleted');
+      setSelectedForm(null);
+      await load();
+    } catch (err) {
+      toast(err?.message || 'Failed to delete form', 'error');
     }
   };
 
@@ -327,9 +401,33 @@ export function HRFormsPage() {
                     <Badge label={`${selectedForm.submissionCount || 0} ${t('submissions')}`} color="gray" />
                   </div>
                 </div>
-                <Btn onClick={() => setShowAddQ(true)} style={{ borderRadius: 12, fontWeight: 800, padding: '10px 18px', minWidth: 160 }}>
-                  <Plus size={16} style={{ marginRight: 6 }} /> {t('Add Question')}
-                </Btn>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={openEdit}
+                    title={t('Edit form')}
+                    className="form-icon-btn"
+                  >
+                    <Pencil size={16} />
+                  </button>
+                  <button
+                    onClick={handleToggleActive}
+                    disabled={toggling}
+                    title={selectedForm.isActive ? t('Deactivate form') : t('Activate form')}
+                    className={`form-icon-btn ${selectedForm.isActive ? 'is-active' : ''}`}
+                  >
+                    <Power size={16} />
+                  </button>
+                  <button
+                    onClick={handleDeleteForm}
+                    title={t('Delete form')}
+                    className="form-icon-btn is-danger"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                  <Btn onClick={() => setShowAddQ(true)} style={{ borderRadius: 12, fontWeight: 800, padding: '10px 18px', minWidth: 160 }}>
+                    <Plus size={16} style={{ marginRight: 6 }} /> {t('Add Question')}
+                  </Btn>
+                </div>
               </div>
               <div style={{ padding: '20px 28px 28px', maxHeight: 'calc(100vh - 280px)', overflowY: 'auto' }}>
                 {(!selectedForm.questions || selectedForm.questions.length === 0) ? (
@@ -379,6 +477,16 @@ export function HRFormsPage() {
           cursor: pointer; transition: all 0.2s;
         }
         .action-btn:hover { color: var(--red-600); border-color: var(--red-100); background: var(--red-50); }
+        .form-icon-btn {
+          width: 36px; height: 36px; padding: 0; border: 1.5px solid #F1F5F9;
+          background: #fff; color: #94A3B8; border-radius: 10px;
+          display: grid; place-items: center; cursor: pointer; transition: all 0.2s;
+        }
+        .form-icon-btn:hover { color: var(--red-600); border-color: var(--red-100); background: var(--red-50); }
+        .form-icon-btn.is-active { color: #16A34A; border-color: #BBF7D0; background: #F0FDF4; }
+        .form-icon-btn.is-active:hover { color: #B45309; border-color: #FDE68A; background: #FFFBEB; }
+        .form-icon-btn.is-danger:hover { color: #B91C1C; border-color: #FCA5A5; background: #FEE2E2; }
+        .form-icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}} />
 
@@ -439,6 +547,24 @@ export function HRFormsPage() {
         <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
           <Btn variant="ghost" onClick={() => setShowAddQ(false)} style={{ flex: 1 }}>{t('Cancel')}</Btn>
           <Btn onClick={handleAddQuestion} disabled={saving} style={{ flex: 1 }}>{saving ? t('Adding...') : t('Add Question')}</Btn>
+        </div>
+      </Modal>
+
+      {/* Edit form modal */}
+      <Modal open={showEdit} onClose={() => setShowEdit(false)} title={t('Edit Form')}>
+        <Input
+          label={t('Form Title')}
+          value={editData.title}
+          onChange={(e) => setEditData((d) => ({ ...d, title: e.target.value }))}
+        />
+        <Textarea
+          label={t('Description')}
+          value={editData.description}
+          onChange={(e) => setEditData((d) => ({ ...d, description: e.target.value }))}
+        />
+        <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+          <Btn variant="ghost" onClick={() => setShowEdit(false)} style={{ flex: 1 }}>{t('Cancel')}</Btn>
+          <Btn onClick={handleUpdate} disabled={saving} style={{ flex: 1 }}>{saving ? t('Saving...') : t('Save Changes')}</Btn>
         </div>
       </Modal>
     </div>

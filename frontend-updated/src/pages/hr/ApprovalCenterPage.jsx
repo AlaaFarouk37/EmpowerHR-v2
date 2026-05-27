@@ -49,6 +49,7 @@ export function HRApprovalCenterPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All Approval Nodes');
+  const [savingId, setSavingId] = useState(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -71,6 +72,45 @@ export function HRApprovalCenterPage() {
   };
 
   useEffect(() => { loadData(); }, []);
+
+  const handleApproval = async (item, action) => {
+    if (!item || savingId === item.id) return;
+    setSavingId(item.id);
+    try {
+      if (item.type === 'Leave') {
+        await hrReviewLeaveRequest(item.leaveRequestID, {
+          status: action === 'approve' ? 'Approved' : 'Rejected',
+          reviewNotes: action === 'approve'
+            ? 'Approved in Approval Center.'
+            : 'Rejected in Approval Center.',
+        });
+      } else if (item.type === 'Expense') {
+        await hrReviewExpenseClaim(item.claimID, {
+          status: action === 'approve' ? 'Approved' : 'Rejected',
+          note: '',
+        });
+      } else if (item.type === 'Document') {
+        await hrIssueDocument(item.requestID, {
+          status: action === 'approve' ? 'Issued' : 'Declined',
+          note: '',
+        });
+      } else if (item.type === 'Ticket') {
+        await hrUpdateTicketStatus(item.ticketID, {
+          status: action === 'approve' ? 'Resolved' : 'Closed',
+          note: '',
+        });
+      } else {
+        toast('Unsupported request type', 'error');
+        return;
+      }
+      toast(action === 'approve' ? `${item.type} approved` : `${item.type} rejected`, 'success');
+      await loadData();
+    } catch (err) {
+      toast(err?.message || 'Action failed', 'error');
+    } finally {
+      setSavingId(null);
+    }
+  };
 
   const unifiedQueue = useMemo(() => {
     const queue = [
@@ -246,8 +286,24 @@ export function HRApprovalCenterPage() {
                   <td style={{ padding: '24px 32px' }}>
                     <div style={{ display: 'flex', gap: 10 }}>
                        <button className="action-btn" title="Audit Node Intelligence"><SearchCode size={18} /></button>
-                       <button className="action-btn" title="Authorize Action" style={{ color: '#22C55E' }}><CheckCircle size={18} /></button>
-                       <button className="action-btn" title="Deflect Action" style={{ color: '#EF4444' }}><XCircle size={18} /></button>
+                       <button
+                         className="action-btn"
+                         title="Authorize Action"
+                         style={{ color: '#22C55E' }}
+                         disabled={savingId === item.id}
+                         onClick={() => handleApproval(item, 'approve')}
+                       >
+                         <CheckCircle size={18} />
+                       </button>
+                       <button
+                         className="action-btn"
+                         title="Deflect Action"
+                         style={{ color: '#EF4444' }}
+                         disabled={savingId === item.id}
+                         onClick={() => handleApproval(item, 'reject')}
+                       >
+                         <XCircle size={18} />
+                       </button>
                        <button className="action-btn" title="Tactical Options"><MoreVertical size={18} /></button>
                     </div>
                   </td>

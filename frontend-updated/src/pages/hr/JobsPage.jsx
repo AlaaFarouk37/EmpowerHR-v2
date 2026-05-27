@@ -112,7 +112,7 @@ export function HRJobsPage() {
         </div>
 
         <Btn 
-          onClick={() => navigate(resolvePath('/hr/jobs/create'))}
+          onClick={() => navigate(resolvePath('/hr/jobs'))}
           variant="primary" 
           style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
         >
@@ -186,7 +186,7 @@ export function HRJobsPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                   <div style={{ 
                     width: 48, height: 48, borderRadius: 14, background: isActive ? 'var(--red-50)' : '#F8FAFC', 
-                    display: 'grid', placeItems: 'center', color: isActive ? 'var(--red-600)' : '#94A3B8', border: \`1px solid \${isActive ? 'var(--red-100)' : '#F1F5F9'}\`
+                    display: 'grid', placeItems: 'center', color: isActive ? 'var(--red-600)' : '#94A3B8', border: `1px solid ${isActive ? 'var(--red-100)' : '#F1F5F9'}`
                   }}>
                      <Briefcase size={22} />
                   </div>
@@ -214,7 +214,7 @@ export function HRJobsPage() {
               </div>
 
               <div style={{ display: 'flex', gap: 12 }}>
-                <Btn style={{ flex: 1, height: 48, borderRadius: 12, background: 'var(--red-600)', border: 'none', fontWeight: 900 }} onClick={() => navigate(resolvePath(\`/hr/jobs/\${job.jobID}\`))}>
+                <Btn style={{ flex: 1, height: 48, borderRadius: 12, background: 'var(--red-600)', border: 'none', fontWeight: 900 }} onClick={() => navigate(resolvePath(`/hr/cv-ranking?job=${job.jobID}`))}>
                    Audit Pipeline
                 </Btn>
                 <button 
@@ -261,10 +261,10 @@ export function HRJobsPage() {
                  </div>
               </div>
               <div style={{ display: 'grid', gap: 12 }}>
-                 <Btn style={{ width: '100%', height: 48, borderRadius: 12, fontWeight: 900, background: '#1E293B', border: 'none' }} onClick={() => navigate(resolvePath(\`/hr/jobs/edit/\${selected.jobID}\`))}>
+                 <Btn style={{ width: '100%', height: 48, borderRadius: 12, fontWeight: 900, background: '#1E293B', border: 'none' }} onClick={() => navigate(resolvePath(`/hr/jobs?edit=${selected.jobID}`))}>
                     Modify Parameters
                  </Btn>
-                 <Btn variant="outline" style={{ width: '100%', height: 48, borderRadius: 12, fontWeight: 900, color: 'var(--red-600)', borderColor: 'var(--red-100)', background: 'var(--red-50)' }}>
+                 <Btn variant="outline" onClick={() => handleStatusChange(selected.jobID, 'Closed')} style={{ width: '100%', height: 48, borderRadius: 12, fontWeight: 900, color: 'var(--red-600)', borderColor: 'var(--red-100)', background: 'var(--red-50)' }}>
                     Decommission Node
                  </Btn>
               </div>
@@ -272,16 +272,16 @@ export function HRJobsPage() {
          )}
       </Modal>
 
-      <style dangerouslySetInnerHTML={{ __html: \`
+      <style dangerouslySetInnerHTML={{ __html: `
         .job-card:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.05); border-color: var(--red-100); }
-        .action-btn-large { 
-          width: 48px; height: 48px; border: 1.5px solid #F1F5F9; background: #fff; 
-          color: #94A3B8; border-radius: 12px; display: grid; placeItems: center; 
-          cursor: pointer; transition: all 0.2s; 
+        .action-btn-large {
+          width: 48px; height: 48px; border: 1.5px solid #F1F5F9; background: #fff;
+          color: #94A3B8; border-radius: 12px; display: grid; placeItems: center;
+          cursor: pointer; transition: all 0.2s;
         }
         .action-btn-large:hover { color: var(--red-600); border-color: var(--red-100); background: var(--red-50); }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      \`}} />
+      `}} />
     </div>
   );
 }

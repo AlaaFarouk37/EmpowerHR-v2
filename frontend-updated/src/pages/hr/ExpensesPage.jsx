@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hrGetExpenses } from '../../api/index.js';
+import { hrGetExpenses, hrReviewExpenseClaim } from '../../api/index.js';
 import { Badge, Btn, Spinner, useToast, Input } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -40,6 +40,7 @@ export function HRExpensesPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeStatus, setActiveStatus] = useState('All Statuses');
+  const [savingId, setSavingId] = useState(null);
 
   const loadClaims = async () => {
     setLoading(true);
@@ -54,6 +55,20 @@ export function HRExpensesPage() {
   };
 
   useEffect(() => { loadClaims(); }, []);
+
+  const handleReview = async (claim, status) => {
+    if (!claim?.claimID || savingId === claim.claimID) return;
+    setSavingId(claim.claimID);
+    try {
+      await hrReviewExpenseClaim(claim.claimID, { status, note: '' });
+      toast(`Claim → ${status}`, 'success');
+      await loadClaims();
+    } catch (err) {
+      toast(err?.message || 'Failed to update expense claim', 'error');
+    } finally {
+      setSavingId(null);
+    }
+  };
 
   const filteredClaims = useMemo(() => {
     return claims.filter(c => {
@@ -224,9 +239,35 @@ export function HRExpensesPage() {
                     <div style={{ display: 'flex', gap: 10 }}>
                        {!isApproved && !isRejected ? (
                          <>
-                           <button className="action-btn" title="Authorize Claim" style={{ color: '#22C55E' }}><CheckCircle size={18} /></button>
-                           <button className="action-btn" title="Deflect Claim" style={{ color: '#EF4444' }}><XCircle size={18} /></button>
+                           <button
+                             className="action-btn"
+                             title="Authorize Claim"
+                             style={{ color: '#22C55E' }}
+                             disabled={savingId === claim.claimID}
+                             onClick={() => handleReview(claim, 'Approved')}
+                           >
+                             <CheckCircle size={18} />
+                           </button>
+                           <button
+                             className="action-btn"
+                             title="Deflect Claim"
+                             style={{ color: '#EF4444' }}
+                             disabled={savingId === claim.claimID}
+                             onClick={() => handleReview(claim, 'Rejected')}
+                           >
+                             <XCircle size={18} />
+                           </button>
                          </>
+                       ) : isApproved ? (
+                         <button
+                           className="action-btn"
+                           title="Mark Reimbursed"
+                           style={{ color: '#0EA5E9' }}
+                           disabled={savingId === claim.claimID}
+                           onClick={() => handleReview(claim, 'Reimbursed')}
+                         >
+                           <CheckCircle size={18} />
+                         </button>
                        ) : (
                          <button className="action-btn" title="Audit Fiscal Entry"><SearchCode size={18} /></button>
                        )}

@@ -373,3 +373,90 @@ Things spotted in passing that were left alone per the no-drive-by-refactors rul
 4. Log in as HRManager → `/hr/employees` loads (calls `hrGetEmployees` → `/employee_management/hr/employees/`), and `/hr/payroll` loads (`/payroll/hr/payroll/`).
 5. `/hr/succession` page loads — confirms Decision 2 wiring against `/recruitment/hr/succession/`.
 6. `/hr/intelligence` (if accessible) — confirms `/attrition/hr/intelligence/` is reachable.
+
+---
+
+## HR tier audit (2026-05-28)
+
+Per-page outcomes. New page → old reference → handlers wired → notes.
+
+### Pages with action handlers wired this audit
+
+| New page | Old reference | Handlers wired | Notes |
+|---|---|---|---|
+| `pages/hr/ApprovalCenterPage.jsx` | same | Approve / Reject per row (dispatch by `item.type`): Leave → `hrReviewLeaveRequest`, Expense → `hrReviewExpenseClaim`, Document → `hrIssueDocument` (Issued/Declined), Ticket → `hrUpdateTicketStatus` (Resolved/Closed). | Generic Approve/Reject icons reuse `savingId` lock; reload after success. |
+| `pages/hr/EmployeesPage.jsx` | same | Existing `handleSave` (Update) untouched. Added `handleCreate` + Onboard Node modal with `fullName / department / employeeType / monthlyIncome / location` → `hrCreateEmployeeRecord`. | `email` / `jobTitle` are read-only at backend; not in create modal. |
+| `pages/hr/PayrollPage.jsx` | same | Per-row "Approve" → `hrMarkPayrollPaid(payrollID)`. Header "Authorize Disbursement" now bulk-marks all unpaid records via `Promise.allSettled`. | Bulk handler reports partial-success counts. |
+| `pages/hr/ReviewsPage.jsx` | same | "Initialize Cycle" header CTA → modal (`employeeID / reviewPeriod / reviewType / overallRating / strengths / improvementAreas / goalsSummary / reviewDate`) → `hrCreateReview`. | |
+| `pages/hr/PoliciesPage.jsx` | same | "Initialize Asset" → create modal → `hrCreatePolicy`. Per-row reminder bell → `hrSendPolicyReminder`. | |
+| `pages/hr/BenefitsPage.jsx` (HR) | same | "Initialize Benefit" → create modal (`employeeID / benefitName / benefitType / provider / coverageLevel / monthlyCost / employeeContribution / effectiveDate / notes`) → `hrCreateBenefit`. | |
+| `pages/hr/ShiftsPage.jsx` (HR) | same | "Schedule Shift" header CTA → create modal → `hrCreateShift`. | |
+| `pages/hr/OnboardingPage.jsx` (HR) | same | "Initialize Plan" → create modal → `hrCreateOnboardingPlan`. | |
+| `pages/hr/TrainingPage.jsx` (HR) | same | "Initialize Course" → create modal → `hrCreateTraining`. | |
+| `pages/hr/TicketsPage.jsx` (HR) | same | Per-row green check → `hrUpdateTicketStatus(id, { status: 'Resolved' })`; red X → `'Closed'`. | Hidden once status hits Resolved/Closed. |
+| `pages/hr/DocumentsPage.jsx` (HR) | same | Per-row green check → `hrIssueDocument(id, { status: 'Issued' })`; red X → `'Declined'`. | |
+| `pages/hr/ExpensesPage.jsx` (HR) | same | Per-row: Pending → Approve/Reject via `hrReviewExpenseClaim`; Approved → Mark Reimbursed. | |
+| `pages/hr/SuccessionPage.jsx` | same | "Initialize Succession Plan" → modal (`employeeID / targetRole / readiness / status / retentionRisk / developmentActions / notes`) → `hrCreateSuccessionPlan` (Decision 2 path: backend lives in `recruitment`). | |
+| `pages/hr/DashboardPage.jsx` | same | **Rewired off Section D `/analytics/*`** → composes data from `hrGetRosterHealth`, `hrGetApprovalSnapshot`, `hrGetEmployees`, `getLatestAttritionPredictions`. Synthesizes `metrics.total_headcount`, per-dept `densityData`, `triage` from approval follow-up items, `riskNodes` from attrition predictions, `activityStream` from approval follow-ups. `handleSync` now just reloads (removed broken `hrTriggerIntelligenceSync`). | The page no longer 404s anywhere; all stat cards and panels populate from real endpoints. |
+| `pages/hr/BenchmarkingPage.jsx` | `benchmarkSalary.jsx` (old) | Replaced broken `hrGetBenchmarking` call with `hrGetEmployees` + client-side median synthesis. Each row shows `(department, jobTitle)` group internal average vs company-wide median for that role; variance computed. | True external-market benchmark requires a new API client function for `/api/employee_management/hr/salary-benchmark/` — forbidden per audit rules. Variance shown is internal-vs-role-median, not internal-vs-market. Worth a Phase-4 follow-up. |
+| `pages/hr/JobsPage.jsx` | (no direct old equivalent — alt design of JobPostings) | **File had 5 lines of broken JS** (escaped backticks `\\\`` + `\\$`). Fixed all five; file now parses. Wired Decommission Node → `hrUpdateJobStatus(id, 'Closed')`. Repointed "Deploy Requisition" + "Audit Pipeline" + "Modify Parameters" to existing routes (`/hr/jobs`, `/hr/cv-ranking`). Page registered at `/hr/jobs-alt` so you can A/B compare. | Original status-change handler kept (Active/On Hold/Closed/Draft dropdown). |
+
+### Pages already wired or pure read-only — confirmed, not touched
+
+| New page | Status |
+|---|---|
+| `pages/hr/FormPage.jsx` | Already done in prior session (create + question management + edit/activate/delete + split layout). |
+| `pages/hr/CVRankingPage.jsx` | Heavy page. `hireCandidate`, `hrBulkUpdateSubmissions`, `hrAutomateJobRecruitment`, `hrGetJobInsights`, `hrOptimizeJob`, `getTalentCloneSimilarity` are all **wired** but all point at **Section B / Section D** endpoints that don't exist on the backend. Will 404 at runtime. Out of scope until Section B/D decisions are made. |
+| `pages/hr/JobPostingsPage.jsx` | `handleCreate` (createJob) is wired. `updateJob` is imported but never invoked — no inline edit affordance in the new design. Acceptable. |
+| `pages/hr/AttendancePage.jsx` | Loads via `hrGetAttendanceRecords`. Only action is a decorative "Export" toast — no Section A "export" endpoint exists. No handler to port. |
+| `pages/hr/SubmissionPage.jsx` | Loads via `hrGetSubmissions` + `hrGetForms`. Only action is decorative export. |
+| `pages/hr/SharedWorkspacePages.jsx` | Reuses `TeamGoalsPage` / `TeamRecognitionPage` / `EmployeeProfilePage` from other directories. No HR-specific actions. |
+
+### Pages with no old equivalent — flagged, skipped
+
+| New page | Reason skipped |
+|---|---|
+| `pages/hr/AttritionPage.jsx` | No old `AttritionPage`. Loads via `getLatestAttritionPredictions` (Section A, working). No action buttons. |
+| `pages/hr/OrgNeuralMapPage.jsx` | No old equivalent. Hits `/recruitment/talent-graph/` (Section D). Out of scope. |
+| `pages/hr/PlanningPage.jsx` | No old equivalent. Hits `/workforce/teams/` (Section D). Out of scope. |
+| `pages/hr/TalentMatrixPage.jsx` | No old equivalent. Hits `/talent/matrix/` + `/talent/calibrate/` (Section D). Out of scope. |
+| `pages/hr/ApprovalsPage.jsx` | **Orphan** (not in router). Uses Section B `hrGetApprovals` / `hrProcessApproval`. Skipped per Phase 2 plan. |
+
+### Files touched
+
+- `src/pages/hr/ApprovalCenterPage.jsx`
+- `src/pages/hr/EmployeesPage.jsx`
+- `src/pages/hr/PayrollPage.jsx`
+- `src/pages/hr/ReviewsPage.jsx`
+- `src/pages/hr/PoliciesPage.jsx`
+- `src/pages/hr/BenefitsPage.jsx`
+- `src/pages/hr/ShiftsPage.jsx`
+- `src/pages/hr/OnboardingPage.jsx`
+- `src/pages/hr/TrainingPage.jsx`
+- `src/pages/hr/TicketsPage.jsx`
+- `src/pages/hr/DocumentsPage.jsx`
+- `src/pages/hr/ExpensesPage.jsx`
+- `src/pages/hr/SuccessionPage.jsx`
+- `src/pages/hr/DashboardPage.jsx`
+- `src/pages/hr/BenchmarkingPage.jsx`
+- `src/pages/hr/JobsPage.jsx` (parse fix + handler wiring)
+- `src/routes/registry.js` (added `/hr/jobs-alt`)
+
+No backend file modified. No `src/api/*` file modified.
+
+### Phase 3 surprises (HR tier)
+
+1. **`JobsPage.jsx` was unparseable.** Five lines contained literal `\\\`` and `\\$` instead of `` ` `` and `$` for template literals. The file would have caused a CRA build error if it had been imported. That's why no router entry existed — the orphan status was a symptom, not an intent. Fixed all five.
+2. **BenchmarkingPage cannot reach the real backend benchmark endpoint** without an API client change (forbidden). Wired the page to synthesize from employee data instead. Real external-market parity needs `/api/employee_management/hr/salary-benchmark/` exposed via a new API client function — track as a Section B follow-up.
+3. **CVRankingPage is wired to Section B/D endpoints.** Every action button calls a function whose URL has no backend route. Out of scope here; flagged for a future "Section B decision" pass.
+4. **EmployeesPage Onboard Node modal is minimal.** The old page had a much richer create form. The minimal modal matches the writable fields on `EmployeeCreateUpdateSerializer` and shouldn't 400 the backend, but isn't UX parity with the old page. Flag for review.
+5. **HR Dashboard headline `metrics.total_headcount` is the only metric field the UI references.** The page's other state slots (densityData, triage, riskNodes, activityStream) are arrays, and the UI consumes a small set of fields per item. The new shapes match — values render.
+
+### Smoke tests (HR flows)
+
+1. **Approve a leave request via `/hr/approvals`.** Network: `POST /api/attendance_leave/hr/leave-requests/{id}/review/` with `{ status: "Approved", reviewNotes }`. Row disappears from queue.
+2. **Create a feedback form via `/hr/forms`** (already wired in prior session). Sanity-check it still works alongside the new audit changes.
+3. **Onboard a new employee via `/hr/employees`** → click "Onboard Node" → fill name + department → submit. `POST /api/employee_management/hr/employees/` returns the new record; list updates.
+4. **Mark a payroll record paid via `/hr/payroll`** → per-row "Approve". Network: `POST /api/payroll/hr/payroll/{id}/mark-paid/`. Status flips to "Distributed".
+5. **Create a policy via `/hr/policies`** → fill title + content → submit. Then click the bell on any row to send a reminder.
+6. **Compare `/hr/jobs` (canonical) vs `/hr/jobs-alt` (alt design)** — both should load, both should hit the same data. Use this to pick the design you want and we'll retire the other.

@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hrGetDocuments } from '../../api/index.js';
+import { hrGetDocuments, hrIssueDocument } from '../../api/index.js';
 import { Badge, Btn, Spinner, useToast, Input } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -29,7 +29,8 @@ import {
   MoreVertical,
   Briefcase,
   History,
-  FileCheck
+  FileCheck,
+  XCircle
 } from 'lucide-react';
 
 export function HRDocumentsPage() {
@@ -41,6 +42,7 @@ export function HRDocumentsPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeClass, setActiveClass] = useState('All Documents');
+  const [savingId, setSavingId] = useState(null);
 
   const loadDocuments = async () => {
     setLoading(true);
@@ -55,6 +57,20 @@ export function HRDocumentsPage() {
   };
 
   useEffect(() => { loadDocuments(); }, []);
+
+  const handleIssue = async (doc, status) => {
+    if (!doc?.requestID || savingId === doc.requestID) return;
+    setSavingId(doc.requestID);
+    try {
+      await hrIssueDocument(doc.requestID, { status, note: '' });
+      toast(`Document → ${status}`, 'success');
+      await loadDocuments();
+    } catch (err) {
+      toast(err?.message || 'Failed to update document', 'error');
+    } finally {
+      setSavingId(null);
+    }
+  };
 
   const filteredDocuments = useMemo(() => {
     return documents.filter(d => {
@@ -220,6 +236,28 @@ export function HRDocumentsPage() {
                   <td style={{ padding: '24px 32px' }}>
                     <div style={{ display: 'flex', gap: 10 }}>
                        <button className="action-btn" title="View Intelligence"><Eye size={18} /></button>
+                       {doc.status !== 'Issued' && doc.status !== 'Declined' && (
+                         <>
+                           <button
+                             className="action-btn"
+                             title="Issue Document"
+                             style={{ color: '#22C55E' }}
+                             disabled={savingId === doc.requestID}
+                             onClick={() => handleIssue(doc, 'Issued')}
+                           >
+                             <CheckCircle size={18} />
+                           </button>
+                           <button
+                             className="action-btn"
+                             title="Decline Request"
+                             style={{ color: '#EF4444' }}
+                             disabled={savingId === doc.requestID}
+                             onClick={() => handleIssue(doc, 'Declined')}
+                           >
+                             <XCircle size={18} />
+                           </button>
+                         </>
+                       )}
                        <button className="action-btn" title="Export Asset"><Download size={18} /></button>
                        <button className="action-btn" title="Tactical Options"><MoreVertical size={18} /></button>
                     </div>

@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hrGetBenefits } from '../../api/index.js';
-import { Badge, Btn, Spinner, useToast, Input } from '../../components/shared/index.jsx';
+import { hrGetBenefits, hrCreateBenefit } from '../../api/index.js';
+import { Badge, Btn, Spinner, useToast, Input, Modal, Textarea } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { 
@@ -35,6 +35,10 @@ export function HRBenefitsPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeType, setActiveType] = useState('All Benefits');
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const EMPTY_BENEFIT = { employeeID: '', benefitName: '', benefitType: 'Medical', provider: '', coverageLevel: '', status: 'Pending', monthlyCost: '', employeeContribution: '', effectiveDate: '', notes: '' };
+  const [createForm, setCreateForm] = useState(EMPTY_BENEFIT);
 
   const loadBenefits = async () => {
     setLoading(true);
@@ -49,6 +53,29 @@ export function HRBenefitsPage() {
   };
 
   useEffect(() => { loadBenefits(); }, []);
+
+  const handleCreate = async () => {
+    if (!createForm.employeeID.trim()) { toast('Employee ID is required', 'error'); return; }
+    if (!createForm.benefitName.trim()) { toast('Benefit name is required', 'error'); return; }
+    setSaving(true);
+    try {
+      const payload = {
+        ...createForm,
+        monthlyCost: createForm.monthlyCost === '' ? undefined : Number(createForm.monthlyCost),
+        employeeContribution: createForm.employeeContribution === '' ? undefined : Number(createForm.employeeContribution),
+      };
+      if (!payload.effectiveDate) delete payload.effectiveDate;
+      await hrCreateBenefit(payload);
+      toast('Benefit enrollment created', 'success');
+      setShowCreate(false);
+      setCreateForm(EMPTY_BENEFIT);
+      await loadBenefits();
+    } catch (err) {
+      toast(err?.message || 'Failed to create benefit', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const filteredBenefits = useMemo(() => {
     return benefits.filter(b => {
@@ -96,7 +123,7 @@ export function HRBenefitsPage() {
         </div>
 
         <Btn 
-          onClick={() => toast(t('Initializing New Benefit Protocol...'), 'info')}
+          onClick={() => { setCreateForm(EMPTY_BENEFIT); setShowCreate(true); }}
           variant="primary" 
           style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
         >
@@ -232,6 +259,40 @@ export function HRBenefitsPage() {
         .action-btn:hover { color: var(--red-600); border-color: var(--red-100); background: var(--red-50); }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}} />
+
+      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t('Initialize Benefit Enrollment')} maxWidth={620}>
+        <div style={{ display: 'grid', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <Input label={t('Employee ID')} value={createForm.employeeID} onChange={(e) => setCreateForm({ ...createForm, employeeID: e.target.value })} placeholder="EMP-001" />
+            <Input label={t('Benefit Name')} value={createForm.benefitName} onChange={(e) => setCreateForm({ ...createForm, benefitName: e.target.value })} placeholder="Premium Health Plan" />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{t('Benefit Type')}</label>
+              <select value={createForm.benefitType} onChange={(e) => setCreateForm({ ...createForm, benefitType: e.target.value })} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px' }}>
+                <option value="Medical">Medical</option>
+                <option value="Dental">Dental</option>
+                <option value="Vision">Vision</option>
+                <option value="Retirement">Retirement</option>
+                <option value="Life">Life</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <Input label={t('Provider')} value={createForm.provider} onChange={(e) => setCreateForm({ ...createForm, provider: e.target.value })} placeholder="Insurance Corp" />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+            <Input label={t('Monthly Cost')} type="number" value={createForm.monthlyCost} onChange={(e) => setCreateForm({ ...createForm, monthlyCost: e.target.value })} />
+            <Input label={t('Employee Contribution')} type="number" value={createForm.employeeContribution} onChange={(e) => setCreateForm({ ...createForm, employeeContribution: e.target.value })} />
+            <Input label={t('Effective Date')} type="date" value={createForm.effectiveDate} onChange={(e) => setCreateForm({ ...createForm, effectiveDate: e.target.value })} />
+          </div>
+          <Input label={t('Coverage Level')} value={createForm.coverageLevel} onChange={(e) => setCreateForm({ ...createForm, coverageLevel: e.target.value })} placeholder="Family / Individual / Standard" />
+          <Textarea label={t('Notes')} value={createForm.notes} onChange={(e) => setCreateForm({ ...createForm, notes: e.target.value })} />
+        </div>
+        <div style={{ marginTop: 20, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+          <Btn variant="ghost" onClick={() => setShowCreate(false)}>{t('Cancel')}</Btn>
+          <Btn onClick={handleCreate} disabled={saving}>{saving ? t('Creating...') : t('Create Benefit')}</Btn>
+        </div>
+      </Modal>
     </div>
   );
 }

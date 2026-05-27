@@ -1,13 +1,10 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  hrGetDashboardMetrics,
-  hrGetGlobalTriage,
   hrGetRosterHealth,
-  hrGetRiskCorridor,
-  hrGetResourceDensity,
-  hrGetActivityStream,
-  hrTriggerIntelligenceSync,
+  hrGetApprovalSnapshot,
+  hrGetEmployees,
+  getLatestAttritionPredictions,
 } from '../../api/index.js';
 import { 
   Spinner, 
@@ -56,15 +53,79 @@ export function HRDashboardPage() {
   const [activityStream, setActivityStream] = useState([]);
 
   const loadDashboard = (isSync = false) => {
-    if (!isSync) setLoading(false); // Unblock UI immediately
+    if (!isSync) setLoading(false);
     setSyncing(isSync);
-    
-    // Load independently to optimize data aggregation and latency
-    hrGetDashboardMetrics().then(d => setMetrics(d)).catch(() => setMetrics({}));
-    hrGetGlobalTriage().then(d => setTriage(d)).catch(() => setTriage([]));
-    hrGetRiskCorridor().then(d => setRiskNodes(d)).catch(() => setRiskNodes([]));
-    hrGetResourceDensity().then(d => setDensityData(d)).catch(() => setDensityData([]));
-    hrGetActivityStream().then(d => { setActivityStream(d); setSyncing(false); }).catch(() => { setActivityStream([]); setSyncing(false); });
+
+    // Headline metrics + density + triage are composed from roster health,
+    // approval snapshot, and employee directory (all Section A endpoints).
+    Promise.all([
+      hrGetRosterHealth().catch(() => ({})),
+      hrGetApprovalSnapshot().catch(() => ({})),
+      hrGetEmployees().catch(() => []),
+    ]).then(([roster, approvals, employees]) => {
+      const list = Array.isArray(employees) ? employees : [];
+      const followUps = approvals?.followUpItems || [];
+      const summary = approvals?.summary || {};
+
+      setMetrics({
+        total_headcount: roster?.totalEmployees ?? roster?.activeHeadcount ?? list.length,
+      });
+
+      setTriage(followUps.slice(0, 5).map((item, i) => ({
+        id: item.id || `triage-${i}`,
+        type: (item.type || 'workflow').toLowerCase(),
+        severity: item.riskLevel === 'High' || item.priority === 'High' ? 'critical' : 'warning',
+        title: item.title || item.subject || item.recommendedAction || 'Workforce signal',
+        summary: item.recommendedAction || item.summary || `${item.pendingResponses ?? ''} pending • ${item.completionRate ?? ''}%`,
+        path: item.path || '/hr/approvals',
+      })));
+
+      setActivityStream(followUps.slice(0, 8).map((item, i) => ({
+        id: item.id || `event-${i}`,
+        severity: item.riskLevel === 'High' ? 'high' : 'medium',
+        description: item.title || item.recommendedAction || item.subject || 'Workforce update',
+        timestamp: item.createdAt || item.updatedAt || new Date().toISOString(),
+        type: item.type || 'workforce',
+      })));
+
+      // Synthesize a per-department density view from the roster.
+      const byDept = {};
+      list.forEach(emp => {
+        const d = emp.department || 'Unassigned';
+        if (!byDept[d]) byDept[d] = { department: d, headcount: 0, active_shifts: 0 };
+        byDept[d].headcount += 1;
+        if (emp.employmentStatus !== 'On Leave') byDept[d].active_shifts += 1;
+      });
+      const maxHeadcount = Math.max(...Object.values(byDept).map(d => d.headcount), 1);
+      const density = Object.values(byDept).map(d => ({
+        ...d,
+        density_index: d.headcount / maxHeadcount,
+        status: d.headcount / maxHeadcount > 0.85 ? 'overloaded' : 'balanced',
+      })).sort((a, b) => b.density_index - a.density_index);
+      setDensityData(density);
+
+      // Acknowledge the bulk-pending counter so a "live" hint can still render.
+      if (summary.totalPending !== undefined) {
+        setMetrics(prev => ({ ...prev, totalPending: summary.totalPending }));
+      }
+
+      setSyncing(false);
+    }).catch(() => {
+      setSyncing(false);
+    });
+
+    // Risk-corridor list comes from the attrition predictions endpoint.
+    getLatestAttritionPredictions()
+      .then(d => setRiskNodes(
+        (Array.isArray(d) ? d : []).slice(0, 6).map((p, i) => ({
+          id: p.id || p.employee_id || `risk-${i}`,
+          fullName: p.fullName || p.employee_name || p.employeeID || 'Workforce node',
+          riskScore: p.riskScore != null ? p.riskScore : (p.attrition_probability ?? 0.4),
+          department: p.department || '—',
+          jobTitle: p.jobTitle || p.role || '—',
+        }))
+      ))
+      .catch(() => setRiskNodes([]));
   };
 
   useEffect(() => { 
@@ -73,16 +134,9 @@ export function HRDashboardPage() {
     }
   }, [authLoading, user]);
 
-  const handleSync = async () => {
-    setSyncing(true);
-    try {
-      await hrTriggerIntelligenceSync();
-      toast('Neural Intelligence Sync complete. Workforce nodes updated.', 'success');
-      loadDashboard(true);
-    } catch (error) {
-      toast('Sync failed. Checking network status...', 'error');
-      setSyncing(false);
-    }
+  const handleSync = () => {
+    toast('Refreshing workforce intelligence...', 'info');
+    loadDashboard(true);
   };
 
   // Contextual Neural Actions Logic

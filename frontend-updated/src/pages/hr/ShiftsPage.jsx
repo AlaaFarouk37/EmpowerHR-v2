@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { hrGetShifts, hrGetEmployees } from '../../api/index.js';
+import { hrGetShifts, hrGetEmployees, hrCreateShift } from '../../api/index.js';
 import { useAuth } from '../../context/AuthContext';
-import { Badge, Btn, Spinner, useToast } from '../../components/shared/index.jsx';
+import { Badge, Btn, Spinner, useToast, Modal, Input, Textarea } from '../../components/shared/index.jsx';
 import { 
   Calendar, 
   Clock, 
@@ -31,6 +31,10 @@ export function HRShiftsPage() {
   const [loading, setLoading] = useState(true);
   const [showConflictsOnly, setShowConflictsOnly] = useState(false);
   const [search, setSearch] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const EMPTY_SHIFT = { employeeID: '', shiftDate: '', shiftType: 'Day', startTime: '09:00', endTime: '17:00', location: '', status: 'Planned', notes: '' };
+  const [createForm, setCreateForm] = useState(EMPTY_SHIFT);
 
   const loadData = async () => {
     setLoading(true);
@@ -49,6 +53,24 @@ export function HRShiftsPage() {
       loadData(); 
     }
   }, [authLoading, user]);
+
+  const handleCreate = async () => {
+    if (!createForm.employeeID.trim()) { toast('Employee ID is required', 'error'); return; }
+    if (!createForm.shiftDate) { toast('Shift date is required', 'error'); return; }
+    if (!createForm.startTime || !createForm.endTime) { toast('Start and end times are required', 'error'); return; }
+    setSaving(true);
+    try {
+      await hrCreateShift(createForm);
+      toast('Shift scheduled', 'success');
+      setShowCreate(false);
+      setCreateForm(EMPTY_SHIFT);
+      await loadData();
+    } catch (err) {
+      toast(err?.message || 'Failed to schedule shift', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const filteredShifts = useMemo(() => {
     return shifts.filter(s => {
@@ -92,7 +114,7 @@ export function HRShiftsPage() {
         </div>
 
         <Btn 
-          onClick={() => toast('Initializing Deployment Protocol...', 'info')}
+          onClick={() => { setCreateForm(EMPTY_SHIFT); setShowCreate(true); }}
           variant="primary" 
           style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
         >
@@ -248,6 +270,34 @@ export function HRShiftsPage() {
         @keyframes pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7); } 70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); } }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}} />
+
+      <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Schedule Shift" maxWidth={620}>
+        <div style={{ display: 'grid', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <Input label="Employee ID" value={createForm.employeeID} onChange={(e) => setCreateForm({ ...createForm, employeeID: e.target.value })} placeholder="EMP-001" />
+            <Input label="Shift Date" type="date" value={createForm.shiftDate} onChange={(e) => setCreateForm({ ...createForm, shiftDate: e.target.value })} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>Shift Type</label>
+              <select value={createForm.shiftType} onChange={(e) => setCreateForm({ ...createForm, shiftType: e.target.value })} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px' }}>
+                <option value="Day">Day</option>
+                <option value="Night">Night</option>
+                <option value="Split">Split</option>
+                <option value="On-Call">On-Call</option>
+              </select>
+            </div>
+            <Input label="Start Time" type="time" value={createForm.startTime} onChange={(e) => setCreateForm({ ...createForm, startTime: e.target.value })} />
+            <Input label="End Time" type="time" value={createForm.endTime} onChange={(e) => setCreateForm({ ...createForm, endTime: e.target.value })} />
+          </div>
+          <Input label="Location" value={createForm.location} onChange={(e) => setCreateForm({ ...createForm, location: e.target.value })} placeholder="HQ / Remote / Site A" />
+          <Textarea label="Notes" value={createForm.notes} onChange={(e) => setCreateForm({ ...createForm, notes: e.target.value })} />
+        </div>
+        <div style={{ marginTop: 20, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+          <Btn variant="ghost" onClick={() => setShowCreate(false)}>Cancel</Btn>
+          <Btn onClick={handleCreate} disabled={saving}>{saving ? 'Scheduling...' : 'Schedule Shift'}</Btn>
+        </div>
+      </Modal>
     </div>
   );
 }
