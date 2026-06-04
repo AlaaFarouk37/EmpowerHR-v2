@@ -2,6 +2,7 @@ from django.urls import path
 from .views import (
     JobListCreateView, JobDetailView, JobWeightsView, JobPipelineHealthView,
     SubmitResumeView, CandidateApplicationListView, JobSubmissionsView, SubmissionDetailView, SubmissionStageUpdateView, JobCVRankingView,
+    InterviewerListView,
     SuccessionPlanListCreateView, SuccessionPlanDetailView,
     HRSuccessionWatchView, HRSuccessionPlanListCreateView,
     AtRiskEmployeeListView, EmployeeSuccessorListView,
@@ -9,6 +10,7 @@ from .views import (
 
 urlpatterns = [
     path("jobs/", JobListCreateView.as_view()),
+    path("interviewers/", InterviewerListView.as_view(), name="recruitment-interviewers"),
     path("jobs/health/", JobPipelineHealthView.as_view(), name="recruitment-job-health"),
     path("jobs/<int:pk>/", JobDetailView.as_view()),
     path("jobs/<int:pk>/weights/", JobWeightsView.as_view()),

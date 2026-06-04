@@ -5,6 +5,7 @@ from .views import (
     AttritionPredictionListView,
     AttritionPredictionLatestView,
     AttritionGovernanceSummaryView,
+    NotifyTeamLeaderOfRiskView,
 )
 
 urlpatterns = [
@@ -16,6 +17,9 @@ urlpatterns = [
 
     # GET  /api/attrition/predictions/latest/   latest prediction per employee
     path('predictions/latest/', AttritionPredictionLatestView.as_view(), name='attrition-latest'),
+
+    # POST /api/attrition/predictions/<id>/notify-tl/   HR notifies the at-risk employee's team leader
+    path('predictions/<str:predictionID>/notify-tl/', NotifyTeamLeaderOfRiskView.as_view(), name='attrition-notify-tl'),
 
     # GET  /api/attrition/governance/           governance snapshot for model confidence and review load
     path('governance/', AttritionGovernanceSummaryView.as_view(), name='attrition-governance'),

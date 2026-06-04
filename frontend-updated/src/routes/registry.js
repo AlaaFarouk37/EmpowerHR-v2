@@ -17,6 +17,7 @@ import { HRCVRankingPage  } from "../pages/hr/CVRankingPage";
 import { HREmployeesPage  } from "../pages/hr/EmployeesPage";
 import { HRAttendancePage } from "../pages/hr/AttendancePage";
 import { HRPayrollPage } from "../pages/hr/PayrollPage";
+import { HRPayAdjustmentsPage } from "../pages/hr/PayAdjustmentsPage";
 import { HRTrainingPage } from "../pages/hr/TrainingPage";
 import { HRReviewsPage } from "../pages/hr/ReviewsPage";
 import { HRSuccessionPage } from "../pages/hr/SuccessionPage";
@@ -68,6 +69,7 @@ import { TeamFeedbackPage } from "../pages/leader/TeamFeedbackPage";
 import { TeamDirectoryPage } from "../pages/leader/TeamDirectoryPage";
 import { LeaderDashboardPage } from "../pages/leader/DashboardPage";
 import { TeamGoalsPage } from "../pages/leader/TeamPage";
+import { LeaderTeamHubPage } from "../pages/leader/TeamHubPage";
 import { 
   LeaderAttendancePage, LeaderBenefitsPage, LeaderCareerPathPage, LeaderDocumentsPage, 
   LeaderExpensesPage, LeaderFeedbackPage, LeaderGoalsPage, LeaderMyRecognitionPage, 
@@ -168,7 +170,7 @@ export const PROTECTED_ROUTES = [
   { path: "/leader/team-support", element: <TeamSupportPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
   { path: "/leader/team-feedback", element: <TeamFeedbackPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
   { path: "/leader/team-directory", element: <TeamDirectoryPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
-  { path: "/leader/team", element: <TeamGoalsPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
+  { path: "/leader/team", element: <LeaderTeamHubPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
   { path: "/leader/recognition", element: <TeamRecognitionPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
 
   // HR Manager
@@ -181,6 +183,7 @@ export const PROTECTED_ROUTES = [
   { path: "/hr/talent-matrix", element: <TalentMatrixPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/attendance", element: <HRAttendancePage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/payroll", element: <HRPayrollPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
+  { path: "/hr/adjustments", element: <HRPayAdjustmentsPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/reviews", element: <HRReviewsPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/succession", element: <HRSuccessionPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/onboarding", element: <HROnboardingPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
@@ -194,7 +197,7 @@ export const PROTECTED_ROUTES = [
   { path: "/hr/training", element: <HRTrainingPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/forms", element: <HRFormsPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/submissions", element: <HRSubmissionPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
-  { path: "/hr/jobs", element: <HRJobPostingsPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
+  { path: "/hr/jobs", element: <HRJobsPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/jobs-alt", element: <HRJobsPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/cv-ranking", element: <HRCVRankingPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/team", element: <HRTeamPage />, roles: ["HRManager"], permission: "hr.workspace.access" },

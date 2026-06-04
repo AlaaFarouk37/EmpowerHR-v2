@@ -180,6 +180,7 @@ class WorkTaskSerializer(serializers.ModelSerializer):
             'taskID', 'employeeID', 'employeeName', 'employeeEmail', 'department', 'team',
             'title', 'description', 'priority', 'status',
             'progress', 'estimatedHours', 'actualHours', 'dueDate', 'assignedBy', 'contractedHours',
+            'reviewNote', 'reviewedAt',
             'teamLeadEmail',
             'start_time', 'finished_time',
             'createdAt', 'updatedAt', 'logs',
@@ -437,7 +438,7 @@ class ExpenseClaimSerializer(serializers.ModelSerializer):
         model = ExpenseClaim
         fields = [
             'claimID', 'employeeID', 'employeeName', 'department', 'team',
-            'title', 'category', 'amount', 'expenseDate', 'description',
+            'title', 'category', 'amount', 'approvedAmount', 'expenseDate', 'description',
             'status', 'reviewNote', 'reviewedBy', 'reviewedAt', 'createdAt', 'updatedAt'
         ]
 
@@ -453,6 +454,9 @@ class ExpenseClaimCreateSerializer(serializers.Serializer):
 class ExpenseClaimReviewSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=['Approved', 'Rejected', 'Reimbursed'])
     note = serializers.CharField(required=False, allow_blank=True)
+    approvedAmount = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=False, allow_null=True, min_value=0,
+    )
 
     def validate(self, attrs):
         if attrs.get('status') == 'Rejected' and not (attrs.get('note') or '').strip():

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hrGetPayroll, hrMarkPayrollPaid } from '../../api/index.js';
-import { Badge, Btn, Spinner, useToast, Input } from '../../components/shared/index.jsx';
+import { hrGetPayroll, hrMarkPayrollPaid, hrCreatePayroll, hrRunPayrollCycle } from '../../api/index.js';
+import { Badge, Btn, Spinner, useToast, Input, Modal, Textarea, EmployeeSelect } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { 
@@ -15,7 +15,7 @@ import {
   MoreVertical,
   ArrowUpRight,
   Zap,
-  Globe,
+  FileText,
   Briefcase,
   Layers,
   Sparkles,
@@ -24,6 +24,11 @@ import {
   Target,
   Activity
 } from 'lucide-react';
+
+const defaultPeriod = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+};
 
 export function HRPayrollPage() {
   const toast = useToast();
@@ -34,8 +39,15 @@ export function HRPayrollPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDept, setActiveDept] = useState('All Departments');
+  const [statusFilter, setStatusFilter] = useState('All'); // 'All' | 'Approved' | 'Unapproved'
   const [savingId, setSavingId] = useState(null);
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [genOpen, setGenOpen] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [genForm, setGenForm] = useState({ employeeID: '', payPeriod: defaultPeriod(), baseSalary: '', notes: '' });
+  const [cycleOpen, setCycleOpen] = useState(false);
+  const [cycleRunning, setCycleRunning] = useState(false);
+  const [cyclePeriod, setCyclePeriod] = useState(defaultPeriod());
 
   const loadPayroll = async () => {
     setLoading(true);
@@ -84,14 +96,143 @@ export function HRPayrollPage() {
     }
   };
 
+  const openGenerate = () => {
+    setGenForm({ employeeID: '', payPeriod: defaultPeriod(), baseSalary: '', notes: '' });
+    setGenOpen(true);
+  };
+
+  const handleGenerate = async () => {
+    if (!genForm.employeeID) { toast(t('Please select an employee'), 'error'); return; }
+    if (!/^\d{4}-\d{2}$/.test(genForm.payPeriod)) { toast(t('Pay period must be in YYYY-MM format'), 'error'); return; }
+
+    const payload = {
+      employeeID: genForm.employeeID,
+      payPeriod: genForm.payPeriod,
+      notes: genForm.notes?.trim() || '',
+    };
+    // baseSalary is optional — the backend falls back to the employee's profile salary.
+    if (String(genForm.baseSalary).trim() !== '') {
+      const base = Number(genForm.baseSalary);
+      if (!Number.isFinite(base) || base < 0) { toast(t('Enter a valid base salary'), 'error'); return; }
+      payload.baseSalary = base;
+    }
+
+    setGenerating(true);
+    try {
+      await hrCreatePayroll(payload);
+      toast(t('Payroll generated. Commissions, deductions, unpaid leave and approved expenses were applied.'), 'success');
+      setGenOpen(false);
+      await loadPayroll();
+    } catch (err) {
+      toast(err?.message || t('Failed to generate payroll'), 'error');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const filteredRecords = useMemo(() => {
     return records.filter(r => {
       const matchesSearch = r.employeeName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           r.employeeID?.toString().includes(searchQuery);
       const matchesDept = activeDept === 'All Departments' || r.department === activeDept;
-      return matchesSearch && matchesDept;
+      const isApproved = r.status === 'Paid';
+      const matchesStatus = statusFilter === 'All'
+        || (statusFilter === 'Approved' && isApproved)
+        || (statusFilter === 'Unapproved' && !isApproved);
+      return matchesSearch && matchesDept && matchesStatus;
     });
-  }, [records, searchQuery, activeDept]);
+  }, [records, searchQuery, activeDept, statusFilter]);
+
+  const cycleFilter = () => {
+    setStatusFilter((prev) => (prev === 'All' ? 'Approved' : prev === 'Approved' ? 'Unapproved' : 'All'));
+  };
+
+  const handleRunCycle = async () => {
+    if (!/^\d{4}-\d{2}$/.test(cyclePeriod)) { toast(t('Pay period must be in YYYY-MM format'), 'error'); return; }
+    setCycleRunning(true);
+    try {
+      const res = await hrRunPayrollCycle({ payPeriod: cyclePeriod });
+      const created = res?.created ?? 0;
+      const skipped = res?.skippedCount ?? 0;
+      const failed = res?.failedCount ?? 0;
+      toast(
+        t(`Payroll cycle for ${cyclePeriod}: ${created} created, ${skipped} skipped, ${failed} failed.`),
+        failed ? 'error' : 'success',
+      );
+      setCycleOpen(false);
+      await loadPayroll();
+    } catch (err) {
+      toast(err?.message || t('Failed to run payroll cycle'), 'error');
+    } finally {
+      setCycleRunning(false);
+    }
+  };
+
+  const handleReport = () => {
+    const rows = filteredRecords;
+    if (!rows.length) { toast(t('Nothing to report for the current filters.'), 'info'); return; }
+
+    const win = window.open('', '_blank');
+    if (!win) { toast(t('Please allow pop-ups to generate the report.'), 'error'); return; }
+
+    const generatedAt = new Date().toLocaleString();
+    const money = (v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EGP' }).format(Number(v || 0));
+    const totalNet = rows.reduce((acc, r) => acc + Number(r.netPay || 0), 0);
+    const scopeLabel = statusFilter === 'All' ? 'All payslips' : `${statusFilter} payslips`;
+    const deptLabel = activeDept === 'All Departments' ? 'All departments' : activeDept;
+
+    const bodyRows = rows.map((r) => `
+      <tr>
+        <td>${r.employeeName || ''}<div class="sub">${r.employeeID || ''}</div></td>
+        <td>${r.department || '—'}</td>
+        <td>${r.payPeriod || '—'}</td>
+        <td class="num">${money(r.proratedBaseSalary || r.baseSalary)}</td>
+        <td class="num pos">${money(r.commissions)}</td>
+        <td class="num neg">${money(r.unpaidLeaveDeduction)}</td>
+        <td class="num neg">${money(r.deductions)}</td>
+        <td class="num pos">${money(r.expenseReimbursements)}</td>
+        <td class="num bold">${money(r.netPay)}</td>
+        <td>${r.status === 'Paid' ? 'Approved' : 'Unapproved'}</td>
+      </tr>`).join('');
+
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"/>
+      <title>Payroll Report — ${generatedAt}</title>
+      <style>
+        * { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+        body { padding: 32px; color: #1E293B; }
+        h1 { font-size: 22px; margin: 0 0 4px; }
+        .meta { color: #64748B; font-size: 12px; margin-bottom: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 12px; }
+        th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #E2E8F0; }
+        th { background: #F8FAFC; text-transform: uppercase; font-size: 10px; letter-spacing: .04em; color: #64748B; }
+        .num { text-align: right; }
+        .bold { font-weight: 800; }
+        .pos { color: #16A34A; }
+        .neg { color: #DC2626; }
+        .sub { font-size: 10px; color: #94A3B8; }
+        tfoot td { font-weight: 800; border-top: 2px solid #CBD5E1; }
+        @media print { body { padding: 0; } }
+      </style></head><body>
+      <h1>Payroll Report</h1>
+      <div class="meta">Generated: ${generatedAt}</div>
+      <div class="meta">Scope: ${scopeLabel} · ${deptLabel} · ${rows.length} record(s)</div>
+      <table>
+        <thead><tr>
+          <th>Employee</th><th>Department</th><th>Pay Period</th>
+          <th class="num">Base</th><th class="num">Commissions</th><th class="num">Unpaid Leave</th>
+          <th class="num">Deductions</th><th class="num">Reimbursements</th><th class="num">Net Pay</th><th>Status</th>
+        </tr></thead>
+        <tbody>${bodyRows}</tbody>
+        <tfoot><tr><td colspan="8">Total Net Pay</td><td class="num">${money(totalNet)}</td><td></td></tr></tfoot>
+      </table>
+      <script>window.onload = function(){ window.print(); }</script>
+      </body></html>`);
+    win.document.close();
+  };
+
+  const formatMoney = (val) => {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EGP' }).format(Number(val || 0));
+  };
 
   const departments = useMemo(() => {
     const deps = new Set(records.map(r => r.department).filter(Boolean));
@@ -99,18 +240,14 @@ export function HRPayrollPage() {
   }, [records]);
 
   const financialStats = useMemo(() => {
-    const total = records.reduce((acc, r) => acc + (r.netPay || 0), 0);
+    const total = records.reduce((acc, r) => acc + Number(r.netPay || 0), 0);
     return [
-      { label: 'Cycle Total', value: `EGP ${total.toLocaleString()}`, icon: DollarSign, color: '#1E293B', bg: '#F8FAFC' },
+      { label: 'Cycle Total', value: formatMoney(total), icon: DollarSign, color: '#1E293B', bg: '#F8FAFC' },
       { label: 'Distribution Velocity', value: '78%', icon: Activity, color: 'var(--red-600)', bg: 'var(--red-50)' },
       { label: 'Compliance Index', value: '99.2%', icon: ShieldCheck, color: 'var(--red-800)', bg: 'var(--red-50)' },
       { label: 'Critical Overdue', value: '02', icon: ShieldAlert, color: 'var(--pink-600)', bg: 'var(--pink-50)' },
     ];
   }, [records]);
-
-  const formatMoney = (val) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EGP' }).format(val);
-  };
 
   if (loading) return (
     <div style={{ height: '80vh', display: 'grid', placeItems: 'center' }}>
@@ -136,8 +273,11 @@ export function HRPayrollPage() {
         </div>
 
         <div style={{ display: 'flex', gap: 16 }}>
-           <Btn variant="secondary" style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 800 }}>
-              <ShieldCheck size={18} style={{ marginRight: 8 }} /> {t('Audit Cycle')}
+           <Btn onClick={openGenerate} variant="secondary" style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 800 }}>
+              <DollarSign size={18} style={{ marginRight: 8 }} /> {t('Add Payroll Record')}
+           </Btn>
+           <Btn onClick={() => { setCyclePeriod(defaultPeriod()); setCycleOpen(true); }} variant="secondary" style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 800 }}>
+              <Activity size={18} style={{ marginRight: 8 }} /> {t('Start Payroll Cycle')}
            </Btn>
            <Btn
              onClick={handleAuthorizeDisbursement}
@@ -145,7 +285,7 @@ export function HRPayrollPage() {
              variant="primary"
              style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
            >
-              <Zap size={18} style={{ marginRight: 8 }} /> {t('Authorize Disbursement')}
+              <Zap size={18} style={{ marginRight: 8 }} /> {t('Approve All Records')}
            </Btn>
         </div>
       </div>
@@ -192,11 +332,11 @@ export function HRPayrollPage() {
         </div>
         
         <div style={{ display: 'flex', gap: 12 }}>
-           <Btn variant="secondary" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
-              <Filter size={16} style={{ marginRight: 8 }} /> {t('Neural Filters')}
+           <Btn onClick={cycleFilter} variant="secondary" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
+              <Filter size={16} style={{ marginRight: 8 }} /> {t('Filter')}: {t(statusFilter)}
            </Btn>
-           <Btn variant="outline" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
-              <Globe size={16} style={{ marginRight: 8 }} /> {t('Export Financials')}
+           <Btn onClick={handleReport} variant="outline" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
+              <FileText size={16} style={{ marginRight: 8 }} /> {t('Report')}
            </Btn>
         </div>
       </div>
@@ -240,9 +380,35 @@ export function HRPayrollPage() {
                      </div>
                   </td>
                   <td style={{ padding: '24px 32px' }}>
-                     <div style={{ display: 'grid', gap: 4 }}>
-                        <div style={{ fontSize: 13, fontWeight: 800, color: '#1E293B' }}>{formatMoney(item.baseSalary)} <span style={{ fontSize: 10, color: '#94A3B8' }}>(Base)</span></div>
-                        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--red-600)' }}>-{formatMoney(item.deductions || 250)} <span style={{ fontSize: 9, opacity: 0.6 }}>(Deductions)</span></div>
+                     <div style={{ display: 'grid', gap: 3 }}>
+                        {(() => {
+                          const num = (v) => Number(v || 0);
+                          const prorated = num(item.proratedBaseSalary);
+                          const base = num(item.baseSalary);
+                          const isProrated = prorated > 0 && Math.abs(prorated - base) > 0.005;
+                          const add = { fontSize: 11, fontWeight: 800, color: '#16A34A' };
+                          const sub = { fontSize: 11, fontWeight: 800, color: 'var(--red-600)' };
+                          const muted = { fontSize: 9, opacity: 0.6 };
+                          return (
+                            <>
+                              <div style={{ fontSize: 13, fontWeight: 800, color: '#1E293B' }}>
+                                {formatMoney(isProrated ? prorated : base)} <span style={{ fontSize: 10, color: '#94A3B8' }}>{isProrated ? `(Prorated · ${item.weekdaysEmployed}/${item.workingDays}d)` : '(Base)'}</span>
+                              </div>
+                              {num(item.commissions) > 0 && (
+                                <div style={add}>+{formatMoney(item.commissions)} <span style={muted}>(Commissions)</span></div>
+                              )}
+                              {num(item.unpaidLeaveDeduction) > 0 && (
+                                <div style={sub}>-{formatMoney(item.unpaidLeaveDeduction)} <span style={muted}>(Unpaid leave · {item.unpaidLeaveDays}d)</span></div>
+                              )}
+                              {num(item.deductions) > 0 && (
+                                <div style={sub}>-{formatMoney(item.deductions)} <span style={muted}>(Deductions)</span></div>
+                              )}
+                              {num(item.expenseReimbursements) > 0 && (
+                                <div style={add}>+{formatMoney(item.expenseReimbursements)} <span style={muted}>(Approved Expenses)</span></div>
+                              )}
+                            </>
+                          );
+                        })()}
                      </div>
                   </td>
                   <td style={{ padding: '24px 32px' }}>
@@ -281,6 +447,61 @@ export function HRPayrollPage() {
           </tbody>
         </table>
       </div>
+
+      <Modal open={genOpen} onClose={() => setGenOpen(false)} title={t('Add Payroll Record')}>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 0, marginBottom: 16 }}>
+          {t('Net pay is computed automatically: base salary (prorated for mid-month joiners/leavers) − unpaid leave − deductions + commissions + approved expense reimbursements for the selected period.')}
+        </p>
+        <EmployeeSelect
+          label={t('Employee')}
+          value={genForm.employeeID}
+          onChange={(val) => setGenForm((f) => ({ ...f, employeeID: val }))}
+        />
+        <Input
+          label={t('Pay Period (YYYY-MM)')}
+          type="month"
+          value={genForm.payPeriod}
+          onChange={(e) => setGenForm((f) => ({ ...f, payPeriod: e.target.value }))}
+        />
+        <Input
+          label={t('Base Salary (optional — defaults to employee profile)')}
+          type="number"
+          min="0"
+          step="0.01"
+          placeholder={t('Use profile salary')}
+          value={genForm.baseSalary}
+          onChange={(e) => setGenForm((f) => ({ ...f, baseSalary: e.target.value }))}
+        />
+        <Textarea
+          label={t('Notes (optional)')}
+          value={genForm.notes}
+          onChange={(e) => setGenForm((f) => ({ ...f, notes: e.target.value }))}
+        />
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
+          <Btn variant="secondary" onClick={() => setGenOpen(false)}>{t('Cancel')}</Btn>
+          <Btn variant="primary" loading={generating} onClick={handleGenerate} style={{ background: 'var(--red-600)', border: 'none' }}>
+            {t('Generate')}
+          </Btn>
+        </div>
+      </Modal>
+
+      <Modal open={cycleOpen} onClose={() => setCycleOpen(false)} title={t('Start Payroll Cycle')}>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 0, marginBottom: 16 }}>
+          {t('This generates a payslip for every active employee (all roles except candidates) who does not already have one for the selected period. Employees already processed for this period are skipped.')}
+        </p>
+        <Input
+          label={t('Pay Period (YYYY-MM)')}
+          type="month"
+          value={cyclePeriod}
+          onChange={(e) => setCyclePeriod(e.target.value)}
+        />
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
+          <Btn variant="secondary" onClick={() => setCycleOpen(false)}>{t('Cancel')}</Btn>
+          <Btn variant="primary" loading={cycleRunning} onClick={handleRunCycle} style={{ background: 'var(--red-600)', border: 'none' }}>
+            {t('Run Cycle')}
+          </Btn>
+        </div>
+      </Modal>
 
       <style dangerouslySetInnerHTML={{ __html: `
         .payroll-row:hover { background: #FBFBFF; }

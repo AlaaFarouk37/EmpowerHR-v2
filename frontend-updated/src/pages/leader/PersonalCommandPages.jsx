@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
+import {
   getMyAttendance, clockAttendance, getMyLeaveRequests, submitLeaveRequest,
-  getMyPayroll, getMyDocuments, getMyTickets, submitTicket,
+  getMyPayroll, getMyDocuments, getMyTickets, submitSupportTicket,
   changePassword
 } from '../../api/index.js';
 import { 
@@ -397,11 +397,26 @@ export function LeaderPersonalTicketsPage() {
   }, [user?.employee_id]);
 
   const [submitting, setSubmitting] = useState(false);
+  const EMPTY_INCIDENT = { subject: '', priority: 'Medium', description: '' };
+  const [incidentForm, setIncidentForm] = useState(EMPTY_INCIDENT);
+
   const handleLaunchReport = async () => {
+    if (!incidentForm.subject.trim()) {
+      toast(t('Please add an incident title.'), 'error');
+      return;
+    }
     setSubmitting(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await submitSupportTicket({
+        subject: incidentForm.subject.trim(),
+        priority: incidentForm.priority,
+        description: incidentForm.description.trim(),
+      });
       toast(t('Incident reported. Triage node will respond shortly.'), 'success');
+      setIncidentForm(EMPTY_INCIDENT);
+      await loadData();
+    } catch (e) {
+      toast(e?.response?.data?.subject?.[0] || e?.message || t('Failed to file incident'), 'error');
     } finally {
       setSubmitting(false);
     }
@@ -446,13 +461,34 @@ export function LeaderPersonalTicketsPage() {
          <div style={{ background: '#fff', borderRadius: 32, border: '1.5px solid #F1F5F9', padding: 32, alignSelf: 'start' }}>
             <h3 style={{ fontSize: 16, fontWeight: 900, marginBottom: 24 }}>New Incident Report</h3>
             <div style={{ display: 'grid', gap: 20 }}>
-               <NeuralInput label="Incident Title" placeholder="e.g., Access denied to neural map" />
-               <NeuralInput label="Priority" suggestion="High, Medium, Low" />
-               <NeuralInput label="Context" placeholder="Describe the system anomaly..." />
-               <Btn 
+               <NeuralInput
+                 label="Incident Title"
+                 placeholder="e.g., Access denied to neural map"
+                 value={incidentForm.subject}
+                 onChange={(e) => setIncidentForm(f => ({ ...f, subject: e.target.value }))}
+               />
+               <div>
+                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>Priority</label>
+                 <select
+                   value={incidentForm.priority}
+                   onChange={(e) => setIncidentForm(f => ({ ...f, priority: e.target.value }))}
+                   style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #E2E8F0', padding: '0 14px', fontSize: 13, fontWeight: 600, outline: 'none', background: '#fff', cursor: 'pointer' }}
+                 >
+                   <option value="Low">Low</option>
+                   <option value="Medium">Medium</option>
+                   <option value="High">High</option>
+                 </select>
+               </div>
+               <NeuralInput
+                 label="Context"
+                 placeholder="Describe the system anomaly..."
+                 value={incidentForm.description}
+                 onChange={(e) => setIncidentForm(f => ({ ...f, description: e.target.value }))}
+               />
+               <Btn
                  onClick={handleLaunchReport}
                  loading={submitting}
-                 variant="primary" 
+                 variant="primary"
                  style={{ height: 56, background: '#111827' }}
                >
                  Launch Report
@@ -468,8 +504,37 @@ export function LeaderPersonalTicketsPage() {
 export function LeaderPersonalProfilePage() {
   const { user, logout } = useAuth();
   const { t } = useLanguage();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState('identity');
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const EMPTY_PW = { old_password: '', new_password: '', confirm: '' };
+  const [pwForm, setPwForm] = useState(EMPTY_PW);
+  const [pwSaving, setPwSaving] = useState(false);
+
+  const handleChangePassword = async () => {
+    if (!pwForm.old_password || !pwForm.new_password) {
+      toast(t('Both current and new password are required.'), 'error');
+      return;
+    }
+    if (pwForm.new_password.length < 8) {
+      toast(t('New password must be at least 8 characters.'), 'error');
+      return;
+    }
+    if (pwForm.new_password !== pwForm.confirm) {
+      toast(t('New password and confirmation do not match.'), 'error');
+      return;
+    }
+    setPwSaving(true);
+    try {
+      await changePassword({ old_password: pwForm.old_password, new_password: pwForm.new_password });
+      toast(t('Password updated successfully.'), 'success');
+      setPwForm(EMPTY_PW);
+    } catch (e) {
+      toast(e?.response?.data?.old_password?.[0] || e?.response?.data?.new_password?.[0] || e?.message || t('Failed to update password.'), 'error');
+    } finally {
+      setPwSaving(false);
+    }
+  };
 
   return (
     <LeaderPortalLayout>
@@ -590,6 +655,56 @@ export function LeaderPersonalProfilePage() {
                  Disconnect Session
               </button>
            </div>
+        </div>
+      )}
+
+      {activeTab === 'governance' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 40 }}>
+          <TacticalCard title="Credential Update">
+            <div style={{ display: 'grid', gap: 16 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>Current Password</label>
+                <input
+                  type="password"
+                  value={pwForm.old_password}
+                  onChange={(e) => setPwForm(f => ({ ...f, old_password: e.target.value }))}
+                  style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #E2E8F0', padding: '0 14px', fontSize: 13, fontWeight: 600, outline: 'none' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>New Password (min 8 chars)</label>
+                <input
+                  type="password"
+                  value={pwForm.new_password}
+                  onChange={(e) => setPwForm(f => ({ ...f, new_password: e.target.value }))}
+                  style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #E2E8F0', padding: '0 14px', fontSize: 13, fontWeight: 600, outline: 'none' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>Confirm New Password</label>
+                <input
+                  type="password"
+                  value={pwForm.confirm}
+                  onChange={(e) => setPwForm(f => ({ ...f, confirm: e.target.value }))}
+                  style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #E2E8F0', padding: '0 14px', fontSize: 13, fontWeight: 600, outline: 'none' }}
+                />
+              </div>
+              <Btn
+                onClick={handleChangePassword}
+                disabled={pwSaving}
+                style={{ height: 48, borderRadius: 12, fontWeight: 900, background: '#111827', color: '#fff', border: 'none' }}
+              >
+                {pwSaving ? t('Saving...') : t('Update Password')}
+              </Btn>
+            </div>
+          </TacticalCard>
+
+          <div style={{ background: '#fff', borderRadius: 32, border: '1.5px solid #F1F5F9', padding: 32, alignSelf: 'start' }}>
+            <h3 style={{ fontSize: 14, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 20 }}>Security Notes</h3>
+            <div style={{ fontSize: 13, color: '#64748B', lineHeight: 1.6 }}>
+              {t('Use a passphrase you do not reuse elsewhere. After updating, you will stay signed in on this device.')}
+            </div>
+          </div>
         </div>
       )}
 

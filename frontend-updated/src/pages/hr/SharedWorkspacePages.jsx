@@ -7,6 +7,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { EmployeeProfilePage } from '../employee/EmployeeProfilePage';
 import { TeamGoalsPage } from '../leader/TeamPage';
 import { TeamRecognitionPage } from '../leader/RecognitionPage';
+import { HRTeamHubPage } from './TeamHubPage';
 
 const EMPTY_SUMMARY = {
   followUpEmployees: 0,
@@ -141,7 +142,7 @@ function HROwnedShell({ titleKey, variant = 'team', children }) {
 }
 
 export function HRTeamPage() {
-  return <HROwnedShell titleKey="nav.teamHub" variant="team"><TeamGoalsPage /></HROwnedShell>;
+  return <HROwnedShell titleKey="nav.teamHub" variant="team"><HRTeamHubPage /></HROwnedShell>;
 }
 
 export function HRRecognitionPage() {

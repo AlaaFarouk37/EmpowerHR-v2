@@ -3,6 +3,7 @@ import { api, toList } from './base';
 // Recruitment (Jobs & CV Ranking)
 export const hrGetJobs           = async ()        => toList(await api.get('/recruitment/jobs/'));
 export const getJobs             = hrGetJobs;
+export const hrGetInterviewers   = async ()        => toList(await api.get('/recruitment/interviewers/'));
 export const hrGetJobsWatch      = ()              => api.get('/recruitment/jobs/health/');
 export const hrUpdateJobStatus   = (id, status)    => api.put(`/recruitment/jobs/${id}/`, { status });
 export const hrGetJobPipelineHealth = () => api.get('/recruitment/jobs/health/');
@@ -45,7 +46,24 @@ export const getPredictions    = async ()        => toList(await api.get('/attri
 // Benchmarking
 export const hrGetBenchmarking  = async () => await api.get('/recruitment/benchmarking/');
 export const hrRunSalarySync    = () => api.post('/recruitment/benchmarking/sync/', {});
+export const hrFetchExternalSalaryBenchmark = async () => toList(await api.get('/employee_management/hr/salary-benchmark/'));
 export const hrGetTalentPools   = async () => toList(await api.get('/recruitment/talent-pools/'));
 export const hrPromoteEmployee  = (employeeID, roleID) => api.post('/recruitment/promote/', { employee_id: employeeID, role_id: roleID });
 export const hrGetTalentGraph   = async () => await api.get('/recruitment/talent-graph/');
+
+export const hrGetAtRiskEmployees = (threshold) => {
+  const query = threshold ? `?threshold=${threshold}` : '';
+  return api.get(`/recruitment/succession/at-risk/${query}`);
+};
+export const hrGetSuccessors = (employeeId, filters = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    const str = String(value).trim();
+    if (str === '') return;
+    params.append(key, str);
+  });
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return api.get(`/recruitment/succession/employees/${employeeId}/successors/${query}`);
+};
 

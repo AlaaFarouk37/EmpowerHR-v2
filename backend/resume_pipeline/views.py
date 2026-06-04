@@ -782,7 +782,6 @@ def rank_cvs_for_job(job_id, review_stage="", include_hired=False):
     job_description = job.description or ""
 
     cvs_data = []
-    seen_resume_names = set()
 
     for sub in submissions:
         cv_text = sub.raw_text or ""
@@ -795,9 +794,7 @@ def rank_cvs_for_job(job_id, review_stage="", include_hired=False):
                 cv_text = ""
 
         resume_name = (sub.resume_file.name or "").split("/")[-1] if sub.resume_file else ""
-        if resume_name:
-            seen_resume_names.add(resume_name.lower())
-        
+
         cvs_data.append({
             'source': 'submission',
             'submission': sub,
@@ -811,36 +808,8 @@ def rank_cvs_for_job(job_id, review_stage="", include_hired=False):
             'exp_extraction_method': sub.exp_extraction_method or '',
         })
 
-    include_media_entries = not review_stage or review_stage == Submission.ReviewStage.APPLIED
-    media_root = Path(getattr(settings, "MEDIA_ROOT", ""))
-    resumes_dir = media_root / "resumes"
-    if include_media_entries and resumes_dir.exists() and resumes_dir.is_dir():
-        for path in sorted(resumes_dir.rglob("*")):
-            if not path.is_file() or path.suffix.lower() not in {".pdf", ".txt"}:
-                continue
-
-            if path.name.lower() in seen_resume_names:
-                continue
-
-            try:
-                file_bytes = path.read_bytes()
-                cv_text = _safe_extract_resume_text(file_bytes, path.name)
-            except Exception:
-                cv_text = ""
-
-            candidate_name = re.sub(r"[_\-]+", " ", path.stem).strip() or path.stem
-            cvs_data.append({
-                'source': 'media',
-                'submission': None,
-                'cv_text': cv_text,
-                'candidate_name': candidate_name,
-                'candidate_email': '',
-                'file_name': path.name,
-                'candidate_skills': [],
-            })
-
     if not cvs_data:
-        return {"error": "No CV files found in submissions or media/resumes"}
+        return {"error": "No submissions found for this job."}
     return _score_cvs(job, cvs_data, key_skills=key_skills, job_description=job_description)
 
 logger = logging.getLogger(__name__)
@@ -863,9 +832,16 @@ def _build_stage_history_entry(*, from_stage, to_stage, note='', talent_pool=Tru
 
 
 class JobListCreateView(ListCreateAPIView):
-    
-    queryset         = Job.objects.filter(is_active=True).order_by("-created_at")
     serializer_class = JobSerializer
+
+    def get_queryset(self):
+        # HR and Admin manage the full catalog (incl. deactivated/hidden postings).
+        # Anonymous and non-HR callers (candidates, public portal) only see active postings.
+        qs = Job.objects.all().order_by("-created_at")
+        user = self.request.user
+        if not (user.is_authenticated and getattr(user, "role", None) in ("HRManager", "Admin")):
+            qs = qs.filter(is_active=True)
+        return qs
 
     def perform_create(self, serializer):
         # Auto-extract required_skills from JD text when job is created
@@ -876,7 +852,25 @@ class JobListCreateView(ListCreateAPIView):
     def get_permissions(self):
         if self.request.method == 'GET':
             return [AllowAny()]
-        return [IsHRManager()] 
+        return [IsHRManager()]
+
+
+class InterviewerListView(APIView):
+    """GET /api/recruitment/interviewers/ — list users eligible to be assigned as an interviewer."""
+    permission_classes = [IsHRManager]
+
+    def get(self, request):
+        eligible = User.objects.filter(role__in=["HRManager", "TeamLeader"], is_active=True).order_by("role", "full_name", "email")
+        data = [
+            {
+                "id": u.id,
+                "full_name": u.full_name or u.email,
+                "email": u.email,
+                "role": u.role,
+            }
+            for u in eligible
+        ]
+        return Response(data)
 
 
 class JobDetailView(RetrieveUpdateAPIView):
@@ -1226,64 +1220,7 @@ class JobSubmissionsView(APIView):
         review_stage, include_hired = _parse_submission_history_filters(request)
         submissions = _job_submission_queryset(pk, review_stage=review_stage, include_hired=include_hired)
         serialized = SubmissionSerializer(submissions, many=True).data
-
-        existing_names = {
-            (item.get("resume_filename") or "").strip().lower()
-            for item in serialized
-            if item.get("resume_filename")
-        }
-
-        media_entries = []
-        include_media_entries = not review_stage or review_stage == Submission.ReviewStage.APPLIED
-        media_root = Path(getattr(settings, "MEDIA_ROOT", ""))
-        resumes_dir = media_root / "resumes"
-
-        if include_media_entries and resumes_dir.exists() and resumes_dir.is_dir():
-            media_files = [
-                p for p in resumes_dir.rglob("*")
-                if p.is_file() and p.suffix.lower() in {".pdf", ".txt"}
-            ]
-            media_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-
-            for path in media_files:
-                filename = path.name
-                lower_name = filename.lower()
-                if lower_name in existing_names:
-                    continue
-
-                relative_path = path.relative_to(media_root).as_posix()
-                candidate_name = re.sub(r"[_\-]+", " ", path.stem).strip() or path.stem
-                modified_iso = datetime.fromtimestamp(path.stat().st_mtime, tz=dt_timezone.utc).isoformat()
-
-                media_entries.append({
-                    "id": f"media-{path.stem}-{int(path.stat().st_mtime)}",
-                    "job": int(pk),
-                    "job_title": "",
-                    "candidate_name": candidate_name,
-                    "candidate_email": "",
-                    "tracking_code": "",
-                    "resume_file": f"/media/{relative_path}",
-                    "resume_filename": filename,
-                    "status": "MEDIA",
-                    "review_stage": "Applied",
-                    "stage_notes": "Imported from media library",
-                    "stage_updated_at": modified_iso,
-                    "talent_pool": False,
-                    "stage_history": [],
-                    "error_message": "",
-                    "candidate_skills": [],
-                    "candidate_degree": "",
-                    "candidate_years_exp": 0,
-                    "skills_score": None,
-                    "experience_score": None,
-                    "education_score": None,
-                    "semantic_score": None,
-                    "ats_score": None,
-                    "submitted_at": modified_iso,
-                    "scored_at": None,
-                })
-
-        return Response([*serialized, *media_entries])
+        return Response(serialized)
 
 
 class SubmissionDetailView(APIView):
@@ -1298,27 +1235,18 @@ class SubmissionDetailView(APIView):
         return Response(SubmissionSerializer(sub).data)
 
 
-ALLOWED_STAGE_TRANSITIONS = {
-    Submission.ReviewStage.APPLIED: {
-        Submission.ReviewStage.APPLIED,
-        Submission.ReviewStage.SHORTLISTED,
-        Submission.ReviewStage.INTERVIEW,
-        Submission.ReviewStage.REJECTED,
-    },
-    Submission.ReviewStage.SHORTLISTED: {
-        Submission.ReviewStage.SHORTLISTED,
-        Submission.ReviewStage.INTERVIEW,
-        Submission.ReviewStage.REJECTED,
-    },
-    Submission.ReviewStage.INTERVIEW: {
-        Submission.ReviewStage.INTERVIEW,
-        Submission.ReviewStage.SHORTLISTED,
-        Submission.ReviewStage.HIRED,
-        Submission.ReviewStage.REJECTED,
-    },
-    Submission.ReviewStage.HIRED: {Submission.ReviewStage.HIRED},
-    Submission.ReviewStage.REJECTED: {Submission.ReviewStage.REJECTED},
-}
+APPLIED_STAGE = "Applied"
+REJECTED_STAGE = "Rejected"
+DEFAULT_PIPELINE_STAGES = ["Shortlisted", "Interview", "Hired"]
+
+
+def _effective_pipeline(job):
+    """Return the HR-defined middle stages for this job (excludes system 'Applied' and 'Rejected').
+
+    Falls back to a sensible default progression if HR hasn't defined any stages.
+    """
+    stages = list(job.pipeline_stages or [])
+    return stages if stages else list(DEFAULT_PIPELINE_STAGES)
 
 
 class SubmissionStageUpdateView(APIView):
@@ -1327,7 +1255,7 @@ class SubmissionStageUpdateView(APIView):
 
     def post(self, request, pk):
         try:
-            submission = Submission.objects.get(pk=pk)
+            submission = Submission.objects.select_related('job').get(pk=pk)
         except Submission.DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -1336,10 +1264,21 @@ class SubmissionStageUpdateView(APIView):
 
         next_stage = serializer.validated_data['review_stage']
         current_stage = submission.review_stage or Submission.ReviewStage.APPLIED
-        allowed_next = ALLOWED_STAGE_TRANSITIONS.get(current_stage, {current_stage})
-        if next_stage not in allowed_next:
+
+        pipeline = _effective_pipeline(submission.job)
+        valid_targets = set(pipeline) | {APPLIED_STAGE, REJECTED_STAGE}
+        if next_stage not in valid_targets:
             return Response(
-                {"detail": f"Invalid hiring stage transition from {current_stage} to {next_stage}."},
+                {"detail": f"'{next_stage}' is not a valid stage for this job. Allowed: {sorted(valid_targets)}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        final_stage = pipeline[-1] if pipeline else None
+        is_terminal_move = next_stage == REJECTED_STAGE or (final_stage is not None and next_stage == final_stage)
+        note = (serializer.validated_data.get('stage_notes') or '').strip()
+        if is_terminal_move and not note:
+            return Response(
+                {"stage_notes": "Please add a short hiring note before finalizing this stage."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

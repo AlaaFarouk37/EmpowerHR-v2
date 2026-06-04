@@ -16,7 +16,7 @@ from .views import (
     # Tasks
     EmployeeTaskListView, EmployeeTaskProgressView, EmployeeTaskStartView,
     EmployeeTaskEndView, EmployeeTaskDoneView,
-    TeamTaskListCreateView, TeamTaskDetailView, TeamTaskApproveView,
+    TeamTaskListCreateView, TeamTaskDetailView, TeamTaskApproveView, TeamTaskReturnForChangesView,
     # Action plans
     HRActionPlanListCreateView, HRActionPlanStatusView,
     # Recognition
@@ -91,6 +91,7 @@ urlpatterns = [
     path('team/tasks/', TeamTaskListCreateView.as_view(), name='team-task-list-create'),
     path('team/tasks/<str:task_id>/', TeamTaskDetailView.as_view(), name='team-task-detail'),
     path('team/tasks/<str:task_id>/approve/', TeamTaskApproveView.as_view(), name='team-task-approve'),
+    path('team/tasks/<str:task_id>/return/', TeamTaskReturnForChangesView.as_view(), name='team-task-return'),
 
     # ─── Action plans (HR) ───────────────────────────────────────────────────
     path('hr/action-plans/', HRActionPlanListCreateView.as_view(), name='hr-action-plan-list-create'),

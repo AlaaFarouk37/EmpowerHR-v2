@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Spinner, Modal, Btn, Badge, useToast, Input, Textarea } from '../../components/shared/index.jsx';
-import { getJobs, createJob, updateJob } from '../../api/index.js';
+import { getJobs, createJob, updateJob, hrGetPositionCatalog } from '../../api/index.js';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { 
@@ -38,8 +38,10 @@ export function HRJobPostingsPage() {
   const [activeTab, setActiveTab] = useState('Active');
   const [showCreate, setShowCreate] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [positionCatalog, setPositionCatalog] = useState([]);
   const [newForm, setNewForm] = useState({
     title: '',
+    level: '',
     department: '',
     employment_type: 'Full-time',
     vacancies: 1,
@@ -51,13 +53,33 @@ export function HRJobPostingsPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const jobData = await getJobs();
+      const [jobData, catalogData] = await Promise.all([
+        getJobs(),
+        hrGetPositionCatalog().catch(() => []),
+      ]);
       setJobs(Array.isArray(jobData) ? jobData : []);
+      setPositionCatalog(Array.isArray(catalogData) ? catalogData : []);
     } catch { toast('Failed to load job postings', 'error'); }
     finally { setLoading(false); }
   };
 
   useEffect(() => { load(); }, []);
+
+  const titleOptions = useMemo(() => {
+    const seen = new Set();
+    return positionCatalog
+      .map(p => (p?.title || '').trim())
+      .filter(t => t && !seen.has(t) && seen.add(t));
+  }, [positionCatalog]);
+
+  const levelOptions = useMemo(() => {
+    if (!newForm.title) return [];
+    const seen = new Set();
+    return positionCatalog
+      .filter(p => (p?.title || '').trim().toLowerCase() === newForm.title.trim().toLowerCase())
+      .map(p => (p?.level || '').trim())
+      .filter(l => !seen.has(l) && seen.add(l));
+  }, [positionCatalog, newForm.title]);
 
   const handleCreate = async () => {
     if (!newForm.title || !newForm.description) {
@@ -65,11 +87,17 @@ export function HRJobPostingsPage() {
     }
     setSaving(true);
     try {
-      await createJob(newForm);
+      const payload = {
+        title: newForm.title,
+        level: newForm.level || null,
+        description: newForm.description,
+      };
+      await createJob(payload);
       toast('Requisition initialized successfully', 'success');
       setShowCreate(false);
       setNewForm({
         title: '',
+        level: '',
         department: '',
         employment_type: 'Full-time',
         vacancies: 1,
@@ -77,8 +105,9 @@ export function HRJobPostingsPage() {
         hiring_workflow: ['Applied', 'Shortlisted', 'Interview', 'Technical Test', 'Offer', 'Hired']
       });
       load();
-    } catch {
-      toast('Failed to initialize requisition', 'error');
+    } catch (err) {
+      const msg = err?.response?.data?.title?.[0] || err?.message || 'Failed to initialize requisition';
+      toast(msg, 'error');
     } finally {
       setSaving(false);
     }
@@ -300,20 +329,33 @@ export function HRJobPostingsPage() {
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Initialize Requisition Protocol" maxWidth={800}>
          <div style={{ display: 'grid', gap: 24, padding: 32 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-               <Input 
-                 label="Strategic Title" 
-                 placeholder="e.g. Senior Neural Engineer" 
-                 value={newForm.title}
-                 onChange={e => setNewForm({...newForm, title: e.target.value})}
-                 style={{ height: 52, borderRadius: 12 }} 
-               />
-               <Input 
-                 label="Departmental Node" 
-                 placeholder="Engineering" 
-                 value={newForm.department}
-                 onChange={e => setNewForm({...newForm, department: e.target.value})}
-                 style={{ height: 52, borderRadius: 12 }} 
-               />
+               <div>
+                  <label style={{ fontSize: 12, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8, display: 'block' }}>Position Title</label>
+                  <select
+                    value={newForm.title}
+                    onChange={e => setNewForm({...newForm, title: e.target.value, level: ''})}
+                    style={{ width: '100%', height: 52, borderRadius: 12, border: '1.5px solid #F1F5F9', padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#fff' }}
+                  >
+                     <option value="">{titleOptions.length ? 'Select a position…' : 'No positions in catalog'}</option>
+                     {titleOptions.map(t => (
+                       <option key={t} value={t}>{t}</option>
+                     ))}
+                  </select>
+               </div>
+               <div>
+                  <label style={{ fontSize: 12, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8, display: 'block' }}>Job Level</label>
+                  <select
+                    value={newForm.level}
+                    onChange={e => setNewForm({...newForm, level: e.target.value})}
+                    disabled={!newForm.title}
+                    style={{ width: '100%', height: 52, borderRadius: 12, border: '1.5px solid #F1F5F9', padding: '0 16px', fontSize: 13, fontWeight: 600, background: newForm.title ? '#fff' : '#F8FAFC' }}
+                  >
+                     <option value="">{newForm.title ? (levelOptions.length ? 'Select a level…' : '(no level)') : 'Pick a title first'}</option>
+                     {levelOptions.filter(l => l).map(l => (
+                       <option key={l} value={l}>{l}</option>
+                     ))}
+                  </select>
+               </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>

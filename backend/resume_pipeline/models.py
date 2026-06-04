@@ -1,5 +1,6 @@
 import secrets
 
+from django.conf import settings
 from django.db import models
 
 
@@ -15,6 +16,21 @@ class Job(models.Model):
     required_skills      = models.JSONField(default=list)   # extracted from JD automatically
     min_experience_years = models.FloatField(default=0)
     required_degree      = models.CharField(max_length=20, default="Unknown")
+
+    vacancies            = models.PositiveIntegerField(default=1, help_text="Number of target hires for this posting.")
+    pipeline_stages      = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Ordered list of HR-defined hiring stages. Empty falls back to the system default. 'Rejected' is implicit and never stored here.",
+    )
+    interviewer          = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='interviewing_jobs',
+        help_text="HR Manager or Team Leader responsible for interviewing candidates for this role.",
+    )
 
     # User-defined weights (must sum to 1.0)
     weight_skills     = models.FloatField(default=0.40)
@@ -49,7 +65,7 @@ class Submission(models.Model):
     tracking_code   = models.CharField(max_length=16, unique=True, default=generate_tracking_code, editable=False)
     resume_file     = models.FileField(upload_to="resumes/")
     status          = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
-    review_stage    = models.CharField(max_length=20, choices=ReviewStage.choices, default=ReviewStage.APPLIED)
+    review_stage    = models.CharField(max_length=50, default=ReviewStage.APPLIED)
     stage_notes     = models.TextField(blank=True)
     stage_updated_at = models.DateTimeField(null=True, blank=True)
     talent_pool     = models.BooleanField(default=True)

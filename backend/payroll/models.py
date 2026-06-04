@@ -21,11 +21,31 @@ class PayrollRecord(models.Model):
                       max_length=3,
                       choices=[('EGP', 'Egyptian Pound'), ('USD', 'US Dollar')],
                       default='EGP')
-    baseSalary  = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    baseSalary  = models.DecimalField(max_digits=10, decimal_places=2, default=0,
+                      help_text="Full contractual monthly base salary (before proration).")
     allowances  = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    deductions  = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    deductions  = models.DecimalField(max_digits=10, decimal_places=2, default=0,
+                      help_text="Manual HR-entered deductions (excludes unpaid-leave deduction).")
     bonus       = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     netPay      = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    # ── Computed payroll breakdown (see payroll/calculations.py) ──────────
+    proratedBaseSalary   = models.DecimalField(max_digits=10, decimal_places=2, default=0,
+                               help_text="Base salary after mid-month join/leave proration; used in net pay.")
+    dailyRate            = models.DecimalField(max_digits=12, decimal_places=4, default=0,
+                               help_text="Base salary / total weekdays in the month.")
+    commissions          = models.DecimalField(max_digits=10, decimal_places=2, default=0,
+                               help_text="Sum of manual HR commission entries for this employee + pay period.")
+    unpaidLeaveDeduction = models.DecimalField(max_digits=10, decimal_places=2, default=0,
+                               help_text="Daily rate × counted unpaid-leave weekdays within the employment window.")
+    expenseReimbursements= models.DecimalField(max_digits=10, decimal_places=2, default=0,
+                               help_text="Sum of approvedAmount for HR-approved expense claims in the pay period.")
+    workingDays          = models.PositiveIntegerField(default=0,
+                               help_text="Weekdays (Mon-Fri) in the pay-period month.")
+    weekdaysEmployed     = models.PositiveIntegerField(default=0,
+                               help_text="Weekdays in the month falling within the employment window.")
+    unpaidLeaveDays      = models.PositiveIntegerField(default=0,
+                               help_text="Counted unpaid-leave weekdays within the employment window.")
     status      = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
     paymentDate = models.DateField(null=True, blank=True)
     notes       = models.TextField(blank=True)
@@ -38,3 +58,51 @@ class PayrollRecord(models.Model):
 
     def __str__(self):
         return f"{self.employee.fullName} — {self.payPeriod}"
+
+
+class Commission(models.Model):
+    """A manual HR-entered commission line item for one employee in one pay
+    period. Payroll sums all rows for an (employee, payPeriod) when computing
+    net pay; there is no auto-calculation from other data."""
+
+    commissionID = models.CharField(max_length=50, primary_key=True, default=gen_id)
+    employee     = models.ForeignKey(
+                       'employee_management.Employee', on_delete=models.CASCADE,
+                       db_column='employeeID', related_name='commissions')
+    payPeriod    = models.CharField(max_length=20, help_text="Pay period in 'YYYY-MM' format.")
+    amount       = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    description  = models.CharField(max_length=255, blank=True,
+                       help_text="HR note explaining why this commission was awarded.")
+    createdBy    = models.CharField(max_length=150, blank=True)
+    createdAt    = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'Commission'
+        ordering = ['-payPeriod', '-createdAt']
+
+    def __str__(self):
+        return f"{self.employee.fullName} — {self.payPeriod} ({self.amount})"
+
+
+class Deduction(models.Model):
+    """A manual HR-entered deduction line item for one employee in one pay
+    period. Payroll sums all rows for an (employee, payPeriod) when computing
+    net pay; this is separate from the auto-computed unpaid-leave deduction."""
+
+    deductionID  = models.CharField(max_length=50, primary_key=True, default=gen_id)
+    employee     = models.ForeignKey(
+                       'employee_management.Employee', on_delete=models.CASCADE,
+                       db_column='employeeID', related_name='manual_deductions')
+    payPeriod    = models.CharField(max_length=20, help_text="Pay period in 'YYYY-MM' format.")
+    amount       = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    description  = models.CharField(max_length=255, blank=True,
+                       help_text="HR note explaining why this deduction was applied.")
+    createdBy    = models.CharField(max_length=150, blank=True)
+    createdAt    = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'Deduction'
+        ordering = ['-payPeriod', '-createdAt']
+
+    def __str__(self):
+        return f"{self.employee.fullName} — {self.payPeriod} ({self.amount})"

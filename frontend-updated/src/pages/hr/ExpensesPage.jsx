@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { hrGetExpenses, hrReviewExpenseClaim } from '../../api/index.js';
-import { Badge, Btn, Spinner, useToast, Input } from '../../components/shared/index.jsx';
+import { Badge, Btn, Modal, Spinner, useToast, Input, Textarea } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { 
@@ -56,16 +56,56 @@ export function HRExpensesPage() {
 
   useEffect(() => { loadClaims(); }, []);
 
-  const handleReview = async (claim, status) => {
-    if (!claim?.claimID || savingId === claim.claimID) return;
+  // Approve / Reject modal state
+  const [reviewModal, setReviewModal] = useState({ open: false, claim: null, action: null });
+  const [reviewForm, setReviewForm] = useState({ note: '', approvedAmount: '' });
+  const [reviewSaving, setReviewSaving] = useState(false);
+
+  const openApproveModal = (claim) => {
+    setReviewForm({ note: '', approvedAmount: String(claim.amount ?? '') });
+    setReviewModal({ open: true, claim, action: 'Approved' });
+  };
+  const openRejectModal = (claim) => {
+    setReviewForm({ note: '', approvedAmount: '' });
+    setReviewModal({ open: true, claim, action: 'Rejected' });
+  };
+  const closeReviewModal = () => {
+    setReviewModal({ open: false, claim: null, action: null });
+    setReviewForm({ note: '', approvedAmount: '' });
+  };
+
+  const submitReview = async () => {
+    const { claim, action } = reviewModal;
+    if (!claim?.claimID) return;
+    if (action === 'Rejected' && !reviewForm.note.trim()) {
+      toast(t('Please provide a short reason before rejecting this expense claim.'), 'error');
+      return;
+    }
+    if (action === 'Approved') {
+      const n = Number(reviewForm.approvedAmount);
+      if (!Number.isFinite(n) || n < 0) {
+        toast(t('Approved amount must be a non-negative number.'), 'error');
+        return;
+      }
+    }
+    setReviewSaving(true);
     setSavingId(claim.claimID);
     try {
-      await hrReviewExpenseClaim(claim.claimID, { status, note: '' });
-      toast(`Claim → ${status}`, 'success');
+      const payload = { status: action, note: reviewForm.note.trim() };
+      if (action === 'Approved') payload.approvedAmount = Number(reviewForm.approvedAmount);
+      await hrReviewExpenseClaim(claim.claimID, payload);
+      toast(action === 'Approved' ? t('Claim approved') : t('Claim rejected'), 'success');
+      closeReviewModal();
       await loadClaims();
     } catch (err) {
-      toast(err?.message || 'Failed to update expense claim', 'error');
+      const detail = err?.response?.data?.note?.[0]
+        || err?.response?.data?.approvedAmount?.[0]
+        || err?.response?.data?.error
+        || err?.message
+        || t('Failed to update expense claim');
+      toast(detail, 'error');
     } finally {
+      setReviewSaving(false);
       setSavingId(null);
     }
   };
@@ -82,11 +122,16 @@ export function HRExpensesPage() {
 
   const fiscalStats = useMemo(() => {
     const totalAmount = claims.reduce((acc, c) => acc + (parseFloat(c.amount) || 0), 0);
+    const pendingCount = claims.filter(c => c.status === 'Submitted' || c.status === 'Pending').length;
+    const approvedCount = claims.filter(c => c.status === 'Approved' || c.status === 'Reimbursed').length;
+    const rejectedCount = claims.filter(c => c.status === 'Rejected').length;
+    const totalReviewed = approvedCount + rejectedCount;
+    const approvalRate = totalReviewed > 0 ? Math.round((approvedCount / totalReviewed) * 100) : 0;
     return [
-      { label: 'Pending Triage', value: claims.filter(c => c.status === 'Pending').length, icon: AlertCircle, color: 'var(--red-600)', bg: 'var(--red-50)' },
+      { label: 'Pending Triage', value: pendingCount, icon: AlertCircle, color: 'var(--red-600)', bg: 'var(--red-50)' },
       { label: 'Total Fiscal Load', value: `$${totalAmount.toLocaleString()}`, icon: DollarSign, color: 'var(--red-800)', bg: 'var(--red-50)' },
-      { label: 'Approval Velocity', value: '88.4%', icon: Activity, color: '#1E293B', bg: '#F8FAFC' },
-      { label: 'Rejection Index', value: '04', icon: XCircle, color: 'var(--pink-600)', bg: 'var(--pink-50)' },
+      { label: 'Approval Velocity', value: `${approvalRate}%`, icon: Activity, color: '#1E293B', bg: '#F8FAFC' },
+      { label: 'Rejection Index', value: rejectedCount, icon: XCircle, color: 'var(--pink-600)', bg: 'var(--pink-50)' },
     ];
   }, [claims]);
 
@@ -152,9 +197,10 @@ export function HRExpensesPage() {
                 style={{ height: 44, padding: '0 40px 0 16px', borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', fontSize: 13, fontWeight: 800, color: '#1E293B', outline: 'none', appearance: 'none', minWidth: 200 }}
               >
                  <option value="All Statuses">{t('All Fiscal States')}</option>
-                 <option value="Pending">{t('Pending Triage')}</option>
+                 <option value="Submitted">{t('Pending Triage')}</option>
                  <option value="Approved">{t('Authorized Claims')}</option>
                  <option value="Rejected">{t('Deflected Claims')}</option>
+                 <option value="Reimbursed">{t('Reimbursed')}</option>
               </select>
               <ChevronDown size={14} style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', pointerEvents: 'none' }} />
            </div>
@@ -193,10 +239,12 @@ export function HRExpensesPage() {
           </thead>
           <tbody>
             {filteredClaims.map((claim, idx) => {
-              const status = claim.status || 'Pending';
+              const status = claim.status || 'Submitted';
+              const isPending = status === 'Submitted' || status === 'Pending';
               const isApproved = status === 'Approved';
               const isRejected = status === 'Rejected';
-              
+              const isReimbursed = status === 'Reimbursed';
+
               return (
                 <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9', transition: 'background 0.2s' }} className="fiscal-row">
                   <td style={{ padding: '24px 32px' }}>
@@ -230,48 +278,44 @@ export function HRExpensesPage() {
                     </div>
                   </td>
                   <td style={{ padding: '24px 32px' }}>
-                     <Badge 
-                      label={status.toUpperCase()} 
-                      color={isApproved ? 'green' : isRejected ? 'red' : 'yellow'} 
+                     <Badge
+                      label={status.toUpperCase()}
+                      color={isApproved ? 'green' : isRejected ? 'red' : isReimbursed ? 'indigo' : 'yellow'}
                      />
+                     {isApproved && claim.approvedAmount != null && (
+                       <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', marginTop: 6 }}>
+                         {t('Approved')}: ${parseFloat(claim.approvedAmount).toLocaleString()}
+                       </div>
+                     )}
                   </td>
                   <td style={{ padding: '24px 32px' }}>
                     <div style={{ display: 'flex', gap: 10 }}>
-                       {!isApproved && !isRejected ? (
+                       {isPending ? (
                          <>
                            <button
                              className="action-btn"
-                             title="Authorize Claim"
+                             title={t('Approve Claim')}
                              style={{ color: '#22C55E' }}
                              disabled={savingId === claim.claimID}
-                             onClick={() => handleReview(claim, 'Approved')}
+                             onClick={() => openApproveModal(claim)}
                            >
                              <CheckCircle size={18} />
                            </button>
                            <button
                              className="action-btn"
-                             title="Deflect Claim"
+                             title={t('Reject Claim')}
                              style={{ color: '#EF4444' }}
                              disabled={savingId === claim.claimID}
-                             onClick={() => handleReview(claim, 'Rejected')}
+                             onClick={() => openRejectModal(claim)}
                            >
                              <XCircle size={18} />
                            </button>
                          </>
-                       ) : isApproved ? (
-                         <button
-                           className="action-btn"
-                           title="Mark Reimbursed"
-                           style={{ color: '#0EA5E9' }}
-                           disabled={savingId === claim.claimID}
-                           onClick={() => handleReview(claim, 'Reimbursed')}
-                         >
-                           <CheckCircle size={18} />
-                         </button>
                        ) : (
-                         <button className="action-btn" title="Audit Fiscal Entry"><SearchCode size={18} /></button>
+                         <span style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8' }}>
+                           {claim.reviewedBy ? `${t('Reviewed by')} ${claim.reviewedBy}` : t('Reviewed')}
+                         </span>
                        )}
-                       <button className="action-btn" title="Tactical Options"><MoreVertical size={18} /></button>
                     </div>
                   </td>
                 </tr>
@@ -280,6 +324,71 @@ export function HRExpensesPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Approve / Reject Modal */}
+      <Modal
+        open={reviewModal.open}
+        onClose={closeReviewModal}
+        title={reviewModal.action === 'Approved' ? t('Approve Expense Claim') : reviewModal.action === 'Rejected' ? t('Reject Expense Claim') : t('Review Claim')}
+        maxWidth={520}
+      >
+        {reviewModal.claim && (
+          <div style={{ display: 'grid', gap: 16, padding: 8 }}>
+            <div style={{ padding: 14, background: '#F8FAFC', borderRadius: 12, border: '1px solid #F1F5F9' }}>
+              <div style={{ fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 6 }}>{t('Claim')}</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: '#1E293B' }}>{reviewModal.claim.title || reviewModal.claim.category}</div>
+              <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>
+                {reviewModal.claim.employeeName || reviewModal.claim.employeeID} · {t('Claimed')}: ${parseFloat(reviewModal.claim.amount || 0).toLocaleString()}
+              </div>
+            </div>
+
+            {reviewModal.action === 'Approved' && (
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>{t('Approved Amount')} *</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={reviewForm.approvedAmount}
+                  onChange={(e) => setReviewForm(f => ({ ...f, approvedAmount: e.target.value }))}
+                  placeholder="0.00"
+                  style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #E2E8F0', padding: '0 14px', fontSize: 13, fontWeight: 600, outline: 'none' }}
+                />
+                <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 6 }}>
+                  {t('Pre-filled with claimed amount. Adjust if approving a different figure (e.g. capped by policy).')}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>
+                {reviewModal.action === 'Rejected' ? `${t('Reason')} *` : t('Note (optional)')}
+              </label>
+              <Textarea
+                value={reviewForm.note}
+                onChange={(e) => setReviewForm(f => ({ ...f, note: e.target.value }))}
+                placeholder={reviewModal.action === 'Rejected' ? t('e.g. Missing receipt; resubmit with supporting documentation.') : t('Optional context for the employee.')}
+                style={{ minHeight: 100, borderRadius: 12 }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
+              <Btn variant="ghost" onClick={closeReviewModal} style={{ flex: 1, height: 44, borderRadius: 12, fontWeight: 800 }}>{t('Cancel')}</Btn>
+              <Btn
+                onClick={submitReview}
+                disabled={reviewSaving}
+                style={{
+                  flex: 1, height: 44, borderRadius: 12, fontWeight: 900, border: 'none',
+                  background: reviewModal.action === 'Approved' ? '#22C55E' : 'var(--red-600)',
+                  color: '#fff',
+                }}
+              >
+                {reviewSaving ? t('Saving...') : reviewModal.action === 'Approved' ? t('Confirm Approval') : t('Confirm Rejection')}
+              </Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <style dangerouslySetInnerHTML={{ __html: `
         .fiscal-row:hover { background: #FBFBFF; }

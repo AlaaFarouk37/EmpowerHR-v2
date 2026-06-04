@@ -1,477 +1,1362 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hrGetEmployees, hrGetRiskCorridor, hrUpdateEmployeeRecord, hrCreateEmployeeRecord } from '../../api/index.js';
-import { Badge, Btn, Spinner, useToast, Input, Skeleton, NeuralNode, Modal, EmployeeSelect } from '../../components/shared/index.jsx';
+import {
+  api,
+  hrGetEmployees,
+  hrGetRosterHealth,
+  hrCreateEmployeeRecord,
+  hrUpdateEmployeeRecord,
+  hrDeleteEmployeeRecord,
+  hrGetEmployeeHistory,
+  hrGetEmployeeSnapshot,
+  hrChangeEmployeeRole,
+  getPredictions,
+} from '../../api/index.js';
+import { Spinner, Modal, Btn, Badge, DatalistInput, Input, Textarea, useToast } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { 
-  Search, 
-  Filter, 
-  User, 
-  Mail, 
-  Users, 
-  Activity, 
-  Star, 
-  AlertCircle,
-  MoreVertical,
-  ChevronRight,
-  Zap,
-  ShieldCheck,
-  TrendingUp,
-  Globe,
-  Briefcase,
-  Layers,
-  Heart,
-  BarChart3,
-  SearchCode,
-  CheckCircle,
-  XCircle,
-  Clock
-} from 'lucide-react';
+import { Pencil, Archive, History } from 'lucide-react';
+
+const EMPTY_FORM = {
+    fullName:         '',
+    email:            '',
+    role:             'TeamMember',
+    employeeType:     '',
+    location:         '',
+    employmentStatus: 'Active',
+    job:              '',
+    department:       '',
+    team:             '',
+    monthlyIncome:    '',
+    birth_date:       '',
+    hiring_date:      '',
+    performanceRating:  '',
+    numberOfPromotions: '',
+    remoteWork:       false,
+    currency_preference: 'EGP',
+    numberOfDependents: '',
+    educationLevel: '',
+    phoneNumber: '',
+    has_disability: false,
+    gender: '',
+    maritalStatus: '',
+    default_clock_in: '',
+    default_clock_out: '',
+    contracted_hours: '',
+};
+
+const EMPTY_ROLE_CHANGE = {
+  action: 'Promotion',
+  job: '',
+  role: 'TeamMember',
+  department: '',
+  team: '',
+  monthlyIncome: '',
+  currency_preference: 'EGP',
+  notes: '',
+};
+
+const ROLE_OPTIONS = ['TeamMember', 'TeamLeader', 'HRManager', 'Admin'];
+const TYPE_OPTIONS = ['Full-time', 'Part-time', 'Contract', 'Intern'];
+const STATUS_OPTIONS = ['Active', 'Probation', 'On Leave'];
+const ACTION_OPTIONS = ['Promotion', 'Demotion', 'Role Change'];
+const CURRENCY_OPTIONS = ['EGP', 'USD'];
+const EMPTY_ROSTER_HEALTH = { summary: {}, departmentBreakdown: [], followUpItems: [] };
+
+const selectStyle = {
+  width: '100%',
+  padding: '12px 16px',
+  background: 'var(--gray-100)',
+  border: '2px solid transparent',
+  borderRadius: 14,
+  fontSize: 14,
+  fontWeight: 500,
+  color: 'var(--gray-900)',
+  outline: 'none',
+};
+
+function uniqueValues(items, key) {
+  return [...new Set(items.map(item => item?.[key]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
+}
+
+function JobTitleLevelPicker({ jobs, value, onChange, t, selectStyle }) {
+  const jobsArr = Array.isArray(jobs) ? jobs : [];
+  const savedJob = jobsArr.find(j => String(j.job_id) === String(value)) || null;
+
+  // Local title sticks even when no job_id is locked in yet (i.e. user picked
+  // a title that has multiple levels and is still choosing the level).
+  const [pendingTitle, setPendingTitle] = useState(savedJob?.title || '');
+
+  // Sync from outside when the saved job_id changes (modal open/edit/reset).
+  useEffect(() => {
+    setPendingTitle(savedJob?.title || '');
+  }, [savedJob?.title]);
+
+  const selectedTitle = savedJob?.title || pendingTitle || '';
+  const selectedLevel = savedJob?.level || '';
+
+  const titles = [...new Set(jobsArr.map(j => j.title).filter(Boolean))]
+    .sort((a, b) => String(a).localeCompare(String(b)));
+
+  const levelsForTitle = jobsArr
+    .filter(j => j.title === selectedTitle)
+    .map(j => j.level || '')
+    .filter((v, i, a) => a.indexOf(v) === i);
+
+  const handleTitleChange = (e) => {
+    const newTitle = e.target.value;
+    setPendingTitle(newTitle);
+    if (!newTitle) { onChange(''); return; }
+    const matching = jobsArr.filter(j => j.title === newTitle);
+    if (matching.length === 1) onChange(matching[0].job_id);
+    else onChange('');
+  };
+
+  const handleLevelChange = (e) => {
+    const newLevel = e.target.value;
+    const job = jobsArr.find(
+      j => j.title === selectedTitle && (j.level || '') === newLevel,
+    );
+    onChange(job ? job.job_id : '');
+  };
+
+  return (
+    <>
+      <div>
+        <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+          {t('Job Title')}
+        </label>
+        <select value={selectedTitle} onChange={handleTitleChange} style={selectStyle}>
+          <option value="">{t('Select a job title')}</option>
+          {titles.map(title => (
+            <option key={title} value={title}>{title}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+          {t('Job Level')}
+        </label>
+        <select
+          value={selectedLevel}
+          onChange={handleLevelChange}
+          style={selectStyle}
+          disabled={!selectedTitle}
+        >
+          <option value="">{t('Select a job level')}</option>
+          {levelsForTitle.map(level => (
+            <option key={level || '__none'} value={level}>{level || t('— none —')}</option>
+          ))}
+        </select>
+      </div>
+    </>
+  );
+}
+
+function formatMoney(value, currency = 'EGP') {
+  if (value === null || value === undefined || value === '') return '—';
+  const locale = typeof document !== 'undefined' && document.documentElement.lang === 'ar' ? 'ar-EG' : 'en-US';
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: currency || 'EGP',
+    minimumFractionDigits: 2,
+  }).format(Number(value || 0));
+}
+
+function downloadTextFile(filename, content, mimeType = 'text/csv;charset=utf-8') {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 
 export function HREmployeesPage() {
   const toast = useToast();
-  const { t } = useLanguage();
-  const { user, loading: authLoading } = useAuth();
+  const { t, language } = useLanguage();
+  const { user, resolvePath } = useAuth();
   const navigate = useNavigate();
+  const isAdminView = user?.role === 'Admin';
 
   const [employees, setEmployees] = useState([]);
-  const [riskData, setRiskData] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState('All Nodes');
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [selectedEmployee, setSelectedEmployee] = useState(null);
-  const [editForm, setEditForm] = useState({});
-  const EMPTY_CREATE = { fullName: '', department: '', employeeType: 'Full-time', location: '', monthlyIncome: '' };
-  const [createForm, setCreateForm] = useState(EMPTY_CREATE);
   const [saving, setSaving] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [showRoleChange, setShowRoleChange] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showSnapshot, setShowSnapshot] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [historyItems, setHistoryItems] = useState([]);
+  const [snapshot, setSnapshot] = useState(null);
+  const [rosterHealth, setRosterHealth] = useState(EMPTY_ROSTER_HEALTH);
+  const [employeeRisks, setEmployeeRisks] = useState({});
+  const [filters, setFilters] = useState({ search: '', department: '', role: '', type: '', location: '' });
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [roleChange, setRoleChange] = useState(EMPTY_ROLE_CHANGE);
+  const [teamOptions, setTeamOptions]           = useState([]);
+  const [departmentOptions, setDepartmentOptions] = useState([]);
+  const [jobOptions, setJobOptions]             = useState([]);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const [empData, risks] = await Promise.all([
-          hrGetEmployees(),
-          hrGetRiskCorridor()
-        ]);
-        setEmployees(Array.isArray(empData) ? empData : []);
-        setRiskData(risks || []);
-      } catch (error) {
-        toast(t('Neural ledger synchronization failed'), 'error');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (!authLoading && user && (user.role === 'HRManager' || user.role === 'Admin')) {
-      fetchData();
-    } else if (!authLoading) {
+  const loadEmployees = async () => {
+    setLoading(true);
+    try {
+      const [data, latestPredictions, rosterData] = await Promise.all([
+        hrGetEmployees(),
+        getPredictions().catch(() => []),
+        hrGetRosterHealth().catch(() => EMPTY_ROSTER_HEALTH),
+      ]);
+      setEmployees(Array.isArray(data) ? data : []);
+      setRosterHealth(rosterData && typeof rosterData === 'object' ? rosterData : EMPTY_ROSTER_HEALTH);
+      setEmployeeRisks(
+        (Array.isArray(latestPredictions) ? latestPredictions : []).reduce((acc, item) => {
+          if (item?.employeeID) acc[item.employeeID] = item;
+          return acc;
+        }, {})
+      );
+    } catch (error) {
+      toast(error.message || 'Failed to load employees', 'error');
+    } finally {
       setLoading(false);
     }
-  }, [authLoading, user, toast, t]);
-
-  const filteredEmployees = useMemo(() => {
-    return employees.filter(emp => {
-      const matchesSearch = !searchQuery || 
-        emp.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        emp.jobTitle?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        emp.department?.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      const matchesFilter = activeFilter === 'All Nodes' || emp.department === activeFilter;
-      return matchesSearch && matchesFilter;
-    });
-  }, [employees, searchQuery, activeFilter]);
-
-  const departments = useMemo(() => {
-    const deps = new Set(employees.map(e => e.department).filter(Boolean));
-    return ['All Nodes', ...Array.from(deps)];
-  }, [employees]);
-
-  const stats = useMemo(() => {
-    const activeCount = employees.filter(e => e.status !== 'On Leave').length;
-    const avgPerf = (employees.length > 0) ? 8.4 : 0;
-    return [
-      { label: 'Global Headcount', value: employees.length, icon: Users, color: '#1E293B', bg: '#F8FAFC' },
-      { label: 'Active Efficiency', value: employees.length > 0 ? `${Math.round((activeCount/employees.length)*100)}%` : '0%', icon: Activity, color: 'var(--red-600)', bg: 'var(--red-50)' },
-      { label: 'Avg Talent Score', value: `${avgPerf}/10`, icon: Star, color: 'var(--red-800)', bg: 'var(--red-50)' },
-      { label: 'Attrition Risk', value: `${riskData.length} Nodes`, icon: Heart, color: 'var(--pink-600)', bg: 'var(--pink-50)' },
-    ];
-  }, [employees, riskData]);
-
-  const handleEditClick = (emp) => {
-    setSelectedEmployee(emp);
-    setEditForm({
-      ...emp,
-      skills: emp.skills || [],
-      workSchedule: emp.workSchedule || { Mon: 'Office', Tue: 'Office', Wed: 'Office', Thu: 'Office', Fri: 'Office' }
-    });
-    setIsEditModalOpen(true);
   };
 
-  const handleSave = async () => {
-    setSaving(true);
+  useEffect(() => {
+    loadEmployees();
+    const fetchOptions = async () => {
+      try {
+        const [teams, departments, jobs] = await Promise.all([
+          api.get('/employee_management/teams/'),
+          api.get('/employee_management/departments/'),
+          api.get('/employee_management/jobs/'),
+        ]);
+        const toArray = (payload) => Array.isArray(payload) ? payload : (payload?.results || []);
+        setTeamOptions(toArray(teams));
+        setDepartmentOptions(toArray(departments));
+        setJobOptions(toArray(jobs));
+      } catch (error) {
+        toast(error.message || 'Failed to load job/department/team options', 'error');
+      }
+    };
+    fetchOptions();
+  }, []);
+
+  const filteredEmployees = useMemo(() => {
+    const search = filters.search.trim().toLowerCase();
+    return employees.filter((employee) => {
+      const matchesSearch = !search || [
+        employee.fullName,
+        employee.email,
+        employee.jobTitle,
+        employee.department,
+        employee.employeeID,
+      ].some(value => String(value || '').toLowerCase().includes(search));
+
+      const matchesDepartment = !filters.department || (employee.department || '') === filters.department;
+      const matchesRole = !filters.role || (employee.role || '') === filters.role;
+      const matchesType = !filters.type || (employee.employeeType || '') === filters.type;
+      const matchesLocation = !filters.location || (employee.location || '') === filters.location;
+
+      return matchesSearch && matchesDepartment && matchesRole && matchesType && matchesLocation;
+    });
+  }, [employees, filters]);
+
+  const departments = useMemo(() => uniqueValues(employees, 'department'), [employees]);
+  const jobTitles = useMemo(() => uniqueValues(employees, 'jobTitle'), [employees]);
+  const teams = useMemo(() => uniqueValues(employees, 'team'), [employees]);
+  const roles = useMemo(() => uniqueValues(employees, 'role'), [employees]);
+  const locations = useMemo(() => uniqueValues(employees, 'location'), [employees]);
+  const activeCount = employees.filter(employee => employee.employmentStatus === 'Active').length;
+  const promotionCount = employees.reduce((sum, employee) => sum + (employee.numberOfPromotions || 0), 0);
+  const followUpCount = Object.values(employeeRisks).filter((item) => ['High', 'Medium'].includes(item?.riskLevel)).length;
+  const rosterSummary = rosterHealth?.summary || {};
+  const dataQuality = useMemo(() => {
+    const salaryMapped = employees.filter((employee) => employee.monthlyIncome !== null && employee.monthlyIncome !== undefined && employee.monthlyIncome !== '').length;
+    const locationMapped = employees.filter((employee) => String(employee.location || '').trim() !== '').length;
+    const departmentMapped = employees.filter((employee) => String(employee.department || '').trim() !== '').length;
+    const totalChecks = employees.length * 3;
+    const completedChecks = salaryMapped + locationMapped + departmentMapped;
+    return {
+      salaryMapped,
+      locationMapped,
+      departmentMapped,
+      probationCount: employees.filter((employee) => employee.employmentStatus === 'Probation').length,
+      onLeaveCount: employees.filter((employee) => employee.employmentStatus === 'On Leave').length,
+      coveragePct: totalChecks ? Math.round((completedChecks / totalChecks) * 100) : 0,
+    };
+  }, [employees]);
+  const employeePulseCards = useMemo(() => ([
+    {
+      label: t('Roster Size'),
+      value: employees.length,
+      note: t('Employees currently managed inside the directory workspace.'),
+      accent: '#111827',
+    },
+    {
+      label: t('Active Roster'),
+      value: activeCount,
+      note: t('People currently active across departments and teams.'),
+      accent: '#22C55E',
+    },
+    {
+      label: t('Follow-Up Watch'),
+      value: rosterSummary.followUpCount ?? followUpCount,
+      note: t('Profiles or risk flags that may need HR attention.'),
+      accent: '#F59E0B',
+    },
+    {
+      label: t('Profile Completeness'),
+      value: `${dataQuality.coveragePct}%`,
+      note: t('Directory quality across salary, department, and location fields.'),
+      accent: dataQuality.coveragePct >= 80 ? '#16A34A' : '#E8321A',
+    },
+  ]), [activeCount, dataQuality.coveragePct, employees.length, followUpCount, rosterSummary.followUpCount, t]);
+  const rosterFollowUpItems = rosterHealth?.followUpItems || [];
+  const departmentPressureMap = rosterHealth?.departmentBreakdown || [];
+  const highPriorityRosterItems = rosterFollowUpItems.filter((item) => item.priority === 'High').length;
+  const spotlightQueue = useMemo(() => (
+    [...rosterFollowUpItems]
+      .sort((a, b) => {
+        const priorityScore = { High: 3, Medium: 2, Watch: 1 };
+        return (priorityScore[b.priority] || 0) - (priorityScore[a.priority] || 0)
+          || Number(b.riskScore || 0) - Number(a.riskScore || 0)
+          || (b.flags?.length || 0) - (a.flags?.length || 0);
+      })
+      .slice(0, 4)
+  ), [rosterFollowUpItems]);
+  const workforcePlaybook = useMemo(() => {
+    const plays = [];
+
+    if ((rosterSummary.incompleteProfiles ?? 0) > 0) {
+      plays.push({
+        title: t('Close profile gaps'),
+        note: t('Complete missing location, department, title, and payroll fields so HR decisions rely on cleaner records.'),
+      });
+    }
+    if ((rosterSummary.attritionFollowUp ?? followUpCount) > 0) {
+      plays.push({
+        title: t('Check retention-sensitive cases'),
+        note: t('Review employees with medium or high attrition watch signals before the next manager or talent review.'),
+      });
+    }
+    if (dataQuality.probationCount > 0 || dataQuality.onLeaveCount > 0) {
+      plays.push({
+        title: t('Review transition planning'),
+        note: t('Probation and leave cases often need clearer goals, handover coverage, or return-to-work planning.'),
+      });
+    }
+    if (!plays.length) {
+      plays.push({
+        title: t('Maintain workforce hygiene'),
+        note: t('The directory looks healthy right now, so keep the same audit rhythm and spot-check follow-up process.'),
+      });
+    }
+
+    return plays.slice(0, 3);
+  }, [dataQuality.onLeaveCount, dataQuality.probationCount, followUpCount, rosterSummary.attritionFollowUp, rosterSummary.incompleteProfiles, t]);
+  const formatDate = (value) => (value ? new Date(value).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US') : '—');
+  const formatDateTime = (value) => (value ? new Date(value).toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US') : '—');
+  const riskColor = (level) => {
+    if (level === 'High') return 'red';
+    if (level === 'Medium') return 'orange';
+    if (level === 'Low') return 'green';
+    return 'gray';
+  };
+
+  const setField = (key) => (event) => {
+    setForm((prev) => ({ ...prev, [key]: event.target.value }));
+  };
+
+  const setRoleChangeField = (key) => (event) => {
+    setRoleChange((prev) => ({ ...prev, [key]: event.target.value }));
+  };
+
+  const normalizePayload = () => ({
+    ...form,
+    fullName: form.fullName.trim(),
+    email: form.email.trim().toLowerCase(),
+    monthlyIncome: form.monthlyIncome === '' ? null : Number(form.monthlyIncome),
+    birth_date: form.birth_date || null,
+    hiring_date: form.hiring_date || null,
+    job:         form.job         || null,   // FK id
+    team:        form.team        || null,   // FK id
+    department:  form.department  || null,   // FK id
+    numberOfDependents: form.numberOfDependents === '' ? null : Number(form.numberOfDependents),
+    educationLevel: form.educationLevel || null,
+  });
+
+  const resetForm = () => {
+    setSelected(null);
+    setForm(EMPTY_FORM);
+  };
+
+  const openEdit = (employee) => {
+    setSelected(employee);
+    setForm({
+      ...EMPTY_FORM,
+      ...employee,
+      monthlyIncome: employee.monthlyIncome ?? '',
+      yearsAtCompany: employee.yearsAtCompany ?? '',
+    });
+    setShowEdit(true);
+  };
+
+  const openRoleChangeModal = (employee) => {
+    setSelected(employee);
+    setRoleChange({
+      action: 'Promotion',
+      job: employee.job ?? '',
+      role: employee.role || 'TeamMember',
+      department: employee.department ?? '',
+      team: employee.team ?? '',
+      monthlyIncome: employee.monthlyIncome ?? '',
+      currency_preference: employee.currency_preference || 'EGP',
+      notes: '',
+    });
+    setShowRoleChange(true);
+  };
+
+  const openHistoryModal = async (employee) => {
+    setSelected(employee);
+    setShowHistory(true);
+    setHistoryLoading(true);
     try {
-      await hrUpdateEmployeeRecord(selectedEmployee.employeeID, editForm);
-      toast(t('Employee record synchronized'), 'success');
-      setEmployees(prev => prev.map(e => e.employeeID === selectedEmployee.employeeID ? { ...e, ...editForm } : e));
-      setIsEditModalOpen(false);
+      const data = await hrGetEmployeeHistory(employee.employeeID);
+      setHistoryItems(Array.isArray(data) ? data : []);
     } catch (error) {
-      toast(t('Synchronization failed'), 'error');
+      toast(error.message || 'Failed to load job history', 'error');
+      setHistoryItems([]);
     } finally {
-      setSaving(false);
+      setHistoryLoading(false);
+    }
+  };
+
+  const openSnapshotModal = async (employee) => {
+    setSelected(employee);
+    setShowSnapshot(true);
+    setSnapshot(null);
+    setSnapshotLoading(true);
+    try {
+      const data = await hrGetEmployeeSnapshot(employee.employeeID);
+      setSnapshot(data || null);
+    } catch (error) {
+      toast(error.message || 'Failed to load employee 360 view', 'error');
+      setSnapshot(null);
+    } finally {
+      setSnapshotLoading(false);
     }
   };
 
   const handleCreate = async () => {
-    if (!createForm.fullName?.trim()) {
-      toast(t('Full name is required'), 'error');
+    const payload = normalizePayload();
+    if (!payload.fullName || !payload.email) {
+      toast('Full name and email are required', 'error');
       return;
     }
+
     setSaving(true);
     try {
-      const payload = {
-        ...createForm,
-        monthlyIncome: createForm.monthlyIncome ? Number(createForm.monthlyIncome) : undefined,
-      };
-      const created = await hrCreateEmployeeRecord(payload);
-      toast(t('Employee record created'), 'success');
-      setIsCreateModalOpen(false);
-      setCreateForm(EMPTY_CREATE);
-      if (created?.employeeID) {
-        setEmployees(prev => [created, ...prev]);
-      } else {
-        const fresh = await hrGetEmployees().catch(() => []);
-        setEmployees(Array.isArray(fresh) ? fresh : []);
-      }
+      await hrCreateEmployeeRecord(payload);
+      toast('Employee record created');
+      setShowCreate(false);
+      resetForm();
+      await loadEmployees();
     } catch (error) {
-      toast(error?.message || t('Failed to create employee record'), 'error');
+      toast(error.message || 'Failed to create employee', 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading || authLoading) {
-    return (
-      <div style={{ padding: '40px 60px', background: '#F8FAFC', minHeight: '100vh' }}>
-         <Skeleton height={60} style={{ marginBottom: 40, borderRadius: 16 }} />
-         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, marginBottom: 40 }}>
-            <Skeleton height={120} style={{ borderRadius: 28 }} />
-            <Skeleton height={120} style={{ borderRadius: 28 }} />
-            <Skeleton height={120} style={{ borderRadius: 28 }} />
-            <Skeleton height={120} style={{ borderRadius: 28 }} />
-         </div>
-         <Skeleton height={600} style={{ borderRadius: 32 }} />
-      </div>
-    );
-  }
+  const handleUpdate = async () => {
+    const payload = normalizePayload();
+    if (!selected?.employeeID) return;
+    if (!payload.fullName || !payload.email) {
+      toast('Full name and email are required', 'error');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await hrUpdateEmployeeRecord(selected.employeeID, payload);
+      toast('Employee record updated');
+      setShowEdit(false);
+      resetForm();
+      await loadEmployees();
+    } catch (error) {
+      toast(error.message || 'Failed to update employee', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRoleChange = async () => {
+    if (!selected?.employeeID) return;
+
+    setSaving(true);
+    try {
+      await hrChangeEmployeeRole(selected.employeeID, {
+        ...roleChange,
+        monthlyIncome: roleChange.monthlyIncome === '' ? null : Number(roleChange.monthlyIncome),
+        job:           roleChange.job === ''           ? null : Number(roleChange.job),
+        department:    roleChange.department === ''    ? null : Number(roleChange.department),
+        team:          roleChange.team === ''          ? null : Number(roleChange.team),
+      });
+      toast(`${roleChange.action} saved and logged`);
+      setShowRoleChange(false);
+      await loadEmployees();
+      if (selected) {
+        await openHistoryModal({ ...selected, ...roleChange, monthlyIncome: roleChange.monthlyIncome });
+      }
+    } catch (error) {
+      toast(error.message || 'Failed to save promotion / demotion', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleArchive = async (employee) => {
+    if (!window.confirm(`Archive ${employee.fullName}?`)) return;
+    try {
+      await hrDeleteEmployeeRecord(employee.employeeID);
+      toast('Employee archived');
+      await loadEmployees();
+    } catch (error) {
+      toast(error.message || 'Failed to archive employee', 'error');
+    }
+  };
+
+  const handleExportEmployees = () => {
+    const rows = [
+      ['Employee ID', 'Full Name', 'Email', 'Job Title', 'Department', 'Team', 'Role', 'Type', 'Location', 'Status', 'Monthly Income', 'Currency', 'Attrition Risk'],
+      ...filteredEmployees.map((employee) => [
+        employee.employeeID || '',
+        employee.fullName || '',
+        employee.email || '',
+        employee.jobTitle || '',
+        employee.department || '',
+        employee.team || '',
+        employee.role || '',
+        employee.employeeType || '',
+        employee.location || '',
+        employee.employmentStatus || '',
+        employee.monthlyIncome ?? '',
+        employee.currency_preference || 'EGP',
+        employeeRisks[employee.employeeID]?.riskLevel || '',
+      ]),
+    ];
+
+    const csv = rows
+      .map((row) => row.map((value) => `"${String(value ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    downloadTextFile(`employees-directory-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+    toast(t('Employee directory exported.'));
+  };
+
+  const handleExportRosterHealth = () => {
+    const rows = [
+      ['Employee', 'Department', 'Status', 'Priority', 'Risk Level', 'Flags', 'Recommended Action'],
+      ...(rosterHealth?.followUpItems || []).map((item) => [
+        item.employeeName || '',
+        item.department || '',
+        item.employmentStatus || '',
+        item.priority || '',
+        item.riskLevel || '',
+        (item.flags || []).join(' | '),
+        item.recommendedAction || '',
+      ]),
+    ];
+
+    const csv = rows
+      .map((row) => row.map((value) => `"${String(value ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    downloadTextFile(`roster-health-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+    toast(t('Roster health exported.'));
+  };
+
+  const statusColor = (status) => {
+    if (status === 'Active') return 'green';
+    if (status === 'On Leave') return 'orange';
+    if (status === 'Probation') return 'accent';
+    return 'gray';
+  };
 
   return (
-    <div className="page-content animate-in" style={{ background: 'var(--bg-secondary)', minHeight: '100vh', padding: 'var(--spacing-lg)' }}>
-      {/* Strategic Command Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 48 }}>
+    <div className="hr-page-shell" style={{ maxWidth: 1280, margin: '0 auto', padding: '40px 32px 80px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
         <div>
-           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
-              <div style={{ 
-                width: 56, height: 56, borderRadius: 18, background: 'linear-gradient(135deg, #DC2626, #991B1B)', 
-                display: 'grid', placeItems: 'center', boxShadow: '0 12px 24px rgba(220, 38, 38, 0.25)' 
-              }}>
-                 <Layers size={26} style={{ color: '#fff' }} />
-              </div>
-               <div>
-                  <h1 style={{ fontSize: 36, fontWeight: 950, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.03em' }}>Workforce Ledger</h1>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
-                    <Badge label="Neural Registry Active" color="red" />
-                    <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 700 }}>v3.4.2 • Real-time Node Monitoring</span>
-                  </div>
-               </div>
-           </div>
+          <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>{t('page.employees.title')}</h2>
+          <p style={{ fontSize: 13.5, color: 'var(--gray-500)' }}>
+            {t('page.employees.subtitle')}
+          </p>
         </div>
-        <div style={{ display: 'flex', gap: 16 }}>
-          <Btn 
-            onClick={() => toast('Initializing Org Export...', 'info')}
-            variant="outline" 
-            style={{ height: 52, borderRadius: 16, padding: '0 24px', fontWeight: 800, color: '#64748B', borderColor: '#E2E8F0' }}
-          >
-             <Globe size={18} /> Export Index
-          </Btn>
-          <Btn
-            onClick={() => { setCreateForm(EMPTY_CREATE); setIsCreateModalOpen(true); }}
-            variant="primary"
-            style={{
-              height: 52, borderRadius: 16, padding: '0 28px', fontWeight: 900,
-              background: 'linear-gradient(135deg, #DC2626, #B91C1C)', border: 'none',
-              boxShadow: '0 10px 25px -5px rgba(220, 38, 38, 0.4)'
-            }}
-          >
-             <Zap size={18} fill="currentColor" /> Onboard Node
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <Btn onClick={() => { resetForm(); setShowCreate(true); }}>
+            <svg width="16" height="16" fill="none" stroke="#fff" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            {t('Add Employee')}
           </Btn>
         </div>
       </div>
 
-      {/* Neural Telemetry Strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, marginBottom: 48 }}>
-        {stats.map(s => (
-          <div key={s.label} className="glass-card-employee" style={{ padding: '28px', border: '1.5px solid #fff', display: 'flex', alignItems: 'center', gap: 24 }}>
-            <div style={{ 
-              width: 56, height: 56, borderRadius: 16, background: s.bg, color: s.color, 
-              display: 'grid', placeItems: 'center', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
-            }}>
-              <s.icon size={26} />
-            </div>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t(s.label)}</div>
-              <div style={{ fontSize: 28, fontWeight: 950, color: 'var(--text-primary)', marginTop: 2 }}>{s.value}</div>
-            </div>
-          </div>
-        ))}
-      </div>
 
-      {/* Command Control Bar */}
-      <div style={{ 
-        background: 'var(--bg-primary)', padding: '20px 32px', borderRadius: 28, border: '1.5px solid var(--border-primary)', 
-        marginBottom: 32, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        boxShadow: '0 10px 30px -10px rgba(0,0,0,0.04)'
-      }}>
-        <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
-           <div style={{ position: 'relative' }}>
-              <select 
-                value={activeFilter}
-                onChange={(e) => setActiveFilter(e.target.value)}
-                style={{ 
-                  height: 48, padding: '0 44px 0 20px', borderRadius: 14, border: '1.5px solid var(--border-primary)', 
-                  background: 'var(--bg-secondary)', fontSize: 14, fontWeight: 850, color: 'var(--text-primary)', 
-                  outline: 'none', appearance: 'none', minWidth: 200, cursor: 'pointer'
-                }}
-              >
-                 {departments.map(d => <option key={d} value={d}>{t(d)}</option>)}
-              </select>
-              <div style={{ position: 'absolute', right: 18, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }}>
-                <Filter size={16} />
-              </div>
-           </div>
-           
-           <div style={{ position: 'relative' }}>
-              <Search size={20} style={{ position: 'absolute', left: 20, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input 
-                type="text" 
-                placeholder={t('Search workforce by name, job, or node ID...')}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{ 
-                  height: 48, padding: '0 24px 0 56px', borderRadius: 14, border: '1.5px solid var(--border-primary)', 
-                  background: 'var(--bg-secondary)', fontSize: 14, fontWeight: 700, width: 420, outline: 'none',
-                  transition: 'all 0.2s', color: 'var(--text-primary)'
-                }} 
-              />
-           </div>
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 80 }}><Spinner /></div>
+      ) : employees.length === 0 ? (
+        <div className="hr-soft-empty" style={{ textAlign: 'center', padding: '70px 32px' }}>
+          <p style={{ fontSize: 14, color: 'var(--gray-500)', fontWeight: 600, marginBottom: 6 }}>{t('No employee records yet.')}</p>
+          <p style={{ fontSize: 12, color: 'var(--gray-300)' }}>{t('Create a new record to get started.')}</p>
         </div>
-        
-        <div style={{ display: 'flex', gap: 14 }}>
-           <Btn variant="outline" style={{ borderRadius: 14, height: 48, fontWeight: 800, borderColor: '#E2E8F0', padding: '0 20px' }}>
-              <BarChart3 size={18} style={{ marginRight: 10, color: '#DC2626' }} /> Analytics
-           </Btn>
-           <Btn variant="outline" style={{ borderRadius: 14, height: 48, fontWeight: 800, borderColor: '#E2E8F0', padding: '0 20px' }}>
-              <SearchCode size={18} style={{ marginRight: 10, color: '#DC2626' }} /> Audit Grid
-           </Btn>
-        </div>
-      </div>
-
-      {/* High-Fidelity Ledger Table */}
-       <div style={{ 
-        background: 'var(--bg-primary)', borderRadius: 32, border: '1.5px solid var(--border-primary)', 
-        overflow: 'hidden', boxShadow: '0 20px 40px -20px rgba(0,0,0,0.05)' 
-      }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-             <tr style={{ background: 'var(--bg-secondary)', borderBottom: '1.5px solid var(--border-primary)' }}>
-              {['Workforce Node', 'Strategic Role', 'Telemetry Status', 'Talent Momentum', 'Actions'].map(h => (
-                <th key={h} style={{ padding: '24px 32px', textAlign: 'left', fontSize: 12, fontWeight: 950, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t(h)}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filteredEmployees.map((emp, idx) => {
-              const perf = 70 + Math.floor(Math.random() * 25);
-              const isRisk = riskData.some(r => r.id === emp.employeeID);
-              
-              return (
-                <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9', transition: 'all 0.2s' }} className="node-row">
-                  <td style={{ padding: '24px 32px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-                      <div style={{ 
-                        width: 52, height: 52, borderRadius: 18, background: isRisk ? '#FEF2F2' : '#F8FAFC', 
-                        display: 'grid', placeItems: 'center', fontSize: 18, fontWeight: 950, 
-                        color: isRisk ? '#DC2626' : '#1E293B',
-                        border: isRisk ? '2px solid #FEE2E2' : '2px solid #F1F5F9'
-                      }}>
-                         {(emp.fullName || 'User').charAt(0)}
-                      </div>
-                       <div>
-                        <NeuralNode employee={emp}>
-                          <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>{emp.fullName}</div>
-                        </NeuralNode>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 800, marginTop: 2 }}>NODE-{emp.employeeID || '772'} • {emp.department}</div>
-                      </div>
+      ) : (
+        <div className="hr-table-card">
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: 'var(--gray-50)' }}>
+                {['Employee', 'Role', 'Department', 'Type', 'Location', 'Status', ''].map((heading) => (
+                  <th key={heading} style={{ padding: '14px 20px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', borderBottom: '1px solid #EAECF0' }}>
+                    {t(heading)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {employees.map((employee) => {
+                const employeeRisk = employeeRisks[employee.employeeID];
+                return (
+                <tr key={employee.employeeID} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                  <td style={{ padding: '16px 20px' }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{employee.fullName}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--gray-500)' }}>{employee.email}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--gray-400)', marginTop: 2 }}>{employee.employeeID}</div>
+                  </td>
+                  <td style={{ padding: '16px 20px' }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>{employee.jobTitle || '—'}</div>
+                    <div style={{ marginTop: 6 }}><Badge label={employee.role ? t(`role.${employee.role}`) : t('Unassigned')} color="accent" /></div>
+                  </td>
+                  <td style={{ padding: '16px 20px', fontSize: 13.5 }}>{employee.department || '—'}</td>
+                  <td style={{ padding: '16px 20px' }}><Badge label={employee.employeeType ? t(employee.employeeType) : '—'} color="gray" /></td>
+                  <td style={{ padding: '16px 20px', fontSize: 13.5 }}>{employee.location || '—'}</td>
+                  <td style={{ padding: '16px 20px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
+                      <Badge label={employee.employmentStatus ? t(employee.employmentStatus) : t('Unknown')} color={statusColor(employee.employmentStatus)} />
+                      {employeeRisk && (
+                        <Badge label={`${t('Attrition Risk')}: ${t(employeeRisk.riskLevel)}`} color={riskColor(employeeRisk.riskLevel)} />
+                      )}
+                      <span style={{ fontSize: 11.5, color: 'var(--gray-500)' }}>{t('Salary')}: {formatMoney(employee.monthlyIncome, employee.currency_preference)}</span>
+                      <span style={{ fontSize: 11.5, color: 'var(--gray-500)' }}>{t('layout.currency')}: {employee.currency_preference || 'EGP'}</span>
                     </div>
                   </td>
-                  <td style={{ padding: '24px 32px' }}>
-                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: '#475569', fontWeight: 800 }}>
-                        <Briefcase size={16} style={{ color: '#DC2626' }} />
-                        {emp.jobTitle}
-                     </div>
-                  </td>
-                  <td style={{ padding: '24px 32px' }}>
-                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ 
-                          width: 8, height: 8, borderRadius: '50%', 
-                          background: emp.status === 'On Leave' ? '#DC2626' : '#10B981',
-                          boxShadow: `0 0 10px ${emp.status === 'On Leave' ? 'rgba(220, 38, 38, 0.4)' : 'rgba(16, 185, 129, 0.4)'}`
-                        }} />
-                        <span style={{ fontSize: 14, fontWeight: 800, color: '#1E293B' }}>{emp.status || 'Optimal'}</span>
-                        {isRisk && <Badge label="RISK" color="red" style={{ fontSize: 9 }} />}
-                     </div>
-                  </td>
-                  <td style={{ padding: '24px 32px' }}>
-                     <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                        <div style={{ flex: 1, height: 8, background: '#F1F5F9', borderRadius: 10, overflow: 'hidden', minWidth: 120 }}>
-                           <div style={{ width: `${perf}%`, height: '100%', background: perf >= 90 ? '#DC2626' : '#EF4444', borderRadius: 10, transition: 'width 1s cubic-bezier(0.4, 0, 0.2, 1)' }} />
-                        </div>
-                        <span style={{ fontSize: 14, fontWeight: 950, color: '#1E293B', width: 40 }}>{perf}%</span>
-                     </div>
-                  </td>
-                  <td style={{ padding: '24px 32px' }}>
-                    <div style={{ display: 'flex', gap: 10 }}>
-                       <button onClick={() => handleEditClick(emp)} className="action-btn" title="Edit Strategic Node"><Zap size={20} /></button>
-                       <button className="action-btn" title="Detailed Telemetry"><TrendingUp size={20} /></button>
-                       <button className="action-btn" title="Contact Node"><Mail size={20} /></button>
-                       <button className="action-btn" title="Strategic Actions"><MoreVertical size={20} /></button>
+                  <td style={{ padding: '16px 20px' }}>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                      <Btn size="sm" variant="outline" onClick={() => openSnapshotModal(employee)}>{t('360 View')}</Btn>
+                      <Btn size="sm" variant="accent" onClick={() => openRoleChangeModal(employee)}>{t('Promote / Demote')}</Btn>
+                      <button
+                        type="button"
+                        onClick={() => openEdit(employee)}
+                        title={t('Edit')}
+                        aria-label={t('Edit')}
+                        className="emp-icon-btn emp-icon-btn-edit"
+                      >
+                        <Pencil size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openHistoryModal(employee)}
+                        title={t('History')}
+                        aria-label={t('History')}
+                        className="emp-icon-btn emp-icon-btn-history"
+                      >
+                        <History size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleArchive(employee)}
+                        title={t('Archive')}
+                        aria-label={t('Archive')}
+                        className="emp-icon-btn emp-icon-btn-archive"
+                      >
+                        <Archive size={16} />
+                      </button>
                     </div>
                   </td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              );})}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); resetForm(); }} title={t('Add Employee Record')} maxWidth={720}>
+        <div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <Input label={t('Full Name *')} value={form.fullName} onChange={setField('fullName')} placeholder="e.g. Salma Mostafa" />
+        <Input label={t('Email *')} type="email" value={form.email} onChange={setField('email')} placeholder="employee@company.com" />
       </div>
 
-      {/* Edit Modal */}
-      <Modal 
-        open={isEditModalOpen} 
-        onClose={() => setIsEditModalOpen(false)} 
-        title={`Configure Strategic Node: ${selectedEmployee?.fullName}`}
-        maxWidth={800}
-      >
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-           <div>
-              <h4 style={{ fontSize: 12, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 16 }}>Work Information</h4>
-              <Input label="Job Title" value={editForm.jobTitle} onChange={e => setEditForm({...editForm, jobTitle: e.target.value})} />
-              <Input label="Department" value={editForm.department} onChange={e => setEditForm({...editForm, department: e.target.value})} />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                 <Input label="Monthly Income" type="number" value={editForm.monthlyIncome} onChange={e => setEditForm({...editForm, monthlyIncome: e.target.value})} />
-                 <Input label="Employee ID" value={editForm.employeeID} disabled />
-              </div>
-              
-              <h4 style={{ fontSize: 12, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginTop: 24, marginBottom: 16 }}>Approvers & Governance</h4>
-              <EmployeeSelect 
-                label="Expense Approver" 
-                value={editForm.approverExpenses} 
-                onChange={val => setEditForm({...editForm, approverExpenses: val})} 
-              />
-              <EmployeeSelect 
-                label="Time Off Approver" 
-                value={editForm.approverTimeOff} 
-                onChange={val => setEditForm({...editForm, approverTimeOff: val})} 
-              />
-           </div>
-           
-           <div>
-              <h4 style={{ fontSize: 12, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 16 }}>Hybrid Scheduler</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 24 }}>
-                 {['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map(day => (
-                    <button 
-                      key={day}
-                      onClick={() => setEditForm({
-                        ...editForm, 
-                        workSchedule: { ...editForm.workSchedule, [day]: editForm.workSchedule[day] === 'Home' ? 'Office' : 'Home' }
-                      })}
-                      style={{ 
-                        padding: '10px 4px', borderRadius: 10, border: '1.5px solid #F1F5F9',
-                        background: editForm.workSchedule?.[day] === 'Home' ? '#FEF2F2' : '#fff',
-                        color: editForm.workSchedule?.[day] === 'Home' ? '#DC2626' : '#64748B',
-                        fontSize: 10, fontWeight: 800, cursor: 'pointer'
-                      }}
-                    >
-                       <div>{day}</div>
-                       <div style={{ fontSize: 9, marginTop: 2 }}>{editForm.workSchedule?.[day] || 'Office'}</div>
-                    </button>
-                 ))}
-              </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <JobTitleLevelPicker
+          jobs={jobOptions}
+          value={form.job}
+          onChange={(jobId) => setField('job')({ target: { value: jobId } })}
+          t={t}
+          selectStyle={selectStyle}
+        />
+      </div>
 
-              <h4 style={{ fontSize: 12, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 16 }}>Contract Governance</h4>
-              <select 
-                value={editForm.contractStatus}
-                onChange={e => setEditForm({...editForm, contractStatus: e.target.value})}
-                style={{ width: '100%', height: 48, borderRadius: 14, border: '1.5px solid #F1F5F9', padding: '0 16px', marginBottom: 16 }}
-              >
-                 <option value="Draft">Draft</option>
-                 <option value="Active">Active</option>
-                 <option value="Expired">Expired</option>
-              </select>
-              <Input label="Contract Expiry" type="date" value={editForm.contractExpiry} onChange={e => setEditForm({...editForm, contractExpiry: e.target.value})} />
-           </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {/* Department — dropdown from Department table */}
+        <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+                {t('Department')}
+            </label>
+            <select value={form.department} onChange={setField('department')} style={selectStyle}>
+                <option value="">{t('Select a department')}</option>
+                {departmentOptions.map(d => (
+                    <option key={d.department_id} value={d.department_id}>{d.name}</option>
+                ))}
+            </select>
         </div>
-        
-        <div style={{ marginTop: 32, display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-           <Btn variant="outline" onClick={() => setIsEditModalOpen(false)}>Cancel</Btn>
-           <Btn variant="primary" loading={saving} onClick={handleSave}>Synchronize Ledger</Btn>
+
+        {/* Team — dropdown from Team table */}
+        <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+                {t('Team')}
+            </label>
+            <select value={form.team} onChange={setField('team')} style={selectStyle}>
+                <option value="">{t('Select a team')}</option>
+                {teamOptions.map(t => (
+                    <option key={t.team_id} value={t.team_id}>{t.name}</option>
+                ))}
+            </select>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
+        <DatalistInput label={t('Location')} value={form.location} options={locations} onChange={setField('location')} placeholder="Select or type a location" />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+    <div>
+        <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+          {t('Education Level')}
+        </label>
+        <select value={form.educationLevel} onChange={setField('educationLevel')} style={selectStyle}>
+          <option value="">{t('Select education level')}</option>
+          <option value={1}>{t('High School')}</option>
+          <option value={2}>{t('Associate Degree')}</option>
+          <option value={3}>{t("Bachelor's Degree")}</option>
+          <option value={4}>{t("Master's Degree")}</option>
+          <option value={5}>{t('PhD')}</option>
+        </select>
+      </div>
+      <Input
+        label={t('Number of Dependents')}
+        type="number"
+        value={form.numberOfDependents}
+        onChange={setField('numberOfDependents')}
+        placeholder="e.g. 2"
+      />
+  </div>            
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+        <div>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Role')}</label>
+          <select value={form.role} onChange={setField('role')} style={selectStyle}>
+            {ROLE_OPTIONS.map(option => <option key={option} value={option}>{t(`role.${option}`)}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Employee Type')}</label>
+          <select value={form.employeeType} onChange={setField('employeeType')} style={selectStyle}>
+            {TYPE_OPTIONS.map(option => <option key={option} value={option}>{t(option)}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Status')}</label>
+          <select value={form.employmentStatus} onChange={setField('employmentStatus')} style={selectStyle}>
+            {STATUS_OPTIONS.map(option => <option key={option} value={option}>{t(option)}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+        <Input label={t('Birth Date')} type="date" value={form.birth_date} onChange={setField('birth_date')} />
+        <Input label={t('Hiring Date')} type="date" value={form.hiring_date} onChange={setField('hiring_date')} />
+        <Input label={t('Monthly Income')} type="number" min="0" value={form.monthlyIncome} onChange={setField('monthlyIncome')} placeholder="0" />
+        <div>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('layout.currency')}</label>
+          <select value={form.currency_preference} onChange={setField('currency_preference')} style={selectStyle}>
+            {CURRENCY_OPTIONS.map(option => <option key={option} value={option}>{t(`currency.${option}`)}</option>)}
+          </select>
+        </div>
+      </div>
+    </div>
+    {/* ── Work Schedule & Personal Details ── */}
+<div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 16, marginTop: 4 }}>
+  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>
+    {t('Work Schedule')}
+  </div>
+  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+    <Input
+      label={t('Default Clock In')}
+      type="time"
+      value={form.default_clock_in}
+      onChange={setField('default_clock_in')}
+    />
+    <Input
+      label={t('Default Clock Out')}
+      type="time"
+      value={form.default_clock_out}
+      onChange={setField('default_clock_out')}
+    />
+    <Input
+      label={t('Contracted Hours / Week')}
+      type="number"
+      min="0"
+      max="168"
+      value={form.contracted_hours}
+      onChange={setField('contracted_hours')}
+      placeholder="e.g. 40"
+    />
+  </div>
+</div>
+
+<div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 16, marginTop: 4 }}>
+  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>
+    {t('Personal Details')}
+  </div>
+  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+    <Input
+      label={t('Phone Number')}
+      type="tel"
+      value={form.phoneNumber}
+      onChange={setField('phoneNumber')}
+      placeholder="+20 100 000 0000"
+    />
+    <div>
+      <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+        {t('Gender')}
+      </label>
+      <select value={form.gender} onChange={setField('gender')} style={selectStyle}>
+        <option value="">{t('Select gender')}</option>
+        <option value="Male">{t('Male')}</option>
+        <option value="Female">{t('Female')}</option>
+      </select>
+    </div>
+    <div>
+      <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+        {t('Marital Status')}
+      </label>
+      <select value={form.maritalStatus} onChange={setField('maritalStatus')} style={selectStyle}>
+        <option value="">{t('Select status')}</option>
+        <option value="Single">{t('Single')}</option>
+        <option value="Married">{t('Married')}</option>
+        <option value="Divorced">{t('Divorced')}</option>
+      </select>
+    </div>
+  </div>
+  <div style={{ marginTop: 12 }}>
+    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--gray-700)' }}>
+      <input
+        type="checkbox"
+        checked={form.has_disability}
+        onChange={(e) => setField('has_disability')({ target: { value: e.target.checked } })}
+        style={{ width: 16, height: 16, cursor: 'pointer' }}
+      />
+      {t('Has Disability')}
+    </label>
+  </div>
+</div>
+        <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+          <Btn variant="ghost" onClick={() => { setShowCreate(false); resetForm(); }} style={{ flex: 1 }}>{t('Cancel')}</Btn>
+          <Btn onClick={handleCreate} style={{ flex: 1 }} disabled={saving}>{saving ? t('Saving...') : t('Create Employee')}</Btn>
         </div>
       </Modal>
 
-      {/* Onboard Node modal */}
-      <Modal
-        open={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        title={t('Onboard Strategic Node')}
-        maxWidth={560}
-      >
-        <div style={{ display: 'grid', gap: 16 }}>
-          <Input label={t('Full Name')} value={createForm.fullName} onChange={(e) => setCreateForm({ ...createForm, fullName: e.target.value })} placeholder="e.g. Salma Mostafa" />
-          <Input label={t('Department')} value={createForm.department} onChange={(e) => setCreateForm({ ...createForm, department: e.target.value })} placeholder="e.g. Engineering" />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{t('Employee Type')}</label>
-              <select
-                value={createForm.employeeType}
-                onChange={(e) => setCreateForm({ ...createForm, employeeType: e.target.value })}
-                style={{ width: '100%', height: 48, borderRadius: 14, border: '1.5px solid #F1F5F9', padding: '0 16px', background: '#F8FAFC' }}
-              >
-                <option value="Full-time">Full-time</option>
-                <option value="Part-time">Part-time</option>
-                <option value="Contract">Contract</option>
-                <option value="Intern">Intern</option>
-              </select>
-            </div>
-            <Input label={t('Monthly Income')} type="number" value={createForm.monthlyIncome} onChange={(e) => setCreateForm({ ...createForm, monthlyIncome: e.target.value })} />
+    <Modal open={showEdit} onClose={() => { setShowEdit(false); resetForm(); }} title={t('Edit Employee Record')} maxWidth={720}>
+      <div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Input label={t('Full Name *')} value={form.fullName} onChange={setField('fullName')} placeholder="e.g. Salma Mostafa" />
+          <Input label={t('Email *')} type="email" value={form.email} onChange={setField('email')} placeholder="employee@company.com" />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <JobTitleLevelPicker
+            jobs={jobOptions}
+            value={form.job}
+            onChange={(jobId) => setField('job')({ target: { value: jobId } })}
+            t={t}
+            selectStyle={selectStyle}
+          />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+              {t('Department')}
+            </label>
+            <select value={form.department} onChange={setField('department')} style={selectStyle}>
+              <option value="">{t('Select a department')}</option>
+              {departmentOptions.map(d => (
+                <option key={d.department_id} value={d.department_id}>{d.name}</option>
+              ))}
+            </select>
           </div>
-          <Input label={t('Location')} value={createForm.location} onChange={(e) => setCreateForm({ ...createForm, location: e.target.value })} placeholder="e.g. Cairo Headquarters" />
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+              {t('Team')}
+            </label>
+            <select value={form.team} onChange={setField('team')} style={selectStyle}>
+              <option value="">{t('Select a team')}</option>
+              {teamOptions.map(t => (
+                <option key={t.team_id} value={t.team_id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-          <Btn variant="outline" onClick={() => setIsCreateModalOpen(false)}>{t('Cancel')}</Btn>
-          <Btn variant="primary" loading={saving} onClick={handleCreate}>{t('Onboard')}</Btn>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
+          <DatalistInput label={t('Location')} value={form.location} options={locations} onChange={setField('location')} placeholder="Select or type a location" />
         </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+              {t('Education Level')}
+            </label>
+            <select value={form.educationLevel} onChange={setField('educationLevel')} style={selectStyle}>
+              <option value="">{t('Select education level')}</option>
+              <option value={1}>{t('High School')}</option>
+              <option value={2}>{t('Associate Degree')}</option>
+              <option value={3}>{t("Bachelor's Degree")}</option>
+              <option value={4}>{t("Master's Degree")}</option>
+              <option value={5}>{t('PhD')}</option>
+            </select>
+          </div>
+          <Input
+            label={t('Number of Dependents')}
+            type="number"
+            value={form.numberOfDependents}
+            onChange={setField('numberOfDependents')}
+            placeholder="e.g. 2"
+          />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Role')}</label>
+            <select value={form.role} onChange={setField('role')} style={selectStyle}>
+              {ROLE_OPTIONS.map(option => <option key={option} value={option}>{t(`role.${option}`)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Employee Type')}</label>
+            <select value={form.employeeType} onChange={setField('employeeType')} style={selectStyle}>
+              {TYPE_OPTIONS.map(option => <option key={option} value={option}>{t(option)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Status')}</label>
+            <select value={form.employmentStatus} onChange={setField('employmentStatus')} style={selectStyle}>
+              {STATUS_OPTIONS.map(option => <option key={option} value={option}>{t(option)}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <Input label={t('Birth Date')} type="date" value={form.birth_date} onChange={setField('birth_date')} />
+          <Input label={t('Hiring Date')} type="date" value={form.hiring_date} onChange={setField('hiring_date')} />
+          <Input label={t('Monthly Income')} type="number" min="0" value={form.monthlyIncome} onChange={setField('monthlyIncome')} placeholder="0" />
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('layout.currency')}</label>
+            <select value={form.currency_preference} onChange={setField('currency_preference')} style={selectStyle}>
+              {CURRENCY_OPTIONS.map(option => <option key={option} value={option}>{t(`currency.${option}`)}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+      {/* ── Work Schedule & Personal Details ── */}
+<div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 16, marginTop: 4 }}>
+  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>
+    {t('Work Schedule')}
+  </div>
+  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+    <Input
+      label={t('Default Clock In')}
+      type="time"
+      value={form.default_clock_in}
+      onChange={setField('default_clock_in')}
+    />
+    <Input
+      label={t('Default Clock Out')}
+      type="time"
+      value={form.default_clock_out}
+      onChange={setField('default_clock_out')}
+    />
+    <Input
+      label={t('Contracted Hours / Week')}
+      type="number"
+      min="0"
+      max="168"
+      value={form.contracted_hours}
+      onChange={setField('contracted_hours')}
+      placeholder="e.g. 40"
+    />
+  </div>
+</div>
+
+<div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 16, marginTop: 4 }}>
+  <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>
+    {t('Personal Details')}
+  </div>
+  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+    <Input
+      label={t('Phone Number')}
+      type="tel"
+      value={form.phoneNumber}
+      onChange={setField('phoneNumber')}
+      placeholder="+20 100 000 0000"
+    />
+    <div>
+      <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+        {t('Gender')}
+      </label>
+      <select value={form.gender} onChange={setField('gender')} style={selectStyle}>
+        <option value="">{t('Select gender')}</option>
+        <option value="Male">{t('Male')}</option>
+        <option value="Female">{t('Female')}</option>
+      </select>
+    </div>
+    <div>
+      <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+        {t('Marital Status')}
+      </label>
+      <select value={form.maritalStatus} onChange={setField('maritalStatus')} style={selectStyle}>
+        <option value="">{t('Select status')}</option>
+        <option value="Single">{t('Single')}</option>
+        <option value="Married">{t('Married')}</option>
+        <option value="Divorced">{t('Divorced')}</option>
+      </select>
+    </div>
+  </div>
+  <div style={{ marginTop: 12 }}>
+    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--gray-700)' }}>
+      <input
+        type="checkbox"
+        checked={form.has_disability}
+        onChange={(e) => setField('has_disability')({ target: { value: e.target.checked } })}
+        style={{ width: 16, height: 16, cursor: 'pointer' }}
+      />
+      {t('Has Disability')}
+    </label>
+  </div>
+</div>
+      <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+        <Btn variant="ghost" onClick={() => { setShowEdit(false); resetForm(); }} style={{ flex: 1 }}>{t('Cancel')}</Btn>
+        <Btn onClick={handleUpdate} style={{ flex: 1 }} disabled={saving}>{saving ? t('Saving...') : t('Save Changes')}</Btn>
+      </div>
+    </Modal>
+      <Modal open={showRoleChange} onClose={() => setShowRoleChange(false)} title={`${t('Promote / Demote')} — ${selected?.fullName || ''}`} maxWidth={760}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Change Type')}</label>
+            <select value={roleChange.action} onChange={setRoleChangeField('action')} style={selectStyle}>
+              {ACTION_OPTIONS.map(option => <option key={option} value={option}>{t(option)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('New Role')}</label>
+            <select value={roleChange.role} onChange={setRoleChangeField('role')} style={selectStyle}>
+              {ROLE_OPTIONS.map(option => <option key={option} value={option}>{t(`role.${option}`)}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('New Job Title')}</label>
+            <select value={roleChange.job} onChange={setRoleChangeField('job')} style={selectStyle}>
+              <option value="">{t('Select a job')}</option>
+              {jobOptions.map(j => (
+                <option key={j.job_id} value={j.job_id}>{j.title}</option>
+              ))}
+            </select>
+          </div>
+          <Input label={t('New Monthly Income')} type="number" min="0" value={roleChange.monthlyIncome} onChange={setRoleChangeField('monthlyIncome')} placeholder="e.g. 18000" />
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('layout.currency')}</label>
+            <select value={roleChange.currency_preference} onChange={setRoleChangeField('currency_preference')} style={selectStyle}>
+              {CURRENCY_OPTIONS.map(option => <option key={option} value={option}>{t(`currency.${option}`)}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Department')}</label>
+            <select value={roleChange.department} onChange={setRoleChangeField('department')} style={selectStyle}>
+              <option value="">{t('Select a department')}</option>
+              {departmentOptions.map(d => (
+                <option key={d.department_id} value={d.department_id}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Team')}</label>
+            <select value={roleChange.team} onChange={setRoleChangeField('team')} style={selectStyle}>
+              <option value="">{t('Select a team')}</option>
+              {teamOptions.map(tm => (
+                <option key={tm.team_id} value={tm.team_id}>{tm.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <Textarea label={t('Notes')} value={roleChange.notes} onChange={setRoleChangeField('notes')} placeholder={t('Reason for promotion / demotion')} />
+
+        <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+          <Btn variant="ghost" onClick={() => setShowRoleChange(false)} style={{ flex: 1 }}>{t('Cancel')}</Btn>
+          <Btn onClick={handleRoleChange} style={{ flex: 1 }} disabled={saving}>{saving ? t('Saving...') : t('Save & Log Change')}</Btn>
+        </div>
+      </Modal>
+
+      <Modal open={showHistory} onClose={() => setShowHistory(false)} title={`${t('Job History')} — ${selected?.fullName || ''}`} maxWidth={760}>
+        {historyLoading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}><Spinner /></div>
+        ) : historyItems.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '32px 20px', color: 'var(--gray-500)' }}>
+            {t('No promotion or demotion history has been logged yet.')}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {historyItems.map((item) => (
+              <div key={item.historyID} style={{ background: 'var(--gray-50)', borderRadius: 16, padding: '16px 18px', border: '1px solid #EAECF0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Badge label={t(item.action)} color={item.action === 'Promotion' ? 'green' : item.action === 'Demotion' ? 'orange' : 'accent'} />
+                    <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>{new Date(item.changedAt).toLocaleString()}</span>
+                  </div>
+                  <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>{t('By')} {item.changedBy || t('HR Manager')}</span>
+                </div>
+                <div style={{ fontSize: 13.5, color: 'var(--gray-700)', lineHeight: 1.6 }}>
+                  <div><strong>Title:</strong> {item.previousJobTitle || '—'} → {item.newJobTitle || '—'}</div>
+                  <div><strong>Role:</strong> {item.previousRole || '—'} → {item.newRole || '—'}</div>
+                  <div><strong>Department:</strong> {item.previousDepartment || '—'} → {item.newDepartment || '—'}</div>
+                  <div><strong>Team:</strong> {item.previousTeam || '—'} → {item.newTeam || '—'}</div>
+                  <div><strong>Salary:</strong> {formatMoney(item.previousMonthlyIncome, selected?.currency_preference)} → {formatMoney(item.newMonthlyIncome, selected?.currency_preference)}</div>
+                </div>
+                {item.notes && (
+                  <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--gray-600)' }}>
+                    <strong>Notes:</strong> {item.notes}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={showSnapshot}
+        onClose={() => { setShowSnapshot(false); setSnapshot(null); }}
+        title={`${t('Employee 360 View')} — ${selected?.fullName || ''}`}
+        maxWidth={1080}
+      >
+        {snapshotLoading ? (
+          <div style={{ textAlign: 'center', padding: 50 }}><Spinner /></div>
+        ) : !snapshot ? (
+          <div style={{ textAlign: 'center', padding: '36px 20px', color: 'var(--gray-500)' }}>
+            {t('No employee snapshot available right now.')}
+          </div>
+        ) : (
+          <>
+            <div className="hr-surface-card" style={{ padding: 18, marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 20, fontWeight: 700 }}>{snapshot.employee.fullName}</div>
+                  <div style={{ fontSize: 12.5, color: 'var(--gray-500)', marginTop: 4 }}>
+                    {snapshot.employee.jobTitle || '—'} • {snapshot.employee.department || '—'} • {snapshot.employee.team || '—'}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: 'var(--gray-500)', marginTop: 4 }}>
+                    {snapshot.employee.email} • {snapshot.employee.employeeID}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                  <Badge label={snapshot.employee.employmentStatus ? t(snapshot.employee.employmentStatus) : t('Unknown')} color={statusColor(snapshot.employee.employmentStatus)} />
+                  <Badge label={snapshot.attrition?.riskLevel ? `${t('Attrition Risk')}: ${t(snapshot.attrition.riskLevel)}` : t('Prediction pending')} color={riskColor(snapshot.attrition?.riskLevel)} />
+                </div>
+              </div>
+            </div>
+
+            <div className="hr-stats-grid" style={{ marginBottom: 18 }}>
+              {[
+                { label: 'Years at Company', value: snapshot.employee.yearsAtCompany ?? '—' },
+                { label: 'Average Rating', value: snapshot.summary?.averageReviewRating ?? 0, color: '#7C3AED' },
+                { label: 'Attendance Completion', value: `${snapshot.summary?.attendanceRate ?? 0}%`, color: '#2563EB' },
+                { label: 'Latest Payroll', value: formatMoney(snapshot.summary?.latestNetPay ?? 0), color: '#10B981' },
+              ].map((card) => (
+                <div key={card.label} className="hr-stat-card" style={{ padding: '18px 20px' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-500)', marginBottom: 6 }}>{t(card.label)}</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: card.color || 'var(--gray-900)' }}>{card.value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="hr-panel-grid" style={{ gridTemplateColumns: '1.1fr .9fr', marginBottom: 18 }}>
+              <div className="hr-surface-card" style={{ padding: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 10 }}>{t('Work Snapshot')}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div><strong>{snapshot.summary?.activeGoals ?? 0}</strong><div style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>{t('Active Goals')}</div></div>
+                  <div><strong>{snapshot.summary?.openTasks ?? 0}</strong><div style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>{t('Open Tasks')}</div></div>
+                  <div><strong>{snapshot.summary?.assignedTraining ?? 0}</strong><div style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>{t('Assigned Training')}</div></div>
+                  <div><strong>{snapshot.summary?.completedTraining ?? 0}</strong><div style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>{t('Completed Training')}</div></div>
+                </div>
+              </div>
+
+              <div className="hr-surface-card" style={{ padding: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 10 }}>{t('AI Retention Outlook')}</div>
+                {snapshot.attrition ? (
+                  <>
+                    <p style={{ margin: '0 0 8px', fontSize: 13.5, color: 'var(--gray-700)', lineHeight: 1.6 }}>{t(snapshot.attrition.explanationSummary || '')}</p>
+                    <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--gray-500)', lineHeight: 1.5 }}>{t(snapshot.attrition.feedbackSummary || '')}</p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                      {(snapshot.attrition.riskDrivers || []).slice(0, 3).map((driver, index) => (
+                        <Badge key={`${driver.title}-${index}`} label={t(driver.title)} color={riskColor(driver.severity === 'high' ? 'High' : driver.severity === 'medium' ? 'Medium' : 'Low')} />
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 6 }}>{t('Main Risk Points')}</div>
+                    <ul style={{ margin: '0 0 12px', paddingInlineStart: 18, display: 'grid', gap: 6, fontSize: 13, color: 'var(--gray-700)' }}>
+                      {(snapshot.attrition.mainRiskPoints || []).slice(0, 3).map((point, index) => <li key={`${point}-${index}`}>{t(point)}</li>)}
+                    </ul>
+                    <div className="hr-panel-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 6 }}>{t('HR Action Plan')}</div>
+                        <ul style={{ margin: 0, paddingInlineStart: 18, display: 'grid', gap: 6, fontSize: 12.5, color: 'var(--gray-700)' }}>
+                          {(snapshot.attrition.hrActionPlan || snapshot.attrition.recommendedActions || []).slice(0, 3).map((action, index) => <li key={`hr-${action}-${index}`}>{t(action)}</li>)}
+                        </ul>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 6 }}>{t('Admin Action Plan')}</div>
+                        <ul style={{ margin: 0, paddingInlineStart: 18, display: 'grid', gap: 6, fontSize: 12.5, color: 'var(--gray-700)' }}>
+                          {(snapshot.attrition.adminActionPlan || []).slice(0, 3).map((action, index) => <li key={`admin-${action}-${index}`}>{t(action)}</li>)}
+                        </ul>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <p style={{ margin: 0, fontSize: 13.5, color: 'var(--gray-500)' }}>{t('No attrition prediction has been run for this employee yet.')}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="hr-panel-grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', marginBottom: 18 }}>
+              <div className="hr-surface-card" style={{ padding: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 10 }}>{t('People Operations')}</div>
+                <div style={{ display: 'grid', gap: 8, fontSize: 13.5 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{t('Pending Leave')}</span><strong>{snapshot.summary?.pendingLeave ?? 0}</strong></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{t('Open Tickets')}</span><strong>{snapshot.summary?.openTickets ?? 0}</strong></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{t('Pending Documents')}</span><strong>{snapshot.summary?.pendingDocuments ?? 0}</strong></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{t('Pending Expenses')}</span><strong>{snapshot.summary?.pendingExpenses ?? 0}</strong></div>
+                </div>
+              </div>
+
+              <div className="hr-surface-card" style={{ padding: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 10 }}>{t('Recent Goals')}</div>
+                {(snapshot.goals || []).length ? (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {snapshot.goals.slice(0, 3).map((goal) => (
+                      <div key={goal.goalID} style={{ paddingBottom: 10, borderBottom: '1px solid #F3F4F6' }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{goal.title}</div>
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{t(goal.status || 'In Progress')} • {goal.progress ?? 0}%</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : <div style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>{t('No recent goals found.')}</div>}
+              </div>
+
+              <div className="hr-surface-card" style={{ padding: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 10 }}>{t('Recent Tasks')}</div>
+                {(snapshot.tasks || []).length ? (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {snapshot.tasks.slice(0, 3).map((task) => (
+                      <div key={task.taskID} style={{ paddingBottom: 10, borderBottom: '1px solid #F3F4F6' }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{task.title}</div>
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{t(task.status || 'To Do')} • {task.progress ?? 0}%</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : <div style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>{t('No recent tasks found.')}</div>}
+              </div>
+            </div>
+
+            <div className="hr-panel-grid" style={{ gridTemplateColumns: '1fr 1fr', marginBottom: 18 }}>
+              <div className="hr-surface-card" style={{ padding: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 10 }}>{t('Recent Reviews')}</div>
+                {(snapshot.reviews || []).length ? (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {snapshot.reviews.slice(0, 3).map((review) => (
+                      <div key={review.reviewID} style={{ paddingBottom: 10, borderBottom: '1px solid #F3F4F6' }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{review.reviewPeriod}</div>
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{t(review.status || 'Submitted')} • {review.overallRating}/5</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : <div style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>{t('No recent reviews found.')}</div>}
+              </div>
+
+              <div className="hr-surface-card" style={{ padding: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 10 }}>{t('Payroll Snapshot')}</div>
+                {(snapshot.payroll || []).length ? (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {snapshot.payroll.slice(0, 3).map((record) => (
+                      <div key={record.payrollID} style={{ paddingBottom: 10, borderBottom: '1px solid #F3F4F6' }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{record.payPeriod}</div>
+                        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{formatMoney(record.netPay)} • {t(record.status || 'Draft')}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : <div style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>{t('No payroll records found yet.')}</div>}
+              </div>
+            </div>
+
+            <div className="hr-surface-card" style={{ padding: 18 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gray-500)', marginBottom: 10 }}>{t('History Timeline')}</div>
+              {(snapshot.history || []).length ? (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {snapshot.history.slice(0, 4).map((item) => (
+                    <div key={item.historyID} style={{ paddingBottom: 10, borderBottom: '1px solid #F3F4F6' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                        <strong>{t(item.action)}</strong>
+                        <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>{formatDateTime(item.changedAt)}</span>
+                      </div>
+                      <div style={{ fontSize: 12.5, color: 'var(--gray-600)', marginTop: 4 }}>{item.previousJobTitle || '—'} → {item.newJobTitle || '—'}</div>
+                      {item.notes ? <div style={{ fontSize: 12.5, color: 'var(--gray-500)', marginTop: 4 }}>{item.notes}</div> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : <div style={{ fontSize: 12.5, color: 'var(--gray-500)' }}>{t('No history entries logged yet.')}</div>}
+            </div>
+          </>
+        )}
       </Modal>
 
       <style dangerouslySetInnerHTML={{ __html: `
-        .node-row:hover { background: rgba(248, 250, 252, 0.8); }
-        .action-btn { 
-          width: 40px; height: 40px; border: 1.5px solid #F1F5F9; background: #fff; 
-          color: #94A3B8; border-radius: 12px; display: grid; placeItems: center; 
-          cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+        .emp-icon-btn {
+          width: 32px; height: 32px; border-radius: 8px;
+          display: inline-grid; place-items: center;
+          background: #fff; border: 1.5px solid #E5E7EB;
+          color: #475569; cursor: pointer; transition: all 0.15s ease;
+          padding: 0;
         }
-        .action-btn:hover { color: #DC2626; border-color: #FEE2E2; background: #FEF2F2; transform: translateY(-2px); }
-        input:focus { border-color: #DC2626 !important; background: #fff !important; box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.05); }
+        .emp-icon-btn:hover { transform: translateY(-1px); }
+        .emp-icon-btn-edit:hover    { color: #2563EB; border-color: #BFDBFE; background: #EFF6FF; }
+        .emp-icon-btn-history:hover { color: #7C3AED; border-color: #DDD6FE; background: #F5F3FF; }
+        .emp-icon-btn-archive:hover { color: #B42318; border-color: #FECACA; background: #FEF2F2; }
       `}} />
     </div>
   );

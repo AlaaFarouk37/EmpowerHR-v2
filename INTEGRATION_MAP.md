@@ -460,3 +460,89 @@ No backend file modified. No `src/api/*` file modified.
 4. **Mark a payroll record paid via `/hr/payroll`** → per-row "Approve". Network: `POST /api/payroll/hr/payroll/{id}/mark-paid/`. Status flips to "Distributed".
 5. **Create a policy via `/hr/policies`** → fill title + content → submit. Then click the bell on any row to send a reminder.
 6. **Compare `/hr/jobs` (canonical) vs `/hr/jobs-alt` (alt design)** — both should load, both should hit the same data. Use this to pick the design you want and we'll retire the other.
+
+---
+
+## Leader tier audit (2026-06-01) — flag-only pass
+
+User directive: flag pure-stub pages but do not modify their code. No backend changes, no API client changes, no inventing endpoints. Wiring deferred.
+
+### How the tier is structured
+
+| Category | Files | Notes |
+|---|---|---|
+| **Wrapped Employee pages** | `WorkspacePages.jsx` exports `LeaderAttendancePage`, `LeaderPayrollPage`, `LeaderReviewsPage`, `LeaderCareerPathPage`, `LeaderOnboardingPage`, `LeaderShiftsPage`, `LeaderGoalsPage`, `LeaderTasksPage`, `LeaderTrainingPage`, `LeaderPoliciesPage`, `LeaderMyRecognitionPage`, `LeaderBenefitsPage`, `LeaderExpensesPage`, `LeaderDocumentsPage`, `LeaderTicketsPage`, `LeaderFeedbackPage`, `LeaderProfilePage` | Each just wraps the corresponding `EmployeeXxxPage` in `LeaderOwnedShell`. Inherits Phase 3 wiring. No audit action. |
+| **Custom personal pages** | `PersonalCommandPages.jsx` exports `LeaderPersonalAttendancePage`, `LeaderPersonalPayrollPage`, `LeaderPersonalVaultPage` (documents), `LeaderPersonalTicketsPage`, `LeaderPersonalProfilePage` | Bespoke UI shells around employee endpoints. Mixed wiring quality (see below). |
+| **Team-management pages** | `DashboardPage.jsx`, `TeamPage.jsx`, `RecognitionPage.jsx`, `TeamCalendarPage.jsx`, `TeamRequestsPage.jsx`, `TeamAnalyticsPage.jsx`, `TeamSupportPage.jsx`, `TeamFeedbackPage.jsx`, `TeamDirectoryPage.jsx` | Leader-specific functionality. Mixed wiring quality. |
+
+### Pure stubs — FLAGGED, not touched
+
+These pages render but have **zero backend integration**. Every interactive element is `setTimeout` theater or local-state-only. Wiring them requires either a leader-specific backend endpoint that doesn't exist (backend rule blocks adding one) or a repurposing of an HR endpoint that may reject TL callers.
+
+| Page | Route | Hardcoded state | Stub handlers | Why it can't just be wired |
+|---|---|---|---|---|
+| `pages/leader/DashboardPage.jsx` | `/leader/dashboard` | `pendingApprovals`, `teamMembers` (initialized inline) | `handleApprove` (removes from local array + toast), `handleReview` (navigates only), `handleGenerateReport` (1s `setTimeout` fake), `handleBuzz` (fake ping) | No TL-scoped "pending approvals" endpoint in API client. `hrGetApprovalSnapshot` is HR-scoped and likely 403s for TL. |
+| `pages/leader/TeamRequestsPage.jsx` | `/leader/team-requests` | `myRequests`, `teamInbox` (initialized inline) | `handleAction(id, 'approve'/'reject')` mutates local state, no API call | No TL leave-approval endpoint in API client. `hrReviewLeaveRequest` is HR-only. |
+| `pages/leader/TeamSupportPage.jsx` | `/leader/team-support` | `tickets` (initialized inline), `formData` (form state) | `handleCreateRequest` (form submit, no API call) | **Trivially wireable** — `submitTicket` is the obvious target and exists in the API client. Flagged here only because user opted not to wire this pass. |
+
+### Partially stubbed — FLAGGED
+
+Real backend data loads on mount, but supporting telemetry and per-item action buttons are unwired or fake.
+
+| Page | Wired | Unwired / fake |
+|---|---|---|
+| `pages/leader/PersonalCommandPages.jsx` → `LeaderPersonalPayrollPage` | `getMyPayroll` populates table | Top-row telemetry chips ("Earnings YTD $128,400", "Next Pay May 25", "Monthly Net $8,450", "Tax Integrity Verified") hardcoded. Download PDF button is a toast. "Financial Intelligence" sidebar hardcoded. |
+| `pages/leader/PersonalCommandPages.jsx` → `LeaderPersonalVaultPage` | `getMyDocuments` populates grid | Telemetry hardcoded ("Level 4", "Pass", "Locked"). Per-document "Download ›" button has no `onClick`. "Request New Document" tile has no `onClick`. |
+| `pages/leader/PersonalCommandPages.jsx` → `LeaderPersonalTicketsPage` | `getMyTickets` populates list | **Dead import**: `submitTicket` is imported at file top but never called. Submit form (if rendered) doesn't post anywhere. |
+| `pages/leader/PersonalCommandPages.jsx` → `LeaderPersonalProfilePage` | Reads `user` from `useAuth()` | **Dead import**: `changePassword` is imported but never called — the Security/Governance tab has no working change-password form. Almost the entire profile is hardcoded: "Influence: High", "Reliability: 98%", "Team Stability: 94%", "Goal Velocity: High", "Merit Count: 12", "Strategic Event Ledger" entries. "Edit Metadata ›" button has no `onClick`. |
+| `pages/leader/TeamPage.jsx` (`TeamGoalsPage`) | Goal create / complete; task complete | **Missing handler**: `taskForm` + `EMPTY_TASK_FORM` are declared but there's no `handleCreateTask` and no UI section to create tasks. "Follow-up" button (line ~459) and "Open Focus Board" button (line ~464) have no `onClick`. Old page had ~10 features this one lacks (calendar, retention alerts, overtime approval, follow-up prep, coaching prep, contact modal, task approval, HR team-scope picker). |
+
+### Wired correctly — no action needed
+
+| Page | API surface used |
+|---|---|
+| `pages/leader/PersonalCommandPages.jsx` → `LeaderPersonalAttendancePage` | `getMyAttendance`, `clockAttendance` |
+| `pages/leader/RecognitionPage.jsx` (`TeamRecognitionPage`) | `getTeamRecognition`, `createTeamRecognition` |
+| `pages/leader/TeamCalendarPage.jsx` | `getTeamTasks`, `hrGetLeaveRequests` (loads — actions to be verified per-flow) |
+| `pages/leader/TeamAnalyticsPage.jsx` | `getLatestAttritionPredictions`, `getTeamTasks` (loads — actions to be verified per-flow) |
+| `pages/leader/TeamFeedbackPage.jsx` | `getReceivedFeedback`, `getTeamTasks` (loads — actions to be verified per-flow) |
+| `pages/leader/TeamDirectoryPage.jsx` | `hrGetEmployees` (loads — actions to be verified per-flow) |
+| All `WorkspacePages.jsx` wrappers | Inherit `EmployeeXxxPage` wiring from Phase 3 audit |
+
+### Old-frontend coverage
+
+| New page | Old equivalent |
+|---|---|
+| `pages/leader/TeamPage.jsx` | ✓ `frontend-old/src/pages/leader/TeamPage.jsx` (1600 lines, much richer) |
+| `pages/leader/RecognitionPage.jsx` | ✓ `frontend-old/src/pages/leader/RecognitionPage.jsx` |
+| `pages/leader/WorkspacePages.jsx` | ✓ `frontend-old/src/pages/leader/WorkspacePages.jsx` (same wrapper pattern) |
+| `DashboardPage.jsx`, `PersonalCommandPages.jsx`, `TeamCalendarPage.jsx`, `TeamRequestsPage.jsx`, `TeamAnalyticsPage.jsx`, `TeamSupportPage.jsx`, `TeamFeedbackPage.jsx`, `TeamDirectoryPage.jsx` | **No old equivalent.** New concepts in the redesign. |
+
+### Files touched in this audit pass
+
+None. Per user directive, this pass is flag-only.
+
+### Next-pass candidates (when ready)
+
+1. ~~**Wire `submitTicket` on `LeaderPersonalTicketsPage` and `TeamSupportPage`**~~ — ✅ done in follow-up pass (see below).
+2. ~~**Wire `changePassword` on `LeaderPersonalProfilePage`**~~ — ✅ done in follow-up pass.
+3. ~~**Port `handleCreateTask` + minimal task-form section onto `TeamPage`**~~ — ✅ done in follow-up pass.
+4. ~~**Port `prepareFollowUp` onto the unwired "Follow-up" button**~~ — ✅ done in follow-up pass.
+5. **Design call needed for `DashboardPage` + `TeamRequestsPage`** — leader-scoped approval/queue endpoints don't exist. Either repurpose HR endpoints (likely 403 for TL), expose new ones (backend rule blocks this), or accept that these pages stay decorative.
+
+### Leader follow-up wiring pass (2026-06-03)
+
+| Page | Wiring applied | Notes |
+|---|---|---|
+| `pages/leader/PersonalCommandPages.jsx` → `LeaderPersonalTicketsPage` | Fixed broken import `submitTicket` → `submitSupportTicket` (correct API client name). Added `incidentForm` state (subject/priority/description). Wired the three NeuralInput rows on the "New Incident Report" card. Rewrote `handleLaunchReport` to call `submitSupportTicket(payload)` then reload via existing `loadData`. Replaced free-text Priority NeuralInput with a select bound to Low/Medium/High choices the backend serializer accepts. | The original import `submitTicket` was **undefined** — named export didn't exist. The submit button had been firing a 1.5 s `setTimeout` toast, not an API call. |
+| `pages/leader/PersonalCommandPages.jsx` → `LeaderPersonalProfilePage` | Added state `pwForm` + `pwSaving`. Added `handleChangePassword` that validates (both fields required, ≥8 chars, match) and calls `changePassword({ old_password, new_password })`. Added a new render block for `activeTab === 'governance'` (previously the tab was clickable but rendered nothing). Block contains a Credential Update card with three password inputs + an Update Password button. | The `changePassword` import was a dead import. The governance tab content didn't exist at all — clicking it showed a blank page. Other hardcoded telemetry on this page (Influence, Reliability, Team Stability, Merit Count, Strategic Event Ledger) **left untouched** per "no inventing" rule — they have no real data source. |
+| `pages/leader/TeamSupportPage.jsx` | Added imports `getMyTickets` + `submitSupportTicket`. Removed hardcoded `tickets` array seed (was 2 fake test rows). Added `loadTickets()` that calls `getMyTickets(user.employee_id)` and maps backend fields → the shape the existing render expects (`ticketID → id`, `subject → title`, `description → desc`, etc.). Rewrote `handleCreateRequest` to POST via `submitSupportTicket` then reload. Added `submitting` state + disabled Submit button while in-flight. Added `priorityToBackend()` helper since the form uses UPPER-case strings but the backend ChoiceField expects Title-case. | The form's `type` field is sent as `category` to the backend. The backend's `category` is a ChoiceField — if the page's "Resource Allocation" / "Software License" strings don't match a valid category, the POST will 400. **Flagged**: caller should verify the category options match the backend `SupportTicket.CATEGORY_CHOICES` enum. |
+| `pages/leader/TeamPage.jsx` (`TeamGoalsPage`) | Added `handleCreateTask` (verbatim port of the old `handleCreateTask` at `frontend-old/src/pages/leader/TeamPage.jsx:605-628`). Added `prepareFollowUp` (port of old lines 519-538, simplified — only pre-fills the goal form). Added `employeeID` to the `leaderFocusItems` mapping so the Follow-up handler has the employee to pre-fill against. Wired the previously-unwired "Follow-up" button (`onClick={() => prepareFollowUp(item)}`). Added a new "Assign Tactical Task" form section under the existing goal deployment form — the only way to actually create a task. Form fields: employee, title, description, priority (Low/Medium/High), estimated hours, due date. Submit calls `handleCreateTask`. | The "Open Focus Board" button on this page still has no `onClick` — no clear destination exists in the route registry. Other features the old TeamPage had (calendar, retention alerts, overtime approval, contact modal, HR team scoping, task approval) **not ported** — they're entire feature sections, not button wirings, and adding them would expand UI structure beyond what this audit pass authorized. |
+
+### Files touched in follow-up pass
+
+- `src/pages/leader/PersonalCommandPages.jsx`
+- `src/pages/leader/TeamSupportPage.jsx`
+- `src/pages/leader/TeamPage.jsx`
+
+No backend file modified. No `src/api/*` file modified.

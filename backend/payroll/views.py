@@ -1,3 +1,4 @@
+import re
 from decimal import Decimal
 from django.utils import timezone
 from rest_framework.views import APIView
@@ -5,9 +6,15 @@ from rest_framework.response import Response
 from rest_framework import status, generics
 from rest_framework.permissions import IsAuthenticated
 from accounts.permissions import IsHRManager, IsInternalEmployee, IsAdmin
+from accounts.models import User
 from employee_management.models import Employee
-from .models import PayrollRecord
-from .serializers import PayrollRecordSerializer, PayrollRecordCreateSerializer, PayrollMarkPaidSerializer
+from .models import PayrollRecord, Commission, Deduction
+from .calculations import compute_payroll
+from .serializers import (
+    PayrollRecordSerializer, PayrollRecordCreateSerializer, PayrollMarkPaidSerializer,
+    CommissionSerializer, CommissionCreateSerializer,
+    DeductionSerializer, DeductionCreateSerializer,
+)
 
 
 def _label(value):
@@ -27,10 +34,6 @@ def _resolve_employee(employee_id, request_user=None):
             employmentStatus='Active',
         )
     return None
-
-
-def _calculate_net_pay(base_salary, allowances, deductions, bonus):
-    return base_salary + allowances - deductions + bonus
 
 
 class PayrollRecordListCreateView(generics.ListCreateAPIView):
@@ -209,9 +212,6 @@ class HRPayrollListCreateView(APIView):
                 return Response({'error': 'Base salary is required or missing from the employee profile.'}, status=status.HTTP_400_BAD_REQUEST)
             base_salary = Decimal(str(employee.monthlyIncome)).quantize(Decimal('0.01'))
 
-        allowances = serializer.validated_data.get('allowances', Decimal('0.00'))
-        deductions = serializer.validated_data.get('deductions', Decimal('0.00'))
-        bonus = serializer.validated_data.get('bonus', Decimal('0.00'))
         currency = serializer.validated_data.get('currency') or employee.currency_preference or 'EGP'
 
         user_account = getattr(employee, 'user_account', None)
@@ -219,15 +219,30 @@ class HRPayrollListCreateView(APIView):
             user_account.currency_preference = currency
             user_account.save(update_fields=['currency_preference'])
 
+        # Compute prorated base, unpaid-leave deduction, commissions, manual
+        # deductions and approved expense reimbursements server-side — all
+        # aggregated from their own records. See payroll/calculations.py.
+        breakdown = compute_payroll(
+            employee=employee,
+            pay_period=pay_period,
+            base_salary=base_salary,
+        )
+
         payroll = PayrollRecord.objects.create(
             employee=employee,
             payPeriod=pay_period,
             currency=currency,
-            baseSalary=base_salary,
-            allowances=allowances,
-            deductions=deductions,
-            bonus=bonus,
-            netPay=_calculate_net_pay(base_salary, allowances, deductions, bonus),
+            baseSalary=breakdown['baseSalary'],
+            deductions=breakdown['deductions'],
+            proratedBaseSalary=breakdown['proratedBaseSalary'],
+            dailyRate=breakdown['dailyRate'],
+            commissions=breakdown['commissions'],
+            unpaidLeaveDeduction=breakdown['unpaidLeaveDeduction'],
+            expenseReimbursements=breakdown['expenseReimbursements'],
+            workingDays=breakdown['workingDays'],
+            weekdaysEmployed=breakdown['weekdaysEmployed'],
+            unpaidLeaveDays=breakdown['unpaidLeaveDays'],
+            netPay=breakdown['netPay'],
             notes=serializer.validated_data.get('notes', ''),
         )
         return Response(PayrollRecordSerializer(payroll).data, status=status.HTTP_201_CREATED)
@@ -250,3 +265,194 @@ class HRPayrollMarkPaidView(APIView):
         payroll.paymentDate = serializer.validated_data.get('paymentDate') or timezone.localdate()
         payroll.save(update_fields=['status', 'paymentDate'])
         return Response(PayrollRecordSerializer(payroll).data)
+
+
+def _generate_payroll_for_employee(employee, pay_period):
+    """Create a PayrollRecord for one employee + period using the computed
+    breakdown. Returns (record_or_None, skip_reason_or_None)."""
+    if employee.monthlyIncome is None:
+        return None, 'No base salary on profile'
+
+    base_salary = Decimal(str(employee.monthlyIncome)).quantize(Decimal('0.01'))
+    currency = employee.currency_preference or 'EGP'
+    breakdown = compute_payroll(
+        employee=employee,
+        pay_period=pay_period,
+        base_salary=base_salary,
+    )
+    record = PayrollRecord.objects.create(
+        employee=employee,
+        payPeriod=pay_period,
+        currency=currency,
+        baseSalary=breakdown['baseSalary'],
+        deductions=breakdown['deductions'],
+        proratedBaseSalary=breakdown['proratedBaseSalary'],
+        dailyRate=breakdown['dailyRate'],
+        commissions=breakdown['commissions'],
+        unpaidLeaveDeduction=breakdown['unpaidLeaveDeduction'],
+        expenseReimbursements=breakdown['expenseReimbursements'],
+        workingDays=breakdown['workingDays'],
+        weekdaysEmployed=breakdown['weekdaysEmployed'],
+        unpaidLeaveDays=breakdown['unpaidLeaveDays'],
+        netPay=breakdown['netPay'],
+    )
+    return record, None
+
+
+class HRPayrollRunCycleView(APIView):
+    """Run a full payroll cycle: generate a payslip for every active internal
+    user (all roles except Candidate, is_active=True) who doesn't already have
+    one for the given pay period."""
+    permission_classes = [IsAuthenticated, IsHRManager | IsAdmin]
+
+    def post(self, request):
+        pay_period = (request.data or {}).get('payPeriod')
+        if not pay_period or not re.match(r'^\d{4}-\d{2}$', str(pay_period)):
+            return Response({'error': 'payPeriod is required in YYYY-MM format.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Active, non-candidate users that are linked to an employee record.
+        users = (
+            User.objects.filter(is_active=True, employee__isnull=False)
+            .exclude(role=User.Role.CANDIDATE)
+            .select_related('employee')
+        )
+
+        existing = set(
+            PayrollRecord.objects.filter(payPeriod=pay_period)
+            .values_list('employee_id', flat=True)
+        )
+
+        created, skipped, failed = 0, [], []
+        for user in users:
+            employee = user.employee
+            if not employee or employee.isDeleted:
+                continue
+            if employee.employeeID in existing:
+                skipped.append({'employeeID': employee.employeeID,
+                                'employeeName': employee.fullName,
+                                'reason': 'Already generated'})
+                continue
+            try:
+                record, reason = _generate_payroll_for_employee(employee, pay_period)
+                if record is None:
+                    skipped.append({'employeeID': employee.employeeID,
+                                    'employeeName': employee.fullName,
+                                    'reason': reason})
+                else:
+                    created += 1
+                    existing.add(employee.employeeID)
+            except Exception as exc:  # noqa: BLE001 - report, don't abort the cycle
+                failed.append({'employeeID': employee.employeeID,
+                               'employeeName': employee.fullName,
+                               'reason': str(exc)})
+
+        return Response({
+            'payPeriod': pay_period,
+            'created': created,
+            'skippedCount': len(skipped),
+            'failedCount': len(failed),
+            'skipped': skipped,
+            'failed': failed,
+        }, status=status.HTTP_200_OK)
+
+
+class HRCommissionListCreateView(APIView):
+    """HR manually records commission line items. Multiple entries per
+    (employee, pay period) are allowed and summed at payroll-compute time."""
+    permission_classes = [IsAuthenticated, IsHRManager]
+
+    def get(self, request):
+        commissions = Commission.objects.select_related('employee').filter(
+            employee__isDeleted=False)
+
+        employee_id = request.query_params.get('employee_id')
+        pay_period = request.query_params.get('pay_period')
+        if employee_id:
+            commissions = commissions.filter(employee_id=employee_id)
+        if pay_period:
+            commissions = commissions.filter(payPeriod=pay_period)
+
+        return Response(CommissionSerializer(
+            commissions.order_by('-payPeriod', '-createdAt'), many=True).data)
+
+    def post(self, request):
+        serializer = CommissionCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        employee = _resolve_employee(serializer.validated_data['employeeID'], request.user)
+        if not employee:
+            return Response({'error': 'Employee not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        commission = Commission.objects.create(
+            employee=employee,
+            payPeriod=serializer.validated_data['payPeriod'],
+            amount=serializer.validated_data['amount'],
+            description=serializer.validated_data.get('description', ''),
+            createdBy=getattr(request.user, 'full_name', '') or request.user.email,
+        )
+        return Response(CommissionSerializer(commission).data, status=status.HTTP_201_CREATED)
+
+
+class HRCommissionDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsHRManager]
+
+    def delete(self, request, commission_id):
+        try:
+            commission = Commission.objects.get(pk=commission_id)
+        except Commission.DoesNotExist:
+            return Response({'error': 'Commission not found.'}, status=status.HTTP_404_NOT_FOUND)
+        commission.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class HRDeductionListCreateView(APIView):
+    """HR manually records deduction line items with a note explaining why.
+    Multiple entries per (employee, pay period) are allowed and summed at
+    payroll-compute time, separately from the auto unpaid-leave deduction."""
+    permission_classes = [IsAuthenticated, IsHRManager]
+
+    def get(self, request):
+        deductions = Deduction.objects.select_related('employee').filter(
+            employee__isDeleted=False)
+
+        employee_id = request.query_params.get('employee_id')
+        pay_period = request.query_params.get('pay_period')
+        if employee_id:
+            deductions = deductions.filter(employee_id=employee_id)
+        if pay_period:
+            deductions = deductions.filter(payPeriod=pay_period)
+
+        return Response(DeductionSerializer(
+            deductions.order_by('-payPeriod', '-createdAt'), many=True).data)
+
+    def post(self, request):
+        serializer = DeductionCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        employee = _resolve_employee(serializer.validated_data['employeeID'], request.user)
+        if not employee:
+            return Response({'error': 'Employee not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        deduction = Deduction.objects.create(
+            employee=employee,
+            payPeriod=serializer.validated_data['payPeriod'],
+            amount=serializer.validated_data['amount'],
+            description=serializer.validated_data.get('description', ''),
+            createdBy=getattr(request.user, 'full_name', '') or request.user.email,
+        )
+        return Response(DeductionSerializer(deduction).data, status=status.HTTP_201_CREATED)
+
+
+class HRDeductionDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsHRManager]
+
+    def delete(self, request, deduction_id):
+        try:
+            deduction = Deduction.objects.get(pk=deduction_id)
+        except Deduction.DoesNotExist:
+            return Response({'error': 'Deduction not found.'}, status=status.HTTP_404_NOT_FOUND)
+        deduction.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

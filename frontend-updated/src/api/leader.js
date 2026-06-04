@@ -27,6 +27,9 @@ export const getTeamTasks = async (filters = {}) => {
 };
 export const createTeamTask = (data) => api.post('/employee_management/team/tasks/', data);
 export const updateTeamTask = (id, data) => api.put(`/employee_management/team/tasks/${id}/`, data);
+// TL approves a Pending Review task — backend moves it to Done.
+export const approveTeamTask = (id) => api.post(`/employee_management/team/tasks/${id}/approve/`, {});
+export const returnTeamTaskWithNotes = (id, note) => api.post(`/employee_management/team/tasks/${id}/return/`, { note });
 
 // Recognition & Rewards
 export const getTeamRecognition = async (filters = {}) => {

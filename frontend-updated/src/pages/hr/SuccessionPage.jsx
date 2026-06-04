@@ -1,314 +1,492 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { hrGetSuccessionPlans, hrCreateSuccessionPlan } from '../../api/index.js';
-import { Badge, Btn, Spinner, useToast, Input, Modal, Textarea } from '../../components/shared/index.jsx';
-import { useAuth } from '../../context/AuthContext';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { hrGetAtRiskEmployees, hrGetSuccessors } from '../../api/index.js';
+import { Badge, Btn, Input, Spinner, useToast } from '../../components/shared/index.jsx';
 import { useLanguage } from '../../context/LanguageContext';
-import { 
-  Search, 
-  Filter, 
-  UserPlus, 
-  TrendingUp, 
-  Shield, 
-  Activity, 
-  Target, 
-  Calendar,
-  ChevronRight,
-  Award,
-  Zap,
-  ShieldAlert,
-  Globe,
-  Layers,
-  ChevronDown,
-  Sparkles,
-  SearchCode,
-  MoreVertical,
-  Users
-} from 'lucide-react';
+
+const DEFAULT_THRESHOLD = 70;
+const DEFAULT_MIN_ATS = 70;
+const DEFAULT_RECENCY_DAYS = 365;
+const DEFAULT_LIMIT = 10;
+const REVIEW_STAGE_OPTIONS = ['Applied', 'Shortlisted', 'Interview', 'Rejected'];
+
+const RISK_COLOR = (level) => {
+  if (level === 'High') return 'red';
+  if (level === 'Medium') return 'orange';
+  return 'green';
+};
+
+const STAGE_COLOR = (stage) => {
+  if (stage === 'Interview') return 'accent';
+  if (stage === 'Shortlisted') return 'yellow';
+  if (stage === 'Rejected') return 'red';
+  return 'gray';
+};
+
+const FIT_COLOR = (score) => {
+  if (score >= 85) return 'green';
+  if (score >= 70) return 'accent';
+  if (score >= 50) return 'yellow';
+  return 'gray';
+};
+
+const formatScore = (value) => (value === null || value === undefined ? '—' : Number(value).toFixed(1));
+
+const defaultFiltersFor = (employee) => ({
+  job_title: employee?.jobTitle || '',
+  level: '',
+  min_ats_score: DEFAULT_MIN_ATS,
+  recency_days: DEFAULT_RECENCY_DAYS,
+  recency_disabled: false,
+  review_stages: [],
+  limit: DEFAULT_LIMIT,
+});
 
 export function HRSuccessionPage() {
   const toast = useToast();
-  const { t } = useLanguage();
-  const navigate = useNavigate();
+  const { t, language } = useLanguage();
 
-  const [plans, setPlans] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState('All Critical Roles');
-  const [showCreate, setShowCreate] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const EMPTY_PLAN = { employeeID: '', targetRole: '', readiness: 'Developing', status: 'Active', retentionRisk: 'Medium', developmentActions: '', notes: '' };
-  const [createForm, setCreateForm] = useState(EMPTY_PLAN);
+  const [thresholdInput, setThresholdInput] = useState(String(DEFAULT_THRESHOLD));
+  const [appliedThreshold, setAppliedThreshold] = useState(DEFAULT_THRESHOLD);
+  const [atRisk, setAtRisk] = useState([]);
+  const [loadingAtRisk, setLoadingAtRisk] = useState(true);
 
-  const loadPlans = async () => {
-    setLoading(true);
+  const [expandedEmployeeId, setExpandedEmployeeId] = useState(null);
+  const [successorsState, setSuccessorsState] = useState({});
+
+  const loadAtRisk = useCallback(async (threshold) => {
+    setLoadingAtRisk(true);
     try {
-      const data = await hrGetSuccessionPlans();
-      setPlans(Array.isArray(data) ? data : []);
+      const data = await hrGetAtRiskEmployees(threshold);
+      setAtRisk(Array.isArray(data?.results) ? data.results : []);
     } catch (error) {
-      toast('Failed to load succession data', 'error');
+      toast(error.message || 'Failed to load at-risk employees', 'error');
+      setAtRisk([]);
     } finally {
-      setLoading(false);
+      setLoadingAtRisk(false);
     }
+  }, [toast]);
+
+  useEffect(() => { loadAtRisk(appliedThreshold); }, [loadAtRisk, appliedThreshold]);
+
+  const handleApplyThreshold = () => {
+    const parsed = Number(thresholdInput);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+      toast('Threshold must be a number between 0 and 100.', 'error');
+      return;
+    }
+    setAppliedThreshold(parsed);
   };
 
-  useEffect(() => { loadPlans(); }, []);
-
-  const handleCreate = async () => {
-    if (!createForm.employeeID.trim()) { toast('Employee ID is required', 'error'); return; }
-    if (!createForm.targetRole.trim()) { toast('Target role is required', 'error'); return; }
-    setSaving(true);
+  const loadSuccessors = async (employee, filters) => {
+    setSuccessorsState((prev) => ({
+      ...prev,
+      [employee.employeeID]: {
+        ...(prev[employee.employeeID] || {}),
+        filters,
+        draftFilters: filters,
+        loading: true,
+        error: null,
+      },
+    }));
     try {
-      await hrCreateSuccessionPlan(createForm);
-      toast('Succession plan created', 'success');
-      setShowCreate(false);
-      setCreateForm(EMPTY_PLAN);
-      await loadPlans();
-    } catch (err) {
-      toast(err?.message || 'Failed to create succession plan', 'error');
-    } finally {
-      setSaving(false);
+      const payload = {
+        job_title: filters.job_title,
+        level: filters.level,
+        min_ats_score: filters.min_ats_score,
+        recency_days: filters.recency_days,
+        recency_disabled: filters.recency_disabled ? 'true' : '',
+        review_stages: (filters.review_stages || []).join(','),
+        limit: filters.limit,
+      };
+      const data = await hrGetSuccessors(employee.employeeID, payload);
+      setSuccessorsState((prev) => ({
+        ...prev,
+        [employee.employeeID]: {
+          filters,
+          draftFilters: filters,
+          results: data?.results || [],
+          filtersApplied: data?.filters_applied || {},
+          loading: false,
+          error: null,
+        },
+      }));
+    } catch (error) {
+      toast(error.message || 'Failed to load successors', 'error');
+      setSuccessorsState((prev) => ({
+        ...prev,
+        [employee.employeeID]: {
+          ...(prev[employee.employeeID] || {}),
+          loading: false,
+          error: error.message || 'Failed to load successors',
+        },
+      }));
     }
   };
 
-  const filteredPlans = useMemo(() => {
-    return plans.filter(p => {
-      const matchesSearch = p.targetRole?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          p.currentIncumbent?.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesSearch;
+  const handleFindSuccessors = (employee) => {
+    if (expandedEmployeeId === employee.employeeID) {
+      setExpandedEmployeeId(null);
+      return;
+    }
+    setExpandedEmployeeId(employee.employeeID);
+    const cached = successorsState[employee.employeeID];
+    if (!cached || !cached.results) {
+      loadSuccessors(employee, defaultFiltersFor(employee));
+    }
+  };
+
+  const updateDraftFilter = (employeeId, key, value) => {
+    setSuccessorsState((prev) => ({
+      ...prev,
+      [employeeId]: {
+        ...(prev[employeeId] || {}),
+        draftFilters: {
+          ...(prev[employeeId]?.draftFilters || defaultFiltersFor({ employeeID: employeeId })),
+          [key]: value,
+        },
+      },
+    }));
+  };
+
+  const toggleReviewStage = (employeeId, stage) => {
+    setSuccessorsState((prev) => {
+      const draft = prev[employeeId]?.draftFilters || defaultFiltersFor({ employeeID: employeeId });
+      const stages = draft.review_stages || [];
+      const next = stages.includes(stage) ? stages.filter((s) => s !== stage) : [...stages, stage];
+      return {
+        ...prev,
+        [employeeId]: {
+          ...(prev[employeeId] || {}),
+          draftFilters: { ...draft, review_stages: next },
+        },
+      };
     });
-  }, [plans, searchQuery]);
+  };
 
-  const continuityStats = useMemo(() => {
-    return [
-      { label: 'Critical Node Inventory', value: plans.length, icon: Target, color: '#1E293B', bg: '#F8FAFC' },
-      { label: 'Ready-Now Bench', value: plans.filter(p => p.readiness === 'Ready Now').length, icon: Award, color: 'var(--red-600)', bg: 'var(--red-50)' },
-      { label: 'Pipeline Depth', value: '48', icon: TrendingUp, color: 'var(--red-800)', bg: 'var(--red-50)' },
-      { label: 'At-Risk Roles', value: '03', icon: ShieldAlert, color: 'var(--pink-600)', bg: 'var(--pink-50)' },
-    ];
-  }, [plans]);
+  const applyDraftFilters = (employee) => {
+    const draft = successorsState[employee.employeeID]?.draftFilters || defaultFiltersFor(employee);
+    loadSuccessors(employee, draft);
+  };
 
-  if (loading) return (
-    <div style={{ height: '80vh', display: 'grid', placeItems: 'center' }}>
-       <div style={{ textAlign: 'center' }}>
-          <div style={{ width: 64, height: 64, margin: '0 auto 24px', border: '3px solid var(--red-100)', borderTopColor: 'var(--red-600)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-          <div style={{ fontSize: 14, fontWeight: 900, color: '#1E293B', letterSpacing: '0.1em' }}>SYNCHRONIZING CONTINUITY GRID...</div>
-       </div>
-    </div>
-  );
+  const resetFilters = (employee) => {
+    loadSuccessors(employee, defaultFiltersFor(employee));
+  };
+
+  const summary = useMemo(() => {
+    const high = atRisk.filter((row) => row.riskLevel === 'High').length;
+    const medium = atRisk.filter((row) => row.riskLevel === 'Medium').length;
+    return { total: atRisk.length, high, medium };
+  }, [atRisk]);
 
   return (
-    <div className="page-content animate-in" style={{ background: '#F8FAFC', minHeight: '100vh', padding: '40px 60px' }}>
-      {/* Strategic Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 48 }}>
+    <div className="hr-page-shell" style={{ maxWidth: 1280, margin: '0 auto', padding: '40px 32px 80px' }}>
+      <div className="hr-page-header is-split" style={{ marginBottom: 28 }}>
         <div>
-           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--red-600)', display: 'grid', placeItems: 'center', boxShadow: '0 8px 16px rgba(220, 38, 38, 0.2)' }}>
-                 <Shield size={22} style={{ color: '#fff' }} />
-              </div>
-              <h1 style={{ fontSize: 32, fontWeight: 900, color: '#1E293B', margin: 0, letterSpacing: '-0.02em' }}>Succession & Continuity Command</h1>
-           </div>
-           <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>Audit critical node continuity, calibrate talent bench strength, and monitor organizational risk velocity.</p>
+          <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>
+            {language === 'ar' ? 'تخطيط الإحلال الوظيفي' : 'Succession Planning'}
+          </h2>
+          <p style={{ fontSize: 13.5, color: 'var(--gray-500)' }}>
+            {language === 'ar'
+              ? 'استعرض الموظفين المعرضين لخطر الاحتفاظ وحدد أفضل المرشحين البديلين من مخزون المواهب الحالي.'
+              : 'Surface employees at risk of leaving and rank potential successors from the existing scored talent pool.'}
+          </p>
         </div>
-
-        <Btn 
-          onClick={() => { setCreateForm(EMPTY_PLAN); setShowCreate(true); }}
-          variant="primary" 
-          style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
-        >
-           <Zap size={18} style={{ marginRight: 8 }} /> {t('Initialize Continuity Plan')}
-        </Btn>
       </div>
 
-      {/* Continuity Telemetry Strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, marginBottom: 48 }}>
-        {continuityStats.map(s => (
-          <div key={s.label} style={{ padding: '24px', borderRadius: 28, background: '#fff', border: '1.5px solid #F1F5F9', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 20 }}>
-            <div style={{ width: 48, height: 48, borderRadius: 14, background: s.bg, color: s.color, display: 'grid', placeItems: 'center' }}>
-              <s.icon size={22} />
-            </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t(s.label)}</div>
-              <div style={{ fontSize: 24, fontWeight: 900, color: '#1E293B' }}>{s.value}</div>
-            </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
+        {[
+          { label: 'At-Risk Employees', value: summary.total, accent: '#111827' },
+          { label: 'High Risk', value: summary.high, accent: '#E8321A' },
+          { label: 'Medium Risk', value: summary.medium, accent: '#F59E0B' },
+          { label: 'Risk Threshold', value: `${appliedThreshold}+`, accent: '#2563EB' },
+        ].map((card) => (
+          <div key={card.label} className="hr-stat-card" style={{ padding: '20px 24px' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-500)', marginBottom: 6 }}>{t(card.label)}</div>
+            <div style={{ fontSize: 26, fontWeight: 700, color: card.accent }}>{card.value}</div>
           </div>
         ))}
       </div>
 
-      {/* Control Bar */}
-      <div style={{ background: '#fff', padding: '16px 24px', borderRadius: 24, border: '1.5px solid #F1F5F9', marginBottom: 32, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-           <div style={{ position: 'relative' }}>
-              <select 
-                value={activeFilter}
-                onChange={(e) => setActiveFilter(e.target.value)}
-                style={{ height: 44, padding: '0 40px 0 16px', borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', fontSize: 13, fontWeight: 800, color: '#1E293B', outline: 'none', appearance: 'none', minWidth: 200 }}
-              >
-                 <option value="All Critical Roles">{t('Global Succession Grid')}</option>
-                 <option value="Executive">{t('Executive Nodes')}</option>
-                 <option value="At Risk">{t('At-Risk Nodes')}</option>
-              </select>
-              <ChevronDown size={14} style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', pointerEvents: 'none' }} />
-           </div>
-           
-           <div style={{ position: 'relative' }}>
-              <Search size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
-              <input 
-                type="text" 
-                placeholder={t('Search critical roles or incumbents...')}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{ height: 44, padding: '0 16px 0 48px', borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', fontSize: 13, fontWeight: 600, width: 320, outline: 'none' }} 
-              />
-           </div>
-        </div>
-        
-        <div style={{ display: 'flex', gap: 12 }}>
-           <Btn variant="secondary" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
-              <Filter size={16} style={{ marginRight: 8 }} /> {t('Neural Filters')}
-           </Btn>
-           <Btn variant="outline" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
-              <Globe size={16} style={{ marginRight: 8 }} /> {t('Export Continuity Grid')}
-           </Btn>
+      <div className="hr-surface-card" style={{ padding: 20, marginBottom: 20 }}>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div style={{ minWidth: 220 }}>
+            <Input
+              label={t('Risk threshold (0–100)')}
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              value={thresholdInput}
+              onChange={(e) => setThresholdInput(e.target.value)}
+            />
+          </div>
+          <Btn onClick={handleApplyThreshold}>{t('Apply')}</Btn>
+          <div style={{ fontSize: 12, color: 'var(--gray-500)', marginLeft: 'auto' }}>
+            {t('Showing employees with latest attrition risk at or above this score, ranked by risk descending.')}
+          </div>
         </div>
       </div>
 
-      {/* Neural Succession Ledger */}
-      <div style={{ background: '#fff', borderRadius: 32, border: '1.5px solid #F1F5F9', overflow: 'hidden', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.03)' }}>
+      <div className="hr-table-card" style={{ overflow: 'hidden' }}>
+        <div style={{ padding: '18px 20px', borderBottom: '1px solid #F3F4F6' }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700 }}>{t('At-Risk Employees')}</h3>
+        </div>
+
+        {loadingAtRisk ? (
+          <div style={{ padding: 40, textAlign: 'center' }}><Spinner /></div>
+        ) : atRisk.length === 0 ? (
+          <div style={{ padding: 24, color: 'var(--gray-500)' }}>
+            {t('No employees currently above this risk threshold.')}
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: 'var(--gray-50)' }}>
+                  {['Employee', 'Role', 'Department', 'Risk', 'Actions'].map((head) => (
+                    <th key={head} style={{ textAlign: 'left', padding: '12px 16px', fontSize: 12, color: 'var(--gray-500)' }}>
+                      {t(head)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {atRisk.map((row) => {
+                  const isExpanded = expandedEmployeeId === row.employeeID;
+                  const state = successorsState[row.employeeID] || {};
+                  const draft = state.draftFilters || defaultFiltersFor(row);
+                  return (
+                    <ExpandableRow
+                      key={row.employeeID}
+                      row={row}
+                      isExpanded={isExpanded}
+                      onToggle={() => handleFindSuccessors(row)}
+                      state={state}
+                      draft={draft}
+                      onDraftChange={(key, value) => updateDraftFilter(row.employeeID, key, value)}
+                      onToggleStage={(stage) => toggleReviewStage(row.employeeID, stage)}
+                      onApply={() => applyDraftFilters(row)}
+                      onReset={() => resetFilters(row)}
+                      t={t}
+                    />
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ExpandableRow({ row, isExpanded, onToggle, state, draft, onDraftChange, onToggleStage, onApply, onReset, t }) {
+  return (
+    <>
+      <tr>
+        <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}>
+          <div style={{ fontWeight: 700 }}>{row.fullName}</div>
+          <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{row.employeeID}</div>
+        </td>
+        <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}>{row.jobTitle || '—'}</td>
+        <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}>
+          <div>{row.department || '—'}</div>
+          {row.team ? <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{row.team}</div> : null}
+        </td>
+        <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}>
+          <Badge label={`${row.riskScorePct}% · ${t(row.riskLevel)}`} color={RISK_COLOR(row.riskLevel)} />
+        </td>
+        <td style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6' }}>
+          <Btn size="sm" variant={isExpanded ? 'outline' : 'primary'} onClick={onToggle}>
+            {isExpanded ? t('Hide successors') : t('Find successors')}
+          </Btn>
+        </td>
+      </tr>
+      {isExpanded ? (
+        <tr>
+          <td colSpan={5} style={{ background: '#F8FAFC', padding: 20, borderTop: '1px solid #F3F4F6' }}>
+            <SuccessorsPanel
+              row={row}
+              state={state}
+              draft={draft}
+              onDraftChange={onDraftChange}
+              onToggleStage={onToggleStage}
+              onApply={onApply}
+              onReset={onReset}
+              t={t}
+            />
+          </td>
+        </tr>
+      ) : null}
+    </>
+  );
+}
+
+function SuccessorsPanel({ row, state, draft, onDraftChange, onToggleStage, onApply, onReset, t }) {
+  const applied = state.filtersApplied || {};
+  return (
+    <div style={{ display: 'grid', gap: 16 }}>
+      <div className="hr-surface-card" style={{ padding: 16, background: '#fff' }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 12 }}>
+          {t('Filters')}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 12 }}>
+          <Input
+            label={t('Job title')}
+            value={draft.job_title || ''}
+            onChange={(e) => onDraftChange('job_title', e.target.value)}
+            placeholder={row.jobTitle || ''}
+          />
+          <Input
+            label={t('Level (optional)')}
+            value={draft.level || ''}
+            onChange={(e) => onDraftChange('level', e.target.value)}
+            placeholder={t('e.g. Senior')}
+          />
+          <Input
+            label={t('Minimum ATS score')}
+            type="number"
+            min={0}
+            max={100}
+            value={draft.min_ats_score ?? ''}
+            onChange={(e) => onDraftChange('min_ats_score', e.target.value)}
+          />
+          <Input
+            label={t('Recency (days)')}
+            type="number"
+            min={1}
+            value={draft.recency_disabled ? '' : (draft.recency_days ?? '')}
+            disabled={draft.recency_disabled}
+            onChange={(e) => onDraftChange('recency_days', e.target.value)}
+          />
+          <Input
+            label={t('Limit')}
+            type="number"
+            min={1}
+            max={100}
+            value={draft.limit ?? DEFAULT_LIMIT}
+            onChange={(e) => onDraftChange('limit', e.target.value)}
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--gray-700)' }}>
+            <input
+              type="checkbox"
+              checked={!!draft.recency_disabled}
+              onChange={(e) => onDraftChange('recency_disabled', e.target.checked)}
+            />
+            {t('Include older candidates (disable recency filter)')}
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--gray-500)', marginRight: 4 }}>
+            {t('Review stages')}:
+          </span>
+          {REVIEW_STAGE_OPTIONS.map((stage) => {
+            const active = (draft.review_stages || []).includes(stage);
+            return (
+              <button
+                type="button"
+                key={stage}
+                onClick={() => onToggleStage(stage)}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: 999,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  border: active ? '1px solid #1E40AF' : '1px solid var(--gray-200)',
+                  background: active ? '#DBEAFE' : '#fff',
+                  color: active ? '#1E40AF' : 'var(--gray-700)',
+                }}
+              >
+                {t(stage)}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Btn size="sm" onClick={onApply}>{t('Apply filters')}</Btn>
+          <Btn size="sm" variant="outline" onClick={onReset}>{t('Reset to defaults')}</Btn>
+        </div>
+      </div>
+
+      {state.loading ? (
+        <div style={{ padding: 24, textAlign: 'center' }}><Spinner /></div>
+      ) : state.error ? (
+        <div style={{ padding: 16, color: 'var(--red)', background: 'var(--red-light)', borderRadius: 12 }}>
+          {state.error}
+        </div>
+      ) : (
+        <SuccessorsTable results={state.results || []} applied={applied} t={t} />
+      )}
+    </div>
+  );
+}
+
+function SuccessorsTable({ results, applied, t }) {
+  if (!results.length) {
+    return (
+      <div style={{ padding: 16, color: 'var(--gray-500)', background: '#fff', borderRadius: 12 }}>
+        {t('No successor candidates match these filters.')}
+      </div>
+    );
+  }
+
+  return (
+    <div className="hr-table-card" style={{ background: '#fff', overflow: 'hidden' }}>
+      <div style={{ padding: '10px 16px', borderBottom: '1px solid #F3F4F6', fontSize: 12, color: 'var(--gray-500)' }}>
+        {t('Showing')} {results.length} {t('candidates')} · {t('min ATS')}: {applied.min_ats_score ?? '—'} ·{' '}
+        {applied.recency_disabled ? t('recency disabled') : `${applied.recency_days ?? '—'} ${t('days recency')}`}
+        {applied.level ? ` · ${t('level')}: ${applied.level}` : ''}
+      </div>
+      <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ background: '#F8FAFC', borderBottom: '1.5px solid #F1F5F9' }}>
-              {['Critical Position Node', 'Current Incumbent', 'Succession Bench Depth', 'Talent Readiness', 'Actions'].map(h => (
-                <th key={h} style={{ padding: '20px 32px', textAlign: 'left', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t(h)}</th>
+            <tr style={{ background: 'var(--gray-50)' }}>
+              {['Candidate', 'ATS', 'Skills', 'Experience', 'Education', 'Semantic', 'Applied for', 'Stage', 'Submitted', 'Resume'].map((head) => (
+                <th key={head} style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, color: 'var(--gray-500)' }}>
+                  {t(head)}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {filteredPlans.map((plan, idx) => {
-              const isAtRisk = Math.random() > 0.8;
-              const isReadyNow = plan.readiness === 'Ready Now';
-              
-              return (
-                <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9', transition: 'background 0.2s', background: isAtRisk ? 'rgba(220, 38, 38, 0.02)' : 'transparent' }} className="succession-row">
-                  <td style={{ padding: '24px 32px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                      <div style={{ 
-                        width: 44, height: 44, borderRadius: 14, background: isAtRisk ? 'var(--red-50)' : 'var(--red-50)', 
-                        display: 'grid', placeItems: 'center', color: 'var(--red-600)', border: '1px solid var(--red-100)'
-                      }}>
-                         <Target size={20} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 15, fontWeight: 900, color: '#1E293B' }}>{plan.targetRole}</div>
-                        <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 800 }}>{plan.department || 'Executive Office'}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ padding: '24px 32px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <div style={{ 
-                        width: 32, height: 32, borderRadius: 10, background: '#F8FAFC', 
-                        display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 900, color: 'var(--red-600)',
-                        border: '1.5px solid #F1F5F9'
-                      }}>
-                         {(plan.currentIncumbent || 'N').charAt(0)}
-                      </div>
-                      <span style={{ fontSize: 13, color: '#1E293B', fontWeight: 700 }}>{plan.currentIncumbent || 'Node Active'}</span>
-                    </div>
-                  </td>
-                  <td style={{ padding: '24px 32px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      {[1, 2, 3].map(i => (
-                        <div key={i} style={{ 
-                          width: 32, height: 32, borderRadius: '50%', background: '#F8FAFC', 
-                          border: '2px solid #fff', marginLeft: i > 1 ? -12 : 0, display: 'grid', 
-                          placeItems: 'center', fontSize: 11, fontWeight: 900, color: '#1E293B',
-                          boxShadow: '0 2px 4px rgba(0,0,0,0.05)', position: 'relative', zIndex: 4 - i
-                        }}>
-                          {i === 1 ? 'JD' : i === 2 ? 'AS' : 'MK'}
-                        </div>
-                      ))}
-                      <div style={{ fontSize: 12, color: '#94A3B8', marginLeft: 12, fontWeight: 800 }}>+2 Nodes</div>
-                    </div>
-                  </td>
-                  <td style={{ padding: '24px 32px' }}>
-                     <Badge 
-                      label={isReadyNow ? 'READY NOW' : 'PIPELINE'} 
-                      color={isReadyNow ? 'green' : 'yellow'} 
-                     />
-                     {isAtRisk && (
-                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--red-600)', fontSize: 10, fontWeight: 900, marginTop: 8, letterSpacing: '0.05em' }}>
-                          <ShieldAlert size={12} /> AT-RISK NODE
-                       </div>
-                     )}
-                  </td>
-                  <td style={{ padding: '24px 32px' }}>
-                    <div style={{ display: 'flex', gap: 10 }}>
-                       <button className="action-btn" title="Audit Succession Vector"><SearchCode size={18} /></button>
-                       <button className="action-btn" title="Promote Successor"><Zap size={18} /></button>
-                       <button className="action-btn" title="Tactical Options"><MoreVertical size={18} /></button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
+            {results.map((row) => (
+              <tr key={row.submission_id}>
+                <td style={{ padding: '12px 14px', borderTop: '1px solid #F3F4F6' }}>
+                  <div style={{ fontWeight: 700 }}>{row.candidate_name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>{row.candidate_email || row.tracking_code}</div>
+                </td>
+                <td style={{ padding: '12px 14px', borderTop: '1px solid #F3F4F6' }}>
+                  <Badge label={formatScore(row.ats_score)} color={FIT_COLOR(row.ats_score || 0)} />
+                </td>
+                <td style={{ padding: '12px 14px', borderTop: '1px solid #F3F4F6' }}>{formatScore(row.skills_score)}</td>
+                <td style={{ padding: '12px 14px', borderTop: '1px solid #F3F4F6' }}>{formatScore(row.experience_score)}</td>
+                <td style={{ padding: '12px 14px', borderTop: '1px solid #F3F4F6' }}>{formatScore(row.education_score)}</td>
+                <td style={{ padding: '12px 14px', borderTop: '1px solid #F3F4F6' }}>{formatScore(row.semantic_score)}</td>
+                <td style={{ padding: '12px 14px', borderTop: '1px solid #F3F4F6' }}>{row.job?.title || '—'}</td>
+                <td style={{ padding: '12px 14px', borderTop: '1px solid #F3F4F6' }}>
+                  <Badge label={t(row.review_stage)} color={STAGE_COLOR(row.review_stage)} />
+                </td>
+                <td style={{ padding: '12px 14px', borderTop: '1px solid #F3F4F6', fontSize: 12, color: 'var(--gray-700)' }}>
+                  {row.freshness_label || '—'}
+                </td>
+                <td style={{ padding: '12px 14px', borderTop: '1px solid #F3F4F6' }}>
+                  {row.resume_file_url ? (
+                    <a href={row.resume_file_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontWeight: 700, color: '#1E40AF' }}>
+                      {t('View')}
+                    </a>
+                  ) : '—'}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
-
-      <style dangerouslySetInnerHTML={{ __html: `
-        .succession-row:hover { background: #FBFBFF; }
-        .action-btn { 
-          width: 36px; height: 36px; border: 1.5px solid #F1F5F9; background: #fff; 
-          color: #94A3B8; border-radius: 10px; display: grid; placeItems: center; 
-          cursor: pointer; transition: all 0.2s; 
-        }
-        .action-btn:hover { color: var(--red-600); border-color: var(--red-100); background: var(--red-50); }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}} />
-
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t('Initialize Succession Plan')} maxWidth={620}>
-        <div style={{ display: 'grid', gap: 14 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <Input label={t('Employee ID')} value={createForm.employeeID} onChange={(e) => setCreateForm({ ...createForm, employeeID: e.target.value })} placeholder="EMP-001" />
-            <Input label={t('Target Role')} value={createForm.targetRole} onChange={(e) => setCreateForm({ ...createForm, targetRole: e.target.value })} placeholder="Senior Engineering Manager" />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-            <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{t('Readiness')}</label>
-              <select value={createForm.readiness} onChange={(e) => setCreateForm({ ...createForm, readiness: e.target.value })} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px' }}>
-                <option value="Ready Now">Ready Now</option>
-                <option value="Ready 1 Year">Ready 1 Year</option>
-                <option value="Ready 2-3 Years">Ready 2-3 Years</option>
-                <option value="Developing">Developing</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{t('Status')}</label>
-              <select value={createForm.status} onChange={(e) => setCreateForm({ ...createForm, status: e.target.value })} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px' }}>
-                <option value="Active">Active</option>
-                <option value="On Hold">On Hold</option>
-                <option value="Acknowledged">Acknowledged</option>
-                <option value="Closed">Closed</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{t('Retention Risk')}</label>
-              <select value={createForm.retentionRisk} onChange={(e) => setCreateForm({ ...createForm, retentionRisk: e.target.value })} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px' }}>
-                <option value="Low">Low</option>
-                <option value="Medium">Medium</option>
-                <option value="High">High</option>
-              </select>
-            </div>
-          </div>
-          <Textarea label={t('Development Actions')} value={createForm.developmentActions} onChange={(e) => setCreateForm({ ...createForm, developmentActions: e.target.value })} />
-          <Textarea label={t('Notes')} value={createForm.notes} onChange={(e) => setCreateForm({ ...createForm, notes: e.target.value })} />
-        </div>
-        <div style={{ marginTop: 20, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-          <Btn variant="ghost" onClick={() => setShowCreate(false)}>{t('Cancel')}</Btn>
-          <Btn onClick={handleCreate} disabled={saving}>{saving ? t('Creating...') : t('Create Plan')}</Btn>
-        </div>
-      </Modal>
     </div>
   );
 }

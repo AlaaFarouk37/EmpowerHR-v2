@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getJobs, getJobRanking, hrBulkUpdateSubmissions, hrAutomateJobRecruitment, hireCandidate, hrGetJobInsights, hrOptimizeJob, getTalentCloneSimilarity } from '../../api/index.js';
 import { Badge, Btn, Spinner, useToast } from '../../components/shared/index.jsx';
 import { useLanguage } from '../../context/LanguageContext';
@@ -394,6 +394,8 @@ const SimilarTalentDrawer = ({ isOpen, onClose, results, isLoading }) => {
 /* --- MAIN PAGE COMPONENT --- */
 export function HRCVRankingPage() {
   const toast = useToast();
+  const [searchParams] = useSearchParams();
+  const requestedJobId = searchParams.get('job');
   const [rankings, setRankings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [rankLoading, setRankLoading] = useState(false);
@@ -437,7 +439,14 @@ export function HRCVRankingPage() {
   const loadJobs = async () => {
     try {
       const data = await getJobs(); setJobs(data || []);
-      if (data?.[0]?.id && !activeJobId) { setActiveJobId(data[0].id); loadRankings(data[0].id); }
+      if (!activeJobId && data?.length) {
+        const requestedNum = requestedJobId != null ? Number(requestedJobId) : null;
+        const match = requestedNum != null && Number.isFinite(requestedNum)
+          ? data.find(j => Number(j.id) === requestedNum)
+          : null;
+        const pick = match?.id ?? data[0]?.id;
+        if (pick) { setActiveJobId(pick); loadRankings(pick); }
+      }
     } catch (e) { toast('Error loading jobs', 'error'); } finally { setLoading(false); }
   };
   const loadRankings = async (id) => {

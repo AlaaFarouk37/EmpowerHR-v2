@@ -83,6 +83,9 @@ export const updateMyGoalProgress = (id, data) => api.post(`/employee_management
 
 export const getMyTasks = async (employeeID) => toList(await api.get(`/employee_management/employee/tasks/${employeeID ? `?employee_id=${employeeID}` : ''}`));
 export const updateMyTaskProgress = (id, data) => api.post(`/employee_management/employee/tasks/${id}/progress/`, data);
+export const markMyTaskDone = (id) => api.post(`/employee_management/employee/tasks/${id}/done/`, {});
+export const startMyTaskLog = (id, data = {}) => api.post(`/employee_management/employee/tasks/${id}/start/`, data);
+export const endMyTaskLog = (id, data = {}) => api.post(`/employee_management/employee/tasks/${id}/end/`, data);
 
 export const getMyRecognition = async (employeeID) => toList(await api.get(`/employee_management/employee/recognition/${employeeID ? `?employee_id=${employeeID}` : ''}`));
 

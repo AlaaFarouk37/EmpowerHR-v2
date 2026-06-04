@@ -1506,7 +1506,43 @@ class TeamTaskApproveView(APIView):
         task.actualHours = (Decimal(total_seconds) / Decimal(3600)).quantize(Decimal('0.01'))
         task.finished_time = approved_at
         task.status = 'Done'
-        task.save(update_fields=['status', 'finished_time', 'actualHours', 'updatedAt'])
+        task.reviewedAt = approved_at
+        task.save(update_fields=['status', 'finished_time', 'actualHours', 'reviewedAt', 'updatedAt'])
+        return Response(WorkTaskSerializer(task).data)
+
+
+class TeamTaskReturnForChangesView(APIView):
+    permission_classes = [IsAuthenticated, IsTeamLeader]
+
+    def post(self, request, task_id):
+        try:
+            task = WorkTask.objects.select_related('employee').get(pk=task_id)
+        except WorkTask.DoesNotExist:
+            return Response({'error': 'Task not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not _can_manage_employee(request.user, task.employee):
+            return Response(
+                {'error': 'You do not have permission to return this task.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if task.status != 'Pending Review':
+            return Response(
+                {'error': "Only tasks in 'Pending Review' can be returned for changes."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        note = (request.data.get('note') or '').strip() if isinstance(request.data, dict) else ''
+        if not note:
+            return Response(
+                {'note': 'Please add a short note before sending this task back.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        task.status = 'In Progress'
+        task.reviewNote = note
+        task.reviewedAt = timezone.now()
+        task.save(update_fields=['status', 'reviewNote', 'reviewedAt', 'updatedAt'])
         return Response(WorkTaskSerializer(task).data)
 
 
@@ -3298,9 +3334,13 @@ class HRExpenseReviewView(APIView):
 
         claim.status = next_status
         claim.reviewNote = serializer.validated_data.get('note', '')
+        # Only persist approvedAmount when transitioning to Approved (or carrying through Reimbursed)
+        approved_amount = serializer.validated_data.get('approvedAmount', None)
+        if next_status == 'Approved' and approved_amount is not None:
+            claim.approvedAmount = approved_amount
         claim.reviewedBy = getattr(request.user, 'full_name', '') or getattr(request.user, 'email', '')
         claim.reviewedAt = timezone.now()
-        claim.save(update_fields=['status', 'reviewNote', 'reviewedBy', 'reviewedAt', 'updatedAt'])
+        claim.save(update_fields=['status', 'reviewNote', 'approvedAmount', 'reviewedBy', 'reviewedAt', 'updatedAt'])
         return Response(ExpenseClaimSerializer(claim).data)
 
 

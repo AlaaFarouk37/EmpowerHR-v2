@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { 
-  LeaderPortalLayout, 
-  Skeleton, 
-  useToast, 
+import {
+  LeaderPortalLayout,
+  Skeleton,
+  useToast,
   Badge,
   Input,
   Textarea,
@@ -10,6 +10,7 @@ import {
 } from '../../components/shared/index.jsx';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import { getMyTickets, submitSupportTicket } from '../../api/index.js';
 import { 
   Headphones, 
   Plus, 
@@ -35,30 +36,8 @@ export function TeamSupportPage() {
   const [view, setView] = useState('list'); // 'list' or 'create'
   const [searchQuery, setSearchQuery] = useState('');
   
-  const [tickets, setTickets] = useState([
-    { 
-      id: 'TKT-TL-001', 
-      title: 'Request for additional dev for Project X', 
-      status: 'RESOLVED', 
-      priority: 'HIGH', 
-      desc: 'The timeline for Project X has been accelerated. We need one more frontend developer to meet the deadline.',
-      type: 'Resource Allocation',
-      date: '2026-02-10',
-      hrResponse: 'Sarah Miller has been allocated to Project X for the next two weeks.',
-      urgency: 90
-    },
-    { 
-      id: 'TKT-TL-002', 
-      title: 'IntelliJ licenses for the team', 
-      status: 'IN-PROGRESS', 
-      priority: 'MEDIUM', 
-      desc: 'Renewal needed for 4 team members. Existing licenses expiring next week.',
-      type: 'Software License',
-      date: '2026-02-14',
-      hrResponse: 'Purchase request is with procurement.',
-      urgency: 45
-    },
-  ]);
+  const [tickets, setTickets] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -67,33 +46,64 @@ export function TeamSupportPage() {
     desc: ''
   });
 
-  useEffect(() => {
-    if (!authLoading) {
-      const timer = setTimeout(() => setLoading(false), 800);
-      return () => clearTimeout(timer);
-    }
-  }, [authLoading]);
+  // Map backend ticket → shape this page renders.
+  const mapTicket = (raw) => ({
+    id: raw.ticketID ?? raw.id ?? raw.requestID ?? `TKT-${raw.subject?.slice(0, 6) || ''}`,
+    title: raw.subject || raw.title || '',
+    status: (raw.status || 'PENDING').toUpperCase().replace(/\s+/g, '-'),
+    priority: (raw.priority || 'MEDIUM').toUpperCase(),
+    desc: raw.description || raw.desc || '',
+    type: raw.category || raw.type || 'General',
+    date: (raw.createdAt || raw.created_at || raw.date || '').slice(0, 10),
+    hrResponse: raw.resolutionNote || raw.hrResponse || '',
+    urgency: raw.priority === 'HIGH' || raw.priority === 'CRITICAL' ? 85 : 30,
+  });
 
-  const handleCreateRequest = (e) => {
+  const loadTickets = async () => {
+    if (!user?.employee_id) { setLoading(false); return; }
+    try {
+      const data = await getMyTickets(user.employee_id);
+      setTickets((Array.isArray(data) ? data : []).map(mapTicket));
+    } catch (e) {
+      toast(e?.message || t('Failed to load support tickets'), 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!authLoading) loadTickets();
+  }, [authLoading, user?.employee_id]);
+
+  // Backend ChoiceField for priority uses Title-case (Low/Medium/High); the form stores UPPER.
+  const priorityToBackend = (p) => {
+    const map = { LOW: 'Low', MEDIUM: 'Medium', HIGH: 'High', CRITICAL: 'High' };
+    return map[(p || 'MEDIUM').toUpperCase()] || 'Medium';
+  };
+
+  const handleCreateRequest = async (e) => {
     e.preventDefault();
     if (!formData.title || !formData.desc) {
       toast(t('Please fill in all required tactical nodes'), 'error');
       return;
     }
-
-    const newTicket = {
-      id: `TKT-TL-00${tickets.length + 1}`,
-      ...formData,
-      status: 'PENDING',
-      date: new Date().toISOString().slice(0, 10),
-      hrResponse: 'Under review by HR node...',
-      urgency: formData.priority === 'HIGH' || formData.priority === 'CRITICAL' ? 85 : 30
-    };
-
-    setTickets([newTicket, ...tickets]);
-    toast(`${t('Support Request Synchronized')}: ${formData.title}`, 'success');
-    setView('list');
-    setFormData({ title: '', type: 'Resource Allocation', priority: 'MEDIUM', desc: '' });
+    setSubmitting(true);
+    try {
+      await submitSupportTicket({
+        subject: formData.title.trim(),
+        category: formData.type,
+        priority: priorityToBackend(formData.priority),
+        description: formData.desc.trim(),
+      });
+      toast(`${t('Support Request Synchronized')}: ${formData.title}`, 'success');
+      setView('list');
+      setFormData({ title: '', type: 'Resource Allocation', priority: 'MEDIUM', desc: '' });
+      await loadTickets();
+    } catch (err) {
+      toast(err?.response?.data?.subject?.[0] || err?.message || t('Failed to file request'), 'error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const filteredTickets = useMemo(() => {
@@ -340,8 +350,8 @@ export function TeamSupportPage() {
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16, marginTop: 16 }}>
                  <Btn type="button" onClick={() => setView('list')} variant="secondary" style={{ height: 52, padding: '0 32px', borderRadius: 14 }}>Cancel</Btn>
-                 <Btn type="submit" variant="primary" style={{ height: 52, padding: '0 40px', borderRadius: 14, background: 'var(--red-600)', border: 'none', fontWeight: 900 }}>
-                    Submit to Grid
+                 <Btn type="submit" disabled={submitting} variant="primary" style={{ height: 52, padding: '0 40px', borderRadius: 14, background: 'var(--red-600)', border: 'none', fontWeight: 900 }}>
+                    {submitting ? t('Submitting...') : 'Submit to Grid'}
                  </Btn>
               </div>
            </form>

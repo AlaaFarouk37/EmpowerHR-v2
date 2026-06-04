@@ -65,6 +65,11 @@ export const hrGetEmployeeSnapshot = (id) => api.get(`/employee_management/hr/em
 export const hrChangeEmployeeRole = (id, data) => api.post(`/employee_management/hr/employees/${id}/change-role/`, data);
 export const hrSimulatePromotion = (data) => api.post('/feedback/hr/simulate-promotion/', data);
 
+// Position Catalog (admin-managed) — used by recruitment to validate (title, level)
+export const hrGetPositionCatalog = async () => toList(await api.get('/employee_management/jobs/'));
+export const hrGetDepartmentOptions = async () => toList(await api.get('/employee_management/departments/'));
+export const hrGetTeamOptions       = async () => toList(await api.get('/employee_management/teams/'));
+
 // Attendance & Leave
 export const hrGetAttendanceRecords = async () => toList(await api.get('/attendance_leave/hr/attendance/'));
 export const hrGetAttendanceWatch = () => api.get('/attendance_leave/hr/attendance/watch/');
@@ -88,6 +93,35 @@ export const hrGetPayroll = async (filters = {}) => {
 export const hrGetPayrollWatch = () => api.get('/payroll/hr/payroll/watch/');
 export const hrCreatePayroll = (data) => api.post('/payroll/hr/payroll/', data);
 export const hrMarkPayrollPaid = (id, data = {}) => api.post(`/payroll/hr/payroll/${id}/mark-paid/`, data);
+export const hrRunPayrollCycle = (data) => api.post('/payroll/hr/payroll/run-cycle/', data);
+
+// Commissions (manual HR pay adjustments)
+export const hrGetCommissions = async (filters = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      params.append(key, String(value).trim());
+    }
+  });
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return toList(await api.get(`/payroll/hr/commissions/${query}`));
+};
+export const hrCreateCommission = (data) => api.post('/payroll/hr/commissions/', data);
+export const hrDeleteCommission = (id) => api.delete(`/payroll/hr/commissions/${id}/`);
+
+// Deductions (manual HR pay adjustments)
+export const hrGetDeductions = async (filters = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      params.append(key, String(value).trim());
+    }
+  });
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return toList(await api.get(`/payroll/hr/deductions/${query}`));
+};
+export const hrCreateDeduction = (data) => api.post('/payroll/hr/deductions/', data);
+export const hrDeleteDeduction = (id) => api.delete(`/payroll/hr/deductions/${id}/`);
 
 // Performance Reviews
 export const hrGetReviews = async (filters = {}) => {

@@ -122,6 +122,8 @@ class Employee(models.Model):
 
     # ── New: Hiring & personal dates ──────────
     hiring_date        = models.DateField(null=True, blank=True)
+    leaving_date       = models.DateField(null=True, blank=True,
+                                          help_text="Last day of employment; used to clip the payroll proration window for mid-month leavers.")
     birth_date         = models.DateField(null=True, blank=True)
 
     # ── New: Personal details ─────────────────
@@ -354,21 +356,23 @@ class ExpenseClaim(models.Model):
         ('Reimbursed', 'Reimbursed'),
     ]
 
-    claimID      = models.CharField(max_length=50, primary_key=True, default=gen_id)
-    employee     = models.ForeignKey(
-                     Employee, on_delete=models.CASCADE,
-                     db_column='employeeID', related_name='expense_claims')
-    title        = models.CharField(max_length=160)
-    category     = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='Other')
-    amount       = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    expenseDate  = models.DateField()
-    description  = models.TextField(blank=True)
-    status       = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Submitted')
-    reviewNote   = models.TextField(blank=True)
-    reviewedBy   = models.CharField(max_length=150, blank=True)
-    reviewedAt   = models.DateTimeField(null=True, blank=True)
-    createdAt    = models.DateTimeField(auto_now_add=True)
-    updatedAt    = models.DateTimeField(auto_now=True)
+    claimID         = models.CharField(max_length=50, primary_key=True, default=gen_id)
+    employee        = models.ForeignKey(
+                        Employee, on_delete=models.CASCADE,
+                        db_column='employeeID', related_name='expense_claims')
+    title           = models.CharField(max_length=160)
+    category        = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='Other')
+    amount          = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    approvedAmount  = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True,
+                                          help_text='HR-approved amount (may differ from the claimed amount).')
+    expenseDate     = models.DateField()
+    description     = models.TextField(blank=True)
+    status          = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Submitted')
+    reviewNote      = models.TextField(blank=True)
+    reviewedBy      = models.CharField(max_length=150, blank=True)
+    reviewedAt      = models.DateTimeField(null=True, blank=True)
+    createdAt       = models.DateTimeField(auto_now_add=True)
+    updatedAt       = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = 'ExpenseClaim'
@@ -526,6 +530,8 @@ class WorkTask(models.Model):
     estimatedHours  = models.PositiveIntegerField(null=True, blank=True)
     dueDate         = models.DateField(null=True, blank=True)
     assignedBy      = models.CharField(max_length=150, blank=True)
+    reviewNote      = models.TextField(blank=True)
+    reviewedAt      = models.DateTimeField(null=True, blank=True)
     start_time      = models.DateTimeField(null=True, blank=True)
     finished_time   = models.DateTimeField(null=True, blank=True)
     createdAt       = models.DateTimeField(auto_now_add=True)

@@ -301,6 +301,92 @@ class AttritionPredictionLatestView(APIView):
         return Response(data)
 
 
+class NotifyTeamLeaderOfRiskView(APIView):
+    """POST /api/attrition/predictions/<predictionID>/notify-tl/ — HR manually notifies
+    the team leader of an at-risk employee. Creates (or reuses) a WorkTask on the TL
+    whose description contains the attrition insights."""
+    permission_classes = [IsAuthenticated, IsHRManager]
+
+    def post(self, request, predictionID):
+        try:
+            pred = AttritionPrediction.objects.select_related('employeeID').get(pk=predictionID)
+        except AttritionPrediction.DoesNotExist:
+            return Response({'detail': 'Prediction not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        employee = pred.employeeID
+        if not employee or not getattr(employee, 'team', None):
+            return Response({'detail': 'Employee has no team assigned — cannot identify a Team Leader.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        leader = (
+            Employee.objects
+            .filter(team=employee.team, user_account__role='TeamLeader', isDeleted=False)
+            .exclude(employeeID=employee.employeeID)
+            .first()
+        )
+        if not leader:
+            return Response({'detail': f'No Team Leader found for team "{getattr(employee.team, "name", employee.team)}".'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Build a structured insights description for the TL.
+        pct = round((pred.riskScore or 0) * 100) if pred.riskScore is not None else 0
+        notes = (request.data or {}).get('notes') if isinstance(request.data, dict) else None
+        body_lines = [
+            f"Attrition Risk Insights for {employee.fullName} ({employee.employeeID}).",
+            f"Current cycle: {pred.riskLevel} ({pct}%) — predicted {pred.predictedAt.strftime('%Y-%m-%d')}.",
+        ]
+
+        # Pull previous cycle for context
+        previous = (
+            AttritionPrediction.objects
+            .filter(employeeID=employee)
+            .exclude(predictionID=pred.predictionID)
+            .order_by('-predictedAt')
+            .first()
+        )
+        if previous:
+            body_lines.append(f"Previous cycle: {previous.riskLevel} on {previous.predictedAt.strftime('%Y-%m-%d')}.")
+            if pred.riskLevel == 'High' and previous.riskLevel == 'High':
+                body_lines.append("ESCALATION: High-risk in two consecutive cycles. Consider escalating beyond a standard retention plan.")
+
+        if notes:
+            body_lines.append(f"HR note: {str(notes).strip()[:600]}")
+
+        body_lines.append("Action requested: hold a retention conversation with this team member.")
+        description = "\n".join(body_lines)
+
+        hr_label = getattr(request.user, 'full_name', '') or getattr(request.user, 'email', '') or 'HR'
+
+        # Reuse any open task with the same description so HR can't accidentally spam the TL.
+        existing = WorkTask.objects.filter(
+            employee=leader,
+            description=description,
+        ).exclude(status='Done').first()
+        if existing:
+            return Response({
+                'detail': 'Team Leader was already notified — existing open task reused.',
+                'taskID': existing.taskID,
+                'teamLeaderID': leader.employeeID,
+                'teamLeaderName': leader.fullName,
+                'reused': True,
+            })
+
+        task = WorkTask.objects.create(
+            employee=leader,
+            title=f'Retention conversation: {employee.fullName}',
+            description=description,
+            priority='High',
+            status='To Do',
+            progress=0,
+            assignedBy=f'ActionPlan:{hr_label}',
+        )
+        return Response({
+            'detail': 'Team Leader notified.',
+            'taskID': task.taskID,
+            'teamLeaderID': leader.employeeID,
+            'teamLeaderName': leader.fullName,
+            'reused': False,
+        }, status=status.HTTP_201_CREATED)
+
+
 class AttritionGovernanceSummaryView(APIView):
     permission_classes = [IsAuthenticated, IsHRManager]
 

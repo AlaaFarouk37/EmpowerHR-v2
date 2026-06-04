@@ -1,24 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getMyTasks, updateMyTaskProgress } from '../../api/index.js';
-import { Badge, Btn, Spinner, useToast } from '../../components/shared/index.jsx';
+import { getMyTasks, updateMyTaskProgress, markMyTaskDone, startMyTaskLog, endMyTaskLog } from '../../api/index.js';
+import { Badge, Btn, Modal, Spinner, Textarea, useToast } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { 
-  CheckSquare, 
-  Target, 
-  CheckCircle, 
-  Clock, 
-  AlertCircle, 
+import {
+  CheckSquare,
+  Target,
+  CheckCircle,
+  Clock,
+  AlertCircle,
   Layers,
   Sparkles,
   Zap,
   TrendingUp,
-  ListTodo
+  ListTodo,
+  Play,
+  Square,
+  Send,
+  MessageSquare
 } from 'lucide-react';
 
 const STATUS_COLORS = {
   'To Do': 'gray',
   'In Progress': 'indigo',
+  'Pending Review': 'yellow',
   Done: 'green',
   Blocked: 'red',
   Completed: 'green',
@@ -91,10 +96,12 @@ export function EmployeeTasksPage() {
     loadTasks();
   }, [user?.employee_id]);
 
+  const isInactive = (task) => task.status === 'Done' || task.status === 'Completed' || task.status === 'Pending Review';
+
   const stats = useMemo(() => {
     const total = tasks.length;
     const completed = tasks.filter((task) => task.status === 'Done' || task.status === 'Completed').length;
-    const highPriority = tasks.filter((task) => task.priority === 'High' && task.status !== 'Done' && task.status !== 'Completed').length;
+    const highPriority = tasks.filter((task) => task.priority === 'High' && !isInactive(task)).length;
     return {
       total,
       completed,
@@ -105,15 +112,15 @@ export function EmployeeTasksPage() {
   }, [tasks]);
 
   const blockedCount = tasks.filter((task) => task.status === 'Blocked').length;
-  const dueSoonCount = tasks.filter((task) => task.status !== 'Done' && task.status !== 'Completed' && daysUntilDue(task.dueDate) <= 3).length;
-  const quickWinCount = tasks.filter((task) => task.status !== 'Done' && task.status !== 'Completed' && Number(task.estimatedHours || 0) > 0 && Number(task.estimatedHours || 0) <= 2).length;
+  const dueSoonCount = tasks.filter((task) => !isInactive(task) && daysUntilDue(task.dueDate) <= 3).length;
+  const quickWinCount = tasks.filter((task) => !isInactive(task) && Number(task.estimatedHours || 0) > 0 && Number(task.estimatedHours || 0) <= 2).length;
 
   const taskFocusQueue = useMemo(() => {
-    const statusRank = { Blocked: 4, 'To Do': 3, 'In Progress': 2, Done: 1, Completed: 1 };
+    const statusRank = { Blocked: 4, 'To Do': 3, 'In Progress': 2, 'Pending Review': 0, Done: 0, Completed: 0 };
     const priorityRank = { High: 3, Medium: 2, Low: 1 };
 
     return [...tasks]
-      .filter((task) => task.status !== 'Done' && task.status !== 'Completed')
+      .filter((task) => !isInactive(task))
       .sort((a, b) => (statusRank[b.status] || 0) - (statusRank[a.status] || 0)
         || (priorityRank[b.priority] || 0) - (priorityRank[a.priority] || 0)
         || daysUntilDue(a.dueDate) - daysUntilDue(b.dueDate)
@@ -156,11 +163,16 @@ export function EmployeeTasksPage() {
     if (!draft) return;
     setSavingId(taskID);
     try {
-      await updateMyTaskProgress(taskID, {
-        status: draft.status,
-        progress: Number(draft.progress),
-      });
-      toast(t('Task synced successfully'), 'success');
+      if (draft.status === 'Done' || draft.status === 'Completed') {
+        await markMyTaskDone(taskID);
+        toast(t('Submitted for Team Leader review.'), 'success');
+      } else {
+        await updateMyTaskProgress(taskID, {
+          status: draft.status,
+          progress: Number(draft.progress),
+        });
+        toast(t('Task synced successfully'), 'success');
+      }
       await loadTasks();
     } catch (error) {
       toast(error.message || 'Failed to update task', 'error');
@@ -168,6 +180,47 @@ export function EmployeeTasksPage() {
       setSavingId(null);
     }
   };
+
+  const handleStart = async (taskID) => {
+    setSavingId(taskID);
+    try {
+      await startMyTaskLog(taskID, {});
+      toast(t('Started a new work session.'), 'success');
+      await loadTasks();
+    } catch (error) {
+      toast(error?.data?.error || error.message || t('Failed to start session'), 'error');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const handleEnd = async (taskID) => {
+    setSavingId(taskID);
+    try {
+      await endMyTaskLog(taskID, {});
+      toast(t('Session ended and logged.'), 'success');
+      await loadTasks();
+    } catch (error) {
+      toast(error?.data?.error || error.message || t('Failed to end session'), 'error');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const handleFinish = async (taskID) => {
+    setSavingId(taskID);
+    try {
+      await markMyTaskDone(taskID);
+      toast(t('Submitted for Team Leader review.'), 'success');
+      await loadTasks();
+    } catch (error) {
+      toast(error.message || t('Failed to submit task'), 'error');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const [notesModal, setNotesModal] = useState({ open: false, task: null });
 
   if (loading) return (
     <div style={{ height: '80vh', display: 'grid', placeItems: 'center' }}>
@@ -245,17 +298,22 @@ export function EmployeeTasksPage() {
           ) : (
             tasks.map((task) => {
               const draft = drafts[task.taskID] || { status: task.status, progress: task.progress ?? 0 };
-              const isCompleted = task.status === 'Done' || task.status === 'Completed';
-              
+              const isPendingReview = task.status === 'Pending Review';
+              const isArchived = task.status === 'Done' || task.status === 'Completed';
+              const isLocked = isPendingReview || isArchived;
+              const hasOpenLog = Array.isArray(task.logs) && task.logs.some(l => !l.end_time);
+              const hasReviewNote = Boolean(task.reviewNote && task.reviewNote.trim()) && !isPendingReview && !isArchived;
+              const busy = savingId === task.taskID;
+
               return (
-                <div key={task.taskID} style={{ background: '#fff', borderRadius: 32, border: '1.5px solid #F1F5F9', padding: '32px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.03)', transition: 'all 0.3s', opacity: isCompleted ? 0.7 : 1 }}>
+                <div key={task.taskID} style={{ background: '#fff', borderRadius: 32, border: hasReviewNote ? '2px solid #FDE68A' : '1.5px solid #F1F5F9', padding: '32px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.03)', transition: 'all 0.3s', opacity: isLocked ? 0.7 : 1 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 24, marginBottom: 24 }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
                         <Badge label={t(task.priority)} color={PRIORITY_COLORS[task.priority] || 'gray'} />
                         <span style={{ fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase' }}>ID: {task.taskID}</span>
                       </div>
-                      <h4 style={{ fontSize: 18, fontWeight: 900, marginBottom: 8, color: '#1E293B', textDecoration: isCompleted ? 'line-through' : 'none' }}>{task.title}</h4>
+                      <h4 style={{ fontSize: 18, fontWeight: 900, marginBottom: 8, color: '#1E293B', textDecoration: isArchived ? 'line-through' : 'none' }}>{task.title}</h4>
                       <p style={{ fontSize: 14, color: '#475569', fontWeight: 600, lineHeight: 1.6 }}>{task.description}</p>
                     </div>
                     <div style={{ display: 'grid', gap: 8, justifyItems: 'end' }}>
@@ -280,7 +338,7 @@ export function EmployeeTasksPage() {
                       <select
                         value={draft.status}
                         onChange={(e) => setDraftField(task.taskID, 'status', e.target.value)}
-                        disabled={isCompleted}
+                        disabled={isLocked}
                         style={{ width: '100%', padding: '0 16px', height: 44, borderRadius: 12, border: '1.5px solid #E2E8F0', background: '#fff', fontWeight: 800, color: '#1E293B', outline: 'none' }}
                       >
                         {['To Do', 'In Progress', 'Done', 'Blocked'].map((item) => (
@@ -296,20 +354,57 @@ export function EmployeeTasksPage() {
                         max="100"
                         value={draft.progress}
                         onChange={(e) => setDraftField(task.taskID, 'progress', e.target.value)}
-                        disabled={isCompleted}
+                        disabled={isLocked}
                         style={{ width: '100%', height: 44 }}
                       />
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <Btn 
-                      onClick={() => handleUpdate(task.taskID)} 
-                      disabled={savingId === task.taskID || isCompleted}
-                      style={{ background: isCompleted ? '#F1F5F9' : '#4F46E5', height: 48, borderRadius: 12, padding: '0 32px', fontWeight: 900, border: 'none', color: isCompleted ? '#94A3B8' : '#fff', boxShadow: isCompleted ? 'none' : '0 4px 6px -1px rgba(79, 70, 229, 0.2)' }}
-                    >
-                      {savingId === task.taskID ? t('Syncing...') : isCompleted ? t('Archived') : t('Sync Progress')}
-                    </Btn>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      {!isLocked && (hasOpenLog ? (
+                        <Btn
+                          onClick={() => handleEnd(task.taskID)}
+                          disabled={busy}
+                          style={{ background: '#DC2626', color: '#fff', height: 44, borderRadius: 10, padding: '0 18px', fontWeight: 900, border: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                        >
+                          <Square size={14} fill="#fff" /> {busy ? t('Saving...') : t('End Progress')}
+                        </Btn>
+                      ) : (
+                        <Btn
+                          onClick={() => handleStart(task.taskID)}
+                          disabled={busy}
+                          style={{ background: '#059669', color: '#fff', height: 44, borderRadius: 10, padding: '0 18px', fontWeight: 900, border: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                        >
+                          <Play size={14} fill="#fff" /> {busy ? t('Saving...') : (task.start_time ? t('Log Progress') : t('Start'))}
+                        </Btn>
+                      ))}
+                      {hasReviewNote && (
+                        <Btn
+                          onClick={() => setNotesModal({ open: true, task })}
+                          style={{ background: '#FFFBEB', color: '#92400E', border: '1.5px solid #FDE68A', height: 44, borderRadius: 10, padding: '0 16px', fontWeight: 900, display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                        >
+                          <MessageSquare size={14} /> {t('Check Notes')}
+                        </Btn>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <Btn
+                        onClick={() => handleUpdate(task.taskID)}
+                        disabled={busy || isLocked}
+                        style={{ background: isLocked ? '#F1F5F9' : '#4F46E5', height: 44, borderRadius: 10, padding: '0 20px', fontWeight: 900, border: 'none', color: isLocked ? '#94A3B8' : '#fff' }}
+                      >
+                        {busy ? t('Syncing...') : isArchived ? t('Archived') : isPendingReview ? t('Awaiting TL review') : t('Sync Progress')}
+                      </Btn>
+                      <Btn
+                        onClick={() => handleFinish(task.taskID)}
+                        disabled={busy || isLocked || hasOpenLog}
+                        title={hasOpenLog ? t('End your current session before finishing the task.') : ''}
+                        style={{ background: isLocked || hasOpenLog ? '#F1F5F9' : '#111827', color: isLocked || hasOpenLog ? '#94A3B8' : '#fff', height: 44, borderRadius: 10, padding: '0 20px', fontWeight: 900, border: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                      >
+                        <Send size={14} /> {t('Finish')}
+                      </Btn>
+                    </div>
                   </div>
                 </div>
               );
@@ -357,6 +452,31 @@ export function EmployeeTasksPage() {
           </div>
         </div>
       </div>
+
+      <Modal
+        open={notesModal.open}
+        onClose={() => setNotesModal({ open: false, task: null })}
+        title={notesModal.task ? `${t('Notes from your Team Leader')}: ${notesModal.task.title}` : t('Notes from your Team Leader')}
+        maxWidth={520}
+      >
+        {notesModal.task && (
+          <div style={{ display: 'grid', gap: 14, padding: 8 }}>
+            <div style={{ padding: '14px 16px', background: '#FFFBEB', border: '1.5px solid #FDE68A', borderRadius: 12, color: '#78350F', fontSize: 14, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+              {notesModal.task.reviewNote}
+            </div>
+            {notesModal.task.reviewedAt && (
+              <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700 }}>
+                {t('Returned on')} {String(notesModal.task.reviewedAt).slice(0, 16).replace('T', ' ')}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+              <Btn onClick={() => setNotesModal({ open: false, task: null })} style={{ height: 44, borderRadius: 12, padding: '0 20px', fontWeight: 800, background: '#111827', color: '#fff', border: 'none' }}>
+                {t('Got it')}
+              </Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <style dangerouslySetInnerHTML={{ __html: `
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

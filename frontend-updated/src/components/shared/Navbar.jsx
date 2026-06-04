@@ -20,6 +20,7 @@ import {
   ChevronLeft,
   Search,
   Plus,
+  DollarSign,
   LogOut
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -71,7 +72,8 @@ const SidebarIcon = ({ name, active }) => {
     HelpCircle,
     Briefcase,
     Search,
-    Plus
+    Plus,
+    DollarSign
   };
   const Icon = icons[name] || HelpCircle;
   return <Icon size={20} style={{ color: active ? 'var(--color-primary-teal)' : 'inherit' }} />;
@@ -96,6 +98,7 @@ const NAV_GROUPS = {
         { path: '/admin/broadcast', labelKey: 'nav.broadcast', icon: 'Bell' },
         { path: '/hr/approvals', labelKey: 'nav.approvals', icon: 'ShieldCheck' },
         { path: '/hr/payroll', labelKey: 'nav.payroll', icon: 'Activity' },
+        { path: '/hr/adjustments', labelKey: 'Commissions & Deductions', icon: 'DollarSign' },
         { path: '/hr/benefits', labelKey: 'nav.benefits', icon: 'Shield' },
         { path: '/hr/expenses', labelKey: 'nav.expenses', icon: 'Activity' },
         { path: '/hr/documents', labelKey: 'nav.documents', icon: 'Copy' },
@@ -139,6 +142,7 @@ const NAV_GROUPS = {
       items: [
         { path: '/hr/attendance', labelKey: 'nav.attendance', icon: 'Activity' },
         { path: '/hr/payroll', labelKey: 'nav.payroll', icon: 'Activity' },
+        { path: '/hr/adjustments', labelKey: 'Commissions & Deductions', icon: 'DollarSign' },
         { path: '/hr/benefits', labelKey: 'nav.benefits', icon: 'Shield' },
         { path: '/hr/expenses', labelKey: 'nav.expenses', icon: 'Activity' },
         { path: '/hr/approvals', labelKey: 'nav.approvals', icon: 'ShieldCheck' },

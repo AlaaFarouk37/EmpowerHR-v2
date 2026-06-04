@@ -5,16 +5,47 @@ from .models import Job, Submission, SuccessionPlan
 
 class JobSerializer(serializers.ModelSerializer):
     submission_count = serializers.IntegerField(source="submissions.count", read_only=True)
+    interviewer_name = serializers.SerializerMethodField()
+    interviewer_role = serializers.CharField(source="interviewer.role", read_only=True)
+
+    def get_interviewer_name(self, obj):
+        if not obj.interviewer_id:
+            return ""
+        return obj.interviewer.full_name or obj.interviewer.email
 
     class Meta:
         model  = Job
         fields = [
             "id", "title", "level", "description", "required_skills",
             "min_experience_years", "required_degree",
+            "vacancies", "interviewer", "interviewer_name", "interviewer_role",
+            "pipeline_stages",
             "weight_skills", "weight_experience", "weight_education", "weight_semantic",
             "is_active", "created_at", "submission_count",
         ]
         read_only_fields = ["created_at", "required_skills"]
+
+    def validate_pipeline_stages(self, value):
+        if value in (None, ""):
+            return []
+        if not isinstance(value, list):
+            raise serializers.ValidationError("pipeline_stages must be a list of stage names.")
+        cleaned = []
+        seen = set()
+        for raw in value:
+            name = str(raw or "").strip()
+            if not name:
+                continue
+            if len(name) > 50:
+                raise serializers.ValidationError(f"Stage name '{name[:20]}…' is too long (max 50 chars).")
+            if name.lower() in ("applied", "rejected"):
+                raise serializers.ValidationError(f"'{name}' is a reserved system stage and cannot be added explicitly.")
+            key = name.lower()
+            if key in seen:
+                raise serializers.ValidationError(f"Duplicate stage '{name}'.")
+            seen.add(key)
+            cleaned.append(name)
+        return cleaned
 
     def validate(self, data):
         ws = data.get("weight_skills",     self.instance.weight_skills     if self.instance else 0.40)
@@ -46,6 +77,13 @@ class JobSerializer(serializers.ModelSerializer):
                     f"Position '{title}' with level '{level or '(none)'}' is not in the position catalog. "
                     "Pick an existing position or have an admin add it first."
                 )
+            })
+
+        # Interviewer must be an HR Manager or Team Leader (or null).
+        interviewer = data.get("interviewer", self.instance.interviewer if self.instance else None)
+        if interviewer is not None and interviewer.role not in {"HRManager", "TeamLeader"}:
+            raise serializers.ValidationError({
+                "interviewer": "Interviewer must be an HR Manager or Team Leader."
             })
 
         return data
@@ -115,14 +153,15 @@ class SubmissionUploadSerializer(serializers.ModelSerializer):
 
 
 class SubmissionStageUpdateSerializer(serializers.Serializer):
-    review_stage = serializers.ChoiceField(choices=Submission.ReviewStage.choices)
+    review_stage = serializers.CharField(max_length=50)
     stage_notes = serializers.CharField(required=False, allow_blank=True)
     talent_pool = serializers.BooleanField(required=False)
 
-    def validate(self, attrs):
-        if attrs.get('review_stage') in {Submission.ReviewStage.REJECTED, Submission.ReviewStage.HIRED} and not (attrs.get('stage_notes') or '').strip():
-            raise serializers.ValidationError({'stage_notes': 'Please add a short hiring note before finalizing this stage.'})
-        return attrs
+    def validate_review_stage(self, value):
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise serializers.ValidationError("Stage name is required.")
+        return cleaned
 
 
 class SuccessionPlanSerializer(serializers.ModelSerializer):

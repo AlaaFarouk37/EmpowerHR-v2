@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from employee_management.models import Employee
-from .models import PayrollRecord
+from .models import PayrollRecord, Commission, Deduction
 from accounts.models import User
 
 
@@ -20,11 +20,41 @@ class PayrollRecordCreateSerializer(serializers.Serializer):
         required=False,
     )
     baseSalary = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, allow_null=True)
-    allowances = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, default=0)
-    deductions = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, default=0)
-    bonus = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, default=0)
+    # Commissions, manual deductions, unpaid-leave deduction and approved expense
+    # reimbursements are all computed server-side (aggregated from their own
+    # records), not passed in here.
     notes = serializers.CharField(required=False, allow_blank=True)
 
 
 class PayrollMarkPaidSerializer(serializers.Serializer):
     paymentDate = serializers.DateField(required=False)
+
+
+class CommissionSerializer(serializers.ModelSerializer):
+    employeeName = serializers.CharField(source='employee.fullName', read_only=True)
+
+    class Meta:
+        model = Commission
+        fields = '__all__'
+
+
+class CommissionCreateSerializer(serializers.Serializer):
+    employeeID = serializers.CharField(max_length=50)
+    payPeriod = serializers.RegexField(regex=r'^\d{4}-\d{2}$', max_length=20)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    description = serializers.CharField(required=False, allow_blank=True)
+
+
+class DeductionSerializer(serializers.ModelSerializer):
+    employeeName = serializers.CharField(source='employee.fullName', read_only=True)
+
+    class Meta:
+        model = Deduction
+        fields = '__all__'
+
+
+class DeductionCreateSerializer(serializers.Serializer):
+    employeeID = serializers.CharField(max_length=50)
+    payPeriod = serializers.RegexField(regex=r'^\d{4}-\d{2}$', max_length=20)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    description = serializers.CharField(required=False, allow_blank=True)

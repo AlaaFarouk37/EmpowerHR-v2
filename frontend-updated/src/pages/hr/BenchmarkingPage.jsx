@@ -1,282 +1,379 @@
-import { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { hrGetEmployees } from '../../api/index.js';
-import { Badge, Btn, Spinner, useToast, Input } from '../../components/shared/index.jsx';
-import { useAuth } from '../../context/AuthContext';
+import { useEffect, useMemo, useState } from 'react';
+import { Spinner, Btn, Badge, useToast } from '../../components/shared/index.jsx';
+import { hrGetEmployees, hrFetchExternalSalaryBenchmark, hrGetDepartmentOptions } from '../../api/index.js';
 import { useLanguage } from '../../context/LanguageContext';
-import { 
-  Search, 
-  Filter, 
-  TrendingUp, 
-  TrendingDown,
-  Activity, 
-  Target, 
-  Calendar,
-  ChevronRight,
-  Zap,
-  Globe,
-  DollarSign,
-  Settings,
-  Award,
-  Layers,
-  ChevronDown,
-  Sparkles,
-  SearchCode,
-  MoreVertical,
-  ShieldAlert
-} from 'lucide-react';
+import { FileText } from 'lucide-react';
+
+const benchmarkKey = (title, level) =>
+  `${(title || '').trim().toLowerCase()}|${(level || '').trim().toLowerCase()}`;
+
+const formatCurrency = (value, currency = 'EGP') => {
+  if (value === null || value === undefined || value === '') return '—';
+  const num = Number(value);
+  if (Number.isNaN(num)) return '—';
+  return `${currency} ${num.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+};
 
 export function BenchmarkingPage() {
   const toast = useToast();
   const { t } = useLanguage();
-  const navigate = useNavigate();
 
-  const [benchmarks, setBenchmarks] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [deptNameById, setDeptNameById] = useState({});
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeCluster, setActiveCluster] = useState('All Global Nodes');
+  const [benchmarkMap, setBenchmarkMap] = useState({});
+  const [benchmarkSource, setBenchmarkSource] = useState(null);
+  const [benchmarking, setBenchmarking] = useState(false);
+  const [lastFetched, setLastFetched] = useState(null);
+  const [filterDept, setFilterDept] = useState('');
+  const [filterTitle, setFilterTitle] = useState('');
+  const [filterLevel, setFilterLevel] = useState('');
 
-  const loadData = async () => {
-    setLoading(true);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const [data, depts] = await Promise.all([
+          hrGetEmployees(),
+          hrGetDepartmentOptions().catch(() => []),
+        ]);
+        if (cancelled) return;
+        setEmployees(Array.isArray(data) ? data : []);
+        const map = {};
+        (Array.isArray(depts) ? depts : []).forEach(d => {
+          const id = d?.department_id ?? d?.id;
+          const name = d?.name || d?.department;
+          if (id != null && name) map[String(id)] = String(name);
+        });
+        setDeptNameById(map);
+      } catch (error) {
+        if (!cancelled) toast(error.message || 'Failed to load employees', 'error');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [toast]);
+
+  const resolveDept = (raw) => {
+    if (raw == null || raw === '') return '—';
+    const key = String(raw);
+    if (deptNameById[key]) return deptNameById[key];
+    if (typeof raw === 'object' && raw !== null) return raw.name || raw.label || '—';
+    return key;
+  };
+
+  const handleFetchBenchmark = async () => {
+    setBenchmarking(true);
     try {
-      const employees = await hrGetEmployees();
-      const list = Array.isArray(employees) ? employees : [];
-
-      // Compute company-wide median monthlyIncome per jobTitle (used as the
-      // "market median" reference until a true external benchmark API is wired).
-      const medianBy = (arr) => {
-        const sorted = arr.filter(Boolean).map(Number).filter(n => !Number.isNaN(n)).sort((a, b) => a - b);
-        if (!sorted.length) return 0;
-        const m = Math.floor(sorted.length / 2);
-        return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
-      };
-
-      const byRole = {};
-      list.forEach(e => {
-        const role = e.jobTitle || 'Unspecified';
-        if (!byRole[role]) byRole[role] = [];
-        byRole[role].push(e.monthlyIncome);
+      const results = await hrFetchExternalSalaryBenchmark();
+      const map = {};
+      results.forEach((entry) => {
+        map[benchmarkKey(entry.jobTitle, entry.jobLevel)] = entry;
       });
-      const roleMedian = Object.fromEntries(
-        Object.entries(byRole).map(([role, vals]) => [role, medianBy(vals)])
-      );
-
-      // Group by (department, jobTitle) and compute internal average.
-      const byCell = {};
-      list.forEach(e => {
-        const key = `${e.department || 'Unassigned'}||${e.jobTitle || 'Unspecified'}`;
-        if (!byCell[key]) byCell[key] = { department: e.department || 'Unassigned', jobTitle: e.jobTitle || 'Unspecified', salaries: [] };
-        if (e.monthlyIncome) byCell[key].salaries.push(Number(e.monthlyIncome));
-      });
-
-      const rows = Object.values(byCell)
-        .filter(c => c.salaries.length)
-        .map(c => {
-          const internalAvg = c.salaries.reduce((s, v) => s + v, 0) / c.salaries.length;
-          const marketMedian = roleMedian[c.jobTitle] || internalAvg;
-          const variance = internalAvg
-            ? Math.round(((marketMedian - internalAvg) / internalAvg) * 100)
-            : 0;
-          return { department: c.department, jobTitle: c.jobTitle, internalAvg, marketMedian, variance };
-        })
-        .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
-
-      setBenchmarks(rows);
+      setBenchmarkMap(map);
+      setBenchmarkSource(results[0]?.source || 'External Salary Benchmark API');
+      setLastFetched(new Date());
+      toast(t('Benchmark salaries fetched from external source'));
     } catch (error) {
-      toast('Failed to load benchmarking data', 'error');
+      toast(error.message || 'Failed to fetch benchmark salaries', 'error');
     } finally {
-      setLoading(false);
+      setBenchmarking(false);
     }
   };
 
-  useEffect(() => { loadData(); }, []);
+  const allRows = useMemo(() => employees.map((employee) => {
+    const lookup = benchmarkMap[benchmarkKey(employee.jobTitle, employee.jobLevel)];
+    const baseSalary = Number(employee.monthlyIncome || 0);
+    const rawBenchmark = lookup?.benchmark_salary;
+    const benchmark = rawBenchmark === null || rawBenchmark === undefined
+      ? null
+      : Number(rawBenchmark);
+    let variancePct = null;
+    if (benchmark !== null && baseSalary > 0) {
+      variancePct = ((baseSalary - benchmark) / baseSalary) * 100;
+    }
+    return { employee, benchmark, baseSalary, variancePct, departmentLabel: resolveDept(employee.department) };
+  }), [employees, benchmarkMap, deptNameById]);
 
-  const filteredBenchmarks = useMemo(() => {
-    return benchmarks.filter(b => {
-      const matchesSearch = b.department?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          b.jobTitle?.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesSearch;
-    });
-  }, [benchmarks, searchQuery]);
-
-  const benchStats = useMemo(() => {
-    return [
-      { label: 'Market Parity Index', value: '88.4%', icon: Globe, color: '#1E293B', bg: '#F8FAFC' },
-      { label: 'Fiscal Deviation', value: '-4.2%', icon: DollarSign, color: 'var(--red-600)', bg: 'var(--red-50)' },
-      { label: 'Attrition Calibration', value: '12%', icon: Activity, color: 'var(--red-800)', bg: 'var(--red-50)' },
-      { label: 'Internal Excellence', value: '74', icon: Award, color: '#10B981', bg: '#ECFDF5' },
-    ];
-  }, [benchmarks]);
-
-  if (loading) return (
-    <div style={{ height: '80vh', display: 'grid', placeItems: 'center' }}>
-       <div style={{ textAlign: 'center' }}>
-          <div style={{ width: 64, height: 64, margin: '0 auto 24px', border: '3px solid var(--red-100)', borderTopColor: 'var(--red-600)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-          <div style={{ fontSize: 14, fontWeight: 900, color: '#1E293B', letterSpacing: '0.1em' }}>SYNCHRONIZING GLOBAL BENCHMARKS...</div>
-       </div>
-    </div>
+  const departmentOptions = useMemo(
+    () => Array.from(new Set(allRows.map(r => r.departmentLabel).filter(v => v && v !== '—'))).sort(),
+    [allRows]
+  );
+  const titleOptions = useMemo(
+    () => Array.from(new Set(allRows.map(r => r.employee.jobTitle).filter(Boolean))).sort(),
+    [allRows]
+  );
+  const levelOptions = useMemo(
+    () => Array.from(new Set(allRows.map(r => r.employee.jobLevel).filter(Boolean))).sort(),
+    [allRows]
   );
 
+  const rows = useMemo(() => allRows.filter(r => {
+    if (filterDept && r.departmentLabel !== filterDept) return false;
+    if (filterTitle && (r.employee.jobTitle || '') !== filterTitle) return false;
+    if (filterLevel && (r.employee.jobLevel || '') !== filterLevel) return false;
+    return true;
+  }), [allRows, filterDept, filterTitle, filterLevel]);
+
+  const summary = useMemo(() => {
+    const withBenchmark = rows.filter((r) => r.benchmark !== null);
+    const underpaid = withBenchmark.filter((r) => r.variancePct !== null && r.variancePct < 0).length;
+    const overpaid = withBenchmark.filter((r) => r.variancePct !== null && r.variancePct > 0).length;
+    return { matched: withBenchmark.length, underpaid, overpaid };
+  }, [rows]);
+
+  const filtersActive = Boolean(filterDept || filterTitle || filterLevel);
+  const clearFilters = () => { setFilterDept(''); setFilterTitle(''); setFilterLevel(''); };
+
+  const handleGenerateReport = () => {
+    const dateStr = new Date().toLocaleString();
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch]));
+    const win = window.open('', '_blank', 'width=1100,height=800');
+    if (!win) { toast(t('Pop-up blocked. Please allow pop-ups to generate the report.'), 'error'); return; }
+    const scopeNote = [
+      filterDept ? `${t('Department')}: ${filterDept}` : null,
+      filterTitle ? `${t('Job Title')}: ${filterTitle}` : null,
+      filterLevel ? `${t('Job Level')}: ${filterLevel}` : null,
+    ].filter(Boolean).join(' · ') || t('All employees');
+    const tableRows = rows.map(({ employee, benchmark, variancePct, departmentLabel }) => {
+      const currency = employee.currency_preference || 'EGP';
+      const base = Number(employee.monthlyIncome || 0);
+      const cls = variancePct == null ? '' : variancePct > 0 ? 'pos' : variancePct < 0 ? 'neg' : '';
+      const baseStr = base ? `${currency} ${base.toLocaleString()}` : '—';
+      const benchStr = benchmark == null ? (hasFetched ? t('No match') : t('Not fetched')) : `EGP ${Number(benchmark).toLocaleString()}`;
+      const varStr = variancePct == null ? '—' : `${variancePct > 0 ? '+' : ''}${variancePct.toFixed(1)}%`;
+      return `
+        <tr>
+          <td><strong>${esc(employee.fullName || '—')}</strong><br/><span class="dim">${esc(employee.employeeID)}</span></td>
+          <td>${esc(departmentLabel)}</td>
+          <td>${esc(employee.jobTitle || '—')}</td>
+          <td>${esc(employee.jobLevel || '—')}</td>
+          <td>${esc(baseStr)}</td>
+          <td>${esc(benchStr)}</td>
+          <td class="${cls}">${esc(varStr)}</td>
+        </tr>`;
+    }).join('');
+
+    win.document.write(`<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8" />
+<title>Salary Benchmarking — ${esc(dateStr)}</title>
+<style>
+  @page { size: A4 landscape; margin: 16mm; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #1E293B; margin: 24px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #64748B; font-size: 12px; margin-bottom: 18px; }
+  .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .card { border: 1px solid #E2E8F0; border-radius: 10px; padding: 12px 14px; background: #fff; }
+  .label { font-size: 10px; font-weight: 800; color: #94A3B8; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+  .val { font-size: 22px; font-weight: 800; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid #EAECF0; text-align: left; vertical-align: top; }
+  th { background: #F8FAFC; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #64748B; }
+  .pos { color: #16A34A; font-weight: 800; }
+  .neg { color: #E8321A; font-weight: 800; }
+  .dim { color: #94A3B8; font-size: 10px; }
+  .actions { display: flex; gap: 8px; margin-bottom: 14px; }
+  button { padding: 8px 14px; border: 1px solid #E2E8F0; background: #fff; border-radius: 8px; font-weight: 700; cursor: pointer; }
+  button.primary { background: #1E40AF; color: #fff; border-color: #1E40AF; }
+  @media print { .no-print { display: none !important; } }
+</style>
+</head><body>
+  <div class="actions no-print">
+    <button class="primary" onclick="window.print()">Save / Print as PDF</button>
+    <button onclick="window.close()">Close</button>
+  </div>
+  <h1>Salary Benchmarking Report</h1>
+  <div class="sub">Generated ${esc(dateStr)} · ${rows.length} employees in scope · ${esc(scopeNote)}${benchmarkSource ? ` · Source: ${esc(benchmarkSource)}` : ''}</div>
+  <div class="summary">
+    <div class="card"><div class="label">In Scope</div><div class="val">${rows.length}</div></div>
+    <div class="card"><div class="label">Matched</div><div class="val" style="color:#2563EB">${summary.matched}</div></div>
+    <div class="card"><div class="label">Below Market</div><div class="val" style="color:#E8321A">${summary.underpaid}</div></div>
+    <div class="card"><div class="label">Above Market</div><div class="val" style="color:#16A34A">${summary.overpaid}</div></div>
+  </div>
+  <table>
+    <thead><tr>
+      <th>Employee</th><th>Department</th><th>Job Title</th><th>Job Level</th><th>Base Salary</th><th>Benchmark</th><th>Variance</th>
+    </tr></thead>
+    <tbody>${tableRows || '<tr><td colspan="7" style="text-align:center; padding:24px; color:#94A3B8">No employees in scope.</td></tr>'}</tbody>
+  </table>
+  <script>window.addEventListener('load', () => setTimeout(() => window.print(), 250));</script>
+</body></html>`);
+    win.document.close();
+  };
+
+  const hasFetched = Object.keys(benchmarkMap).length > 0;
+
   return (
-    <div className="page-content animate-in" style={{ background: '#F8FAFC', minHeight: '100vh', padding: '40px 60px' }}>
-      {/* Strategic Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 48 }}>
+    <div className="hr-page-shell">
+      <div className="hr-page-header is-split">
         <div>
-           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--red-600)', display: 'grid', placeItems: 'center', boxShadow: '0 8px 16px rgba(220, 38, 38, 0.2)' }}>
-                 <Target size={22} style={{ color: '#fff' }} />
-              </div>
-              <h1 style={{ fontSize: 32, fontWeight: 900, color: '#1E293B', margin: 0, letterSpacing: '-0.02em' }}>Global Benchmarking Command</h1>
-           </div>
-           <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>Calibrate organizational performance, audit market parity vectors, and monitor fiscal deviation.</p>
+          <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>{t('Salary Benchmarking')}</h2>
+          <p style={{ fontSize: 13.5, color: 'var(--gray-500)' }}>
+            {t('Compare each employee\'s base salary with the market benchmark fetched from an external source.')}
+          </p>
         </div>
-
-        <Btn 
-          onClick={() => toast(t('Initializing Global Sync...'), 'info')}
-          variant="primary" 
-          style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
-        >
-           <Zap size={18} style={{ marginRight: 8 }} /> {t('Initialize Market Sync')}
-        </Btn>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            onClick={handleGenerateReport}
+            disabled={loading || employees.length === 0}
+            title={t('Generate a printable PDF report of the current view')}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '0 18px', height: 40, borderRadius: 12,
+              background: loading || employees.length === 0 ? '#F1F5F9' : '#1E293B',
+              color: loading || employees.length === 0 ? '#94A3B8' : '#fff',
+              border: loading || employees.length === 0 ? 'none' : '1.5px solid var(--red-600)',
+              fontWeight: 800, fontSize: 13,
+              cursor: loading || employees.length === 0 ? 'not-allowed' : 'pointer',
+              boxShadow: loading || employees.length === 0 ? 'none' : '0 6px 14px -4px rgba(220, 38, 38, 0.45)',
+              letterSpacing: '.02em',
+            }}
+          >
+            <FileText size={16} style={{ color: 'var(--red-600)' }} /> {t('Report')}
+          </button>
+          <Btn onClick={handleFetchBenchmark} disabled={benchmarking || loading}>
+            {benchmarking ? t('Fetching...') : t('Fetch Benchmark Salaries')}
+          </Btn>
+        </div>
       </div>
 
-      {/* Benchmarking Telemetry Strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, marginBottom: 48 }}>
-        {benchStats.map(s => (
-          <div key={s.label} style={{ padding: '24px', borderRadius: 28, background: '#fff', border: '1.5px solid #F1F5F9', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 20 }}>
-            <div style={{ width: 48, height: 48, borderRadius: 14, background: s.bg, color: s.color, display: 'grid', placeItems: 'center' }}>
-              <s.icon size={22} />
-            </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t(s.label)}</div>
-              <div style={{ fontSize: 24, fontWeight: 900, color: '#1E293B' }}>{s.value}</div>
-            </div>
+      <div className="hr-surface-card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, alignItems: 'end' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 6 }}>{t('Department')}</label>
+            <select
+              value={filterDept}
+              onChange={(e) => setFilterDept(e.target.value)}
+              style={{ width: '100%', height: 40, padding: '0 12px', borderRadius: 12, border: '1px solid #E5E7EB', background: '#fff', fontSize: 13, fontWeight: 600 }}
+            >
+              <option value="">{t('All departments')}</option>
+              {departmentOptions.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
           </div>
-        ))}
-      </div>
-
-      {/* Control Bar */}
-      <div style={{ background: '#fff', padding: '16px 24px', borderRadius: 24, border: '1.5px solid #F1F5F9', marginBottom: 32, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-           <div style={{ position: 'relative' }}>
-              <select 
-                value={activeCluster}
-                onChange={(e) => setActiveCluster(e.target.value)}
-                style={{ height: 44, padding: '0 40px 0 16px', borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', fontSize: 13, fontWeight: 800, color: '#1E293B', outline: 'none', appearance: 'none', minWidth: 200 }}
-              >
-                 <option value="All Global Nodes">{t('All Global Nodes')}</option>
-                 <option value="Engineering">{t('Engineering Hub')}</option>
-                 <option value="Executive">{t('Executive Board')}</option>
-              </select>
-              <ChevronDown size={14} style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', pointerEvents: 'none' }} />
-           </div>
-           
-           <div style={{ position: 'relative' }}>
-              <Search size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
-              <input 
-                type="text" 
-                placeholder={t('Search organizational nodes...')}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{ height: 44, padding: '0 16px 0 48px', borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', fontSize: 13, fontWeight: 600, width: 320, outline: 'none' }} 
-              />
-           </div>
-        </div>
-        
-        <div style={{ display: 'flex', gap: 12 }}>
-           <Btn variant="secondary" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
-              <Filter size={16} style={{ marginRight: 8 }} /> {t('Neural Filters')}
-           </Btn>
-           <Btn variant="outline" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
-              <Globe size={16} style={{ marginRight: 8 }} /> {t('Global Parity Matrix')}
-           </Btn>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 6 }}>{t('Job Title')}</label>
+            <select
+              value={filterTitle}
+              onChange={(e) => setFilterTitle(e.target.value)}
+              style={{ width: '100%', height: 40, padding: '0 12px', borderRadius: 12, border: '1px solid #E5E7EB', background: '#fff', fontSize: 13, fontWeight: 600 }}
+            >
+              <option value="">{t('All titles')}</option>
+              {titleOptions.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 6 }}>{t('Job Level')}</label>
+            <select
+              value={filterLevel}
+              onChange={(e) => setFilterLevel(e.target.value)}
+              style={{ width: '100%', height: 40, padding: '0 12px', borderRadius: 12, border: '1px solid #E5E7EB', background: '#fff', fontSize: 13, fontWeight: 600 }}
+            >
+              <option value="">{t('All levels')}</option>
+              {levelOptions.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+          {filtersActive && (
+            <div>
+              <Btn variant="outline" onClick={clearFilters} style={{ height: 40, width: '100%' }}>{t('Clear filters')}</Btn>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Neural Benchmarking Ledger */}
-      <div style={{ background: '#fff', borderRadius: 32, border: '1.5px solid #F1F5F9', overflow: 'hidden', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.03)' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ background: '#F8FAFC', borderBottom: '1.5px solid #F1F5F9' }}>
-              {['Organizational Node', 'Market Parity', 'Internal Excellence', 'Fiscal Deviation', 'Tactics'].map(h => (
-                <th key={h} style={{ padding: '20px 32px', textAlign: 'left', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t(h)}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filteredBenchmarks.map((bench, idx) => {
-              const delta = Math.abs(bench.variance || 0);
-              const isNegative = (bench.variance || 0) < 0;
-              const isCritical = isNegative && delta > 15;
-              
-              return (
-                <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9', transition: 'background 0.2s', background: isCritical ? 'rgba(220, 38, 38, 0.02)' : 'transparent' }} className="bench-row">
-                  <td style={{ padding: '24px 32px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                      <div style={{ 
-                        width: 44, height: 44, borderRadius: 14, background: isCritical ? 'var(--pink-50)' : 'var(--red-50)', 
-                        display: 'grid', placeItems: 'center', color: isCritical ? 'var(--pink-600)' : 'var(--red-600)', border: `1px solid ${isCritical ? 'var(--pink-100)' : 'var(--red-100)'}`,  
-                        fontSize: 16, fontWeight: 900
-                      }}>
-                         {(bench.department || 'E').charAt(0)}
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 15, fontWeight: 900, color: '#1E293B' }}>{bench.department || 'Strategic Hub'}</div>
-                        <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 800 }}>{bench.jobTitle || 'Core Node'}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ padding: '24px 32px' }}>
-                     <div style={{ fontSize: 16, fontWeight: 900, color: '#1E293B' }}>
-                        $\${((bench.marketMedian || 0) / 1000).toFixed(1)}k
-                     </div>
-                     <div style={{ fontSize: 9, color: '#94A3B8', fontWeight: 800, textTransform: 'uppercase', marginTop: 4 }}>Global Benchmark</div>
-                  </td>
-                  <td style={{ padding: '24px 32px' }}>
-                     <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--red-600)' }}>
-                        $\${((bench.internalAvg || 0) / 1000).toFixed(1)}k
-                     </div>
-                     <div style={{ fontSize: 9, color: '#94A3B8', fontWeight: 800, textTransform: 'uppercase', marginTop: 4 }}>Internal Vector</div>
-                  </td>
-                  <td style={{ padding: '24px 32px', minWidth: 200 }}>
-                     <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                        <div style={{ flex: 1, height: 8, background: '#F1F5F9', borderRadius: 4, overflow: 'hidden' }}>
-                           <div style={{ width: `${Math.min(delta * 4, 100)}%`, height: '100%', background: isNegative ? 'var(--pink-600)' : 'var(--red-600)', borderRadius: 4 }} />
-                        </div>
-                        <span style={{ fontSize: 13, fontWeight: 900, color: isNegative ? 'var(--pink-600)' : 'var(--red-600)', width: 40 }}>
-                          {isNegative ? '-' : '+'}{delta}%
-                        </span>
-                     </div>
-                     {isCritical && (
-                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--pink-600)', fontSize: 10, fontWeight: 900, marginTop: 8, letterSpacing: '0.05em' }}>
-                          <ShieldAlert size={12} /> CRITICAL DEVIATION
-                       </div>
-                     )}
-                  </td>
-                  <td style={{ padding: '24px 32px' }}>
-                    <div style={{ display: 'flex', gap: 10 }}>
-                       <button className="action-btn" title="Audit Fiscal Vector"><SearchCode size={18} /></button>
-                       <button className="action-btn" title="Execute Calibration"><Settings size={18} /></button>
-                       <button className="action-btn" title="Tactical Options"><MoreVertical size={18} /></button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="hr-surface-card" style={{ padding: 18, marginBottom: 22 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+          <div style={{ border: '1px solid #EAECF0', borderRadius: 14, padding: '12px 14px', background: '#fff' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', marginBottom: 6 }}>{t('Employees')}</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>{employees.length}</div>
+          </div>
+          <div style={{ border: '1px solid #EAECF0', borderRadius: 14, padding: '12px 14px', background: '#fff' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', marginBottom: 6 }}>{t('Matched to Benchmark')}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#2563EB' }}>{summary.matched}</div>
+          </div>
+          <div style={{ border: '1px solid #EAECF0', borderRadius: 14, padding: '12px 14px', background: '#fff' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', marginBottom: 6 }}>{t('Below Market')}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#E8321A' }}>{summary.underpaid}</div>
+          </div>
+          <div style={{ border: '1px solid #EAECF0', borderRadius: 14, padding: '12px 14px', background: '#fff' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', marginBottom: 6 }}>{t('Above Market')}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#16A34A' }}>{summary.overpaid}</div>
+          </div>
+        </div>
+        {hasFetched && (
+          <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Badge color="accent" label={t('Source: {source}').replace('{source}', benchmarkSource || '—')} />
+            {lastFetched && (
+              <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>
+                {t('Last fetched')}: {lastFetched.toLocaleString()}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
-      <style dangerouslySetInnerHTML={{ __html: `
-        .bench-row:hover { background: #FBFBFF; }
-        .action-btn { 
-          width: 36px; height: 36px; border: 1.5px solid #F1F5F9; background: #fff; 
-          color: #94A3B8; border-radius: 10px; display: grid; placeItems: center; 
-          cursor: pointer; transition: all 0.2s; 
-        }
-        .action-btn:hover { color: var(--red-600); border-color: var(--red-100); background: var(--red-50); }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}} />
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 80 }}><Spinner /></div>
+      ) : employees.length === 0 ? (
+        <div className="hr-soft-empty" style={{ textAlign: 'center', padding: '70px 32px' }}>
+          <p style={{ fontSize: 14, color: 'var(--gray-500)', fontWeight: 600 }}>{t('No employees to benchmark.')}</p>
+        </div>
+      ) : (
+        <div className="hr-table-card">
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: 'var(--gray-50)' }}>
+                {['Employee', 'Department', 'Job Title', 'Job Level', 'Base Salary', 'Benchmark Salary', 'Variance'].map((h) => (
+                  <th key={h} style={{ padding: '14px 20px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', borderBottom: '1px solid #EAECF0' }}>{t(h)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ employee, benchmark, variancePct, departmentLabel }) => {
+                const currency = employee.currency_preference || 'EGP';
+                const variancePositive = variancePct !== null && variancePct > 0;
+                const varianceColor = variancePct === null
+                  ? 'var(--gray-400)'
+                  : variancePositive
+                    ? '#16A34A'
+                    : variancePct < 0
+                      ? '#E8321A'
+                      : 'var(--gray-500)';
+                return (
+                  <tr key={employee.employeeID} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                    <td style={{ padding: '16px 20px' }}>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{employee.fullName || '—'}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--gray-400)', marginTop: 2 }}>{employee.employeeID}</div>
+                    </td>
+                    <td style={{ padding: '16px 20px', fontSize: 13.5 }}>{departmentLabel}</td>
+                    <td style={{ padding: '16px 20px', fontSize: 13.5 }}>{employee.jobTitle || '—'}</td>
+                    <td style={{ padding: '16px 20px', fontSize: 13.5 }}>{employee.jobLevel || '—'}</td>
+                    <td style={{ padding: '16px 20px', fontSize: 13.5, fontFamily: 'ui-monospace, monospace' }}>
+                      {formatCurrency(employee.monthlyIncome, currency)}
+                    </td>
+                    <td style={{ padding: '16px 20px', fontSize: 13.5, fontFamily: 'ui-monospace, monospace' }}>
+                      {benchmark === null ? (
+                        <span style={{ color: 'var(--gray-400)' }}>{hasFetched ? t('No match') : t('Not fetched')}</span>
+                      ) : (
+                        formatCurrency(benchmark, 'EGP')
+                      )}
+                    </td>
+                    <td style={{ padding: '16px 20px', fontSize: 13.5, fontWeight: 700, color: varianceColor }}>
+                      {variancePct === null
+                        ? '—'
+                        : `${variancePositive ? '+' : ''}${variancePct.toFixed(1)}%`}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
+
+export default BenchmarkingPage;

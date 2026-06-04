@@ -7,6 +7,7 @@ import {
   getTeamTasks,
   updateTeamTask,
 } from '../../api/index.js';
+// `createTeamTask` already in the API client; previously unused here.
 import { Badge, Btn, EmployeeSelect, Input, LeaderPortalLayout, Spinner, Textarea, useToast } from '../../components/shared/index.jsx';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -149,6 +150,7 @@ export function TeamGoalsPage() {
         id: `goal-${goal.goalID}`,
         kind: 'goal',
         title: goal.title,
+        employeeID: goal.employeeID,
         employeeName: goal.employeeName || goal.employeeID,
         dueDate: goal.dueDate,
         priority: goal.priority,
@@ -161,6 +163,7 @@ export function TeamGoalsPage() {
         id: `task-${task.taskID}`,
         kind: 'task',
         title: task.title,
+        employeeID: task.employeeID,
         employeeName: task.employeeName || task.employeeID,
         dueDate: task.dueDate,
         priority: task.priority,
@@ -232,6 +235,42 @@ export function TeamGoalsPage() {
     } finally {
       setSavingTaskId(null);
     }
+  };
+
+  // Ported from frontend-old/src/pages/leader/TeamPage.jsx — handles task creation.
+  const handleCreateTask = async () => {
+    if (!taskForm.employeeID.trim() || !taskForm.title.trim() || !Number(taskForm.estimatedHours)) {
+      toast('Employee, title, and estimated hours are required.', 'error');
+      return;
+    }
+    setTaskSubmitting(true);
+    try {
+      await createTeamTask({
+        ...taskForm,
+        employeeID: taskForm.employeeID.trim(),
+        progress: Number(taskForm.progress || 0),
+        estimatedHours: Number(taskForm.estimatedHours),
+      });
+      toast('Task assigned to team member');
+      setTaskForm(EMPTY_TASK_FORM);
+      await loadData();
+    } catch (error) {
+      toast(error.message || 'Failed to assign task', 'error');
+    } finally {
+      setTaskSubmitting(false);
+    }
+  };
+
+  // Ported from frontend-old — pre-fills the goal form with a focus item's employee + title.
+  const prepareFollowUp = (item) => {
+    if (!item) return;
+    setGoalForm((prev) => ({
+      ...prev,
+      employeeID: item.employeeID || prev.employeeID || '',
+      title: prev.title || `${t('Follow-up')}: ${item.title}`.slice(0, 160),
+      priority: item.priority || prev.priority,
+    }));
+    toast(t('Goal form prepared for quick follow-up.'));
   };
 
   if (loading || authLoading) {
@@ -396,8 +435,48 @@ export function TeamGoalsPage() {
               <Textarea label={t('Operational Context')} value={goalForm.description} onChange={(e) => setGoalForm(f => ({ ...f, description: e.target.value }))} style={{ minHeight: 100, borderRadius: 16 }} />
               
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 32 }}>
-                 <Btn onClick={handleCreateGoal} style={{ height: 52, padding: '0 40px', background: '#111827', color: 'white', borderRadius: 14, fontWeight: 900, border: 'none' }}>
-                    Deploy Strategic Asset
+                 <Btn onClick={handleCreateGoal} disabled={goalSubmitting} style={{ height: 52, padding: '0 40px', background: '#111827', color: 'white', borderRadius: 14, fontWeight: 900, border: 'none' }}>
+                    {goalSubmitting ? t('Deploying...') : 'Deploy Strategic Asset'}
+                 </Btn>
+              </div>
+           </div>
+
+           {/* Task Assignment Form — ported from old TeamPage handleCreateTask flow */}
+           <div style={{ background: '#fff', borderRadius: 32, border: '1.5px solid #F1F5F9', padding: 40 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 32 }}>
+                 <div style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--red-50)', display: 'grid', placeItems: 'center' }}>
+                    <Zap size={20} style={{ color: 'var(--red-600)' }} />
+                 </div>
+                 <h3 style={{ fontSize: 20, fontWeight: 900, color: '#1E293B', margin: 0 }}>Assign Tactical Task</h3>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 24 }}>
+                 <EmployeeSelect label={t('Select Node')} value={taskForm.employeeID} onChange={(v) => setTaskForm(f => ({ ...f, employeeID: v }))} />
+                 <Input label={t('Task Title')} value={taskForm.title} onChange={(e) => setTaskForm(f => ({ ...f, title: e.target.value }))} style={{ height: 52, borderRadius: 12 }} />
+              </div>
+
+              <Textarea label={t('Operational Brief')} value={taskForm.description} onChange={(e) => setTaskForm(f => ({ ...f, description: e.target.value }))} style={{ minHeight: 80, borderRadius: 16 }} />
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginTop: 24 }}>
+                 <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '.05em' }}>{t('Priority')}</label>
+                    <select
+                      value={taskForm.priority}
+                      onChange={(e) => setTaskForm(f => ({ ...f, priority: e.target.value }))}
+                      style={{ width: '100%', height: 52, borderRadius: 12, border: '1.5px solid #E2E8F0', padding: '0 14px', fontSize: 13, fontWeight: 600, outline: 'none', background: '#fff', cursor: 'pointer' }}
+                    >
+                      <option value="Low">Low</option>
+                      <option value="Medium">Medium</option>
+                      <option value="High">High</option>
+                    </select>
+                 </div>
+                 <Input label={t('Estimated Hours')} type="number" min="0.5" step="0.5" value={taskForm.estimatedHours} onChange={(e) => setTaskForm(f => ({ ...f, estimatedHours: e.target.value }))} style={{ height: 52, borderRadius: 12 }} />
+                 <Input label={t('Due Date')} type="date" value={taskForm.dueDate} onChange={(e) => setTaskForm(f => ({ ...f, dueDate: e.target.value }))} style={{ height: 52, borderRadius: 12 }} />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 32 }}>
+                 <Btn onClick={handleCreateTask} disabled={taskSubmitting} style={{ height: 52, padding: '0 40px', background: 'var(--red-600)', color: 'white', borderRadius: 14, fontWeight: 900, border: 'none' }}>
+                    {taskSubmitting ? t('Assigning...') : 'Assign Task'}
                  </Btn>
               </div>
            </div>
@@ -456,7 +535,7 @@ export function TeamGoalsPage() {
                      </div>
                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
                         <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700 }}>{item.employeeName}</span>
-                        <Btn size="sm" variant="ghost" style={{ fontSize: 10, fontWeight: 900 }}>{t('Follow-up')}</Btn>
+                        <Btn size="sm" variant="ghost" onClick={() => prepareFollowUp(item)} style={{ fontSize: 10, fontWeight: 900 }}>{t('Follow-up')}</Btn>
                      </div>
                   </div>
                 ))}

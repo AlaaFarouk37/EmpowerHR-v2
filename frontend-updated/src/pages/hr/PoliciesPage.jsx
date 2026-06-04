@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hrGetPolicies, hrCreatePolicy, hrSendPolicyReminder } from '../../api/index.js';
+import { hrGetPolicies, hrCreatePolicy, hrSendPolicyReminder, hrGetDepartmentOptions } from '../../api/index.js';
 import { Badge, Btn, Spinner, useToast, Input, Modal, Textarea } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -41,14 +41,19 @@ export function HRPoliciesPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [remindingId, setRemindingId] = useState(null);
-  const EMPTY_POLICY = { title: '', category: 'Policy', audience: 'All Employees', content: '', status: 'Draft', effectiveDate: '' };
+  const [departments, setDepartments] = useState([]);
+  const EMPTY_POLICY = { title: '', category: 'Policy', audience: 'All Departments', content: '', status: 'Draft', effectiveDate: '' };
   const [createForm, setCreateForm] = useState(EMPTY_POLICY);
 
   const loadPolicies = async () => {
     setLoading(true);
     try {
-      const data = await hrGetPolicies();
-      setPolicies(Array.isArray(data) ? data : []);
+      const [policyData, deptData] = await Promise.all([
+        hrGetPolicies(),
+        hrGetDepartmentOptions().catch(() => []),
+      ]);
+      setPolicies(Array.isArray(policyData) ? policyData : []);
+      setDepartments(Array.isArray(deptData) ? deptData : []);
     } catch (error) {
       toast('Failed to load policy data', 'error');
     } finally {
@@ -143,7 +148,7 @@ export function HRPoliciesPage() {
           variant="primary"
           style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
         >
-           <Zap size={18} style={{ marginRight: 8 }} /> {t('Initialize Asset')}
+           <Zap size={18} style={{ marginRight: 8 }} /> {t('Announce new policy')}
         </Btn>
       </div>
 
@@ -289,10 +294,12 @@ export function HRPoliciesPage() {
             <div>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{t('Audience')}</label>
               <select value={createForm.audience} onChange={(e) => setCreateForm({ ...createForm, audience: e.target.value })} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px' }}>
-                <option value="All Employees">All Employees</option>
-                <option value="Managers">Managers</option>
-                <option value="Engineering">Engineering</option>
-                <option value="Operations">Operations</option>
+                <option value="All Departments">{t('All Departments')}</option>
+                {departments.map(d => {
+                  const name = d?.name || d?.department || '';
+                  if (!name) return null;
+                  return <option key={d.department_id ?? d.id ?? name} value={name}>{name}</option>;
+                })}
               </select>
             </div>
           </div>

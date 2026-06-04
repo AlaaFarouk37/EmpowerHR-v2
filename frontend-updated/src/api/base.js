@@ -24,10 +24,26 @@ export const toList = (payload) => {
   return [];
 };
 
+const LOGIN_PATHS = new Set(['/login', '/candidate/login']);
+
 const clearSession = () => {
   localStorage.removeItem('access');
   localStorage.removeItem('refresh');
   localStorage.removeItem('user');
+};
+
+// When the session can no longer be recovered (refresh failed, etc.), wipe the
+// stored tokens AND bounce the user to /login so they don't sit on a broken page
+// with cryptic toasts. Skipped if already on a login route.
+const handleSessionExpired = () => {
+  clearSession();
+  if (typeof window === 'undefined') return;
+  const here = window.location.pathname || '';
+  if (!LOGIN_PATHS.has(here)) {
+    // Preserve where they were so login can route back after sign-in if it wants to.
+    try { sessionStorage.setItem('post_login_redirect', here + window.location.search); } catch {}
+    window.location.assign('/login');
+  }
 };
 
 const parseJsonSafe = async (response) => {
@@ -42,7 +58,10 @@ const parseJsonSafe = async (response) => {
 
 const refreshAccessToken = async () => {
   const refresh = localStorage.getItem('refresh');
-  if (!refresh) return false;
+  if (!refresh) {
+    handleSessionExpired();
+    return false;
+  }
 
   try {
     const response = await fetch(`${BASE}/auth/token/refresh/`, {
@@ -55,7 +74,7 @@ const refreshAccessToken = async () => {
 
     const data = await parseJsonSafe(response);
     if (!response.ok || !data?.access) {
-      clearSession();
+      handleSessionExpired();
       return false;
     }
 
@@ -63,7 +82,7 @@ const refreshAccessToken = async () => {
     if (data.refresh) localStorage.setItem('refresh', data.refresh);
     return true;
   } catch {
-    clearSession();
+    handleSessionExpired();
     return false;
   }
 };

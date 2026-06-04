@@ -43,21 +43,28 @@ export function TeamDirectoryPage() {
       setLoading(true);
       try {
         const data = await hrGetEmployees();
-        // Filtering or mocking team members based on the current leader
-        // For demonstration, we'll use the fetched data or a subset
-        const mockMembers = data.slice(0, 6).map(m => ({
-          id: m.employee_id,
-          name: m.full_name || m.name,
-          role: m.position || 'Specialist',
-          email: m.email,
-          location: m.department || 'Headquarters',
-          joined: m.date_joined || '2024',
-          skills: ['React', 'Strategy', 'Agile'],
-          stability: Math.floor(Math.random() * 20) + 80,
-          perf: (Math.random() * 1 + 4).toFixed(1),
-          avatar: (m.full_name || m.name).split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-        }));
-        setMembers(mockMembers);
+        // The backend already scopes this endpoint to the TL's team (excluding themselves).
+        const list = Array.isArray(data) ? data : [];
+        const mapped = list.map(m => {
+          const name = m.fullName || m.full_name || m.name || m.email || 'Unnamed';
+          const initials = String(name).trim().split(/\s+/).map(n => n[0]).filter(Boolean).join('').toUpperCase().slice(0, 2) || '?';
+          return {
+            id: m.employeeID || m.employee_id,
+            name,
+            role: m.jobTitle || m.role || m.position || 'Team Member',
+            email: m.email || '',
+            department: m.department || '—',
+            team: m.team || '—',
+            location: m.location || m.department || '—',
+            employmentStatus: m.employmentStatus || 'Active',
+            employeeType: m.employeeType || '',
+            joined: (m.hiring_date || m.date_joined || '').slice(0, 10),
+            yearsAtCompany: m.yearsAtCompany ?? null,
+            remoteWork: Boolean(m.remoteWork),
+            avatar: initials,
+          };
+        });
+        setMembers(mapped);
       } catch (error) {
         console.error('Error fetching team directory:', error);
         toast(t('Failed to sync team directory'), 'error');
@@ -72,10 +79,11 @@ export function TeamDirectoryPage() {
   }, [authLoading, t, toast]);
 
   const filteredMembers = useMemo(() => {
-    return members.filter(m => 
-      m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.role.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.skills.some(s => s.toLowerCase().includes(searchQuery.toLowerCase()))
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return members;
+    return members.filter(m =>
+      [m.name, m.role, m.email, m.department, m.team, m.location]
+        .some(v => String(v || '').toLowerCase().includes(q))
     );
   }, [members, searchQuery]);
 
@@ -200,29 +208,49 @@ export function TeamDirectoryPage() {
 
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
                          <div style={{ padding: '16px', background: '#F8FAFC', borderRadius: 20, border: '1px solid #F1F5F9' }}>
-                            <div style={{ fontSize: 10, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>Stability Index</div>
-                            <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--red-800)' }}>{m.stability}%</div>
-                            <div style={{ width: '100%', height: 4, background: '#E2E8F0', borderRadius: 2, marginTop: 8 }}>
-                               <div style={{ width: `${m.stability}%`, height: '100%', background: 'var(--red-600)', borderRadius: 2 }} />
-                            </div>
+                            <div style={{ fontSize: 10, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>{t('Department')}</div>
+                            <div style={{ fontSize: 14, fontWeight: 900, color: '#1E293B' }}>{m.department}</div>
+                            {m.team && m.team !== '—' && (
+                               <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, marginTop: 6 }}>{t('Team')}: {m.team}</div>
+                            )}
                          </div>
                          <div style={{ padding: '16px', background: '#F8FAFC', borderRadius: 20, border: '1px solid #F1F5F9' }}>
-                            <div style={{ fontSize: 10, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>Perf Rating</div>
-                            <div style={{ fontSize: 18, fontWeight: 900, color: '#1E293B' }}>{m.perf} <Star size={14} fill="var(--red-600)" style={{ color: 'var(--red-600)' }} /></div>
-                            <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 600, marginTop: 8 }}>Neural Benchmark</div>
+                            <div style={{ fontSize: 10, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>{t('Joined')}</div>
+                            <div style={{ fontSize: 14, fontWeight: 900, color: '#1E293B' }}>{m.joined || '—'}</div>
+                            {m.yearsAtCompany != null && (
+                               <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 700, marginTop: 6 }}>{m.yearsAtCompany} {t('yrs')}</div>
+                            )}
                          </div>
                       </div>
 
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 32 }}>
-                         {m.skills.map(s => (
-                           <span key={s} style={{ padding: '6px 12px', background: '#fff', border: '1.5px solid #F1F5F9', borderRadius: 10, fontSize: 11, fontWeight: 800, color: '#64748B' }}>{s}</span>
-                         ))}
-                         <span style={{ padding: '6px 12px', background: 'var(--red-50)', borderRadius: 10, fontSize: 11, fontWeight: 800, color: 'var(--red-600)' }}>+4 more</span>
+                         {m.employmentStatus && (
+                           <span style={{ padding: '6px 12px', background: m.employmentStatus === 'Active' ? '#ECFDF5' : '#FFF7ED', color: m.employmentStatus === 'Active' ? '#059669' : '#B54708', borderRadius: 10, fontSize: 11, fontWeight: 800 }}>{m.employmentStatus}</span>
+                         )}
+                         {m.employeeType && (
+                           <span style={{ padding: '6px 12px', background: '#fff', border: '1.5px solid #F1F5F9', borderRadius: 10, fontSize: 11, fontWeight: 800, color: '#64748B' }}>{m.employeeType}</span>
+                         )}
+                         {m.location && m.location !== '—' && (
+                           <span style={{ padding: '6px 12px', background: '#fff', border: '1.5px solid #F1F5F9', borderRadius: 10, fontSize: 11, fontWeight: 800, color: '#64748B', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                             <MapPin size={11} /> {m.location}
+                           </span>
+                         )}
+                         {m.remoteWork && (
+                           <span style={{ padding: '6px 12px', background: 'var(--red-50)', borderRadius: 10, fontSize: 11, fontWeight: 800, color: 'var(--red-600)' }}>{t('Remote')}</span>
+                         )}
                       </div>
 
                       <div style={{ display: 'flex', gap: 12 }}>
-                         <Btn variant="primary" style={{ flex: 1, height: 44, borderRadius: 12, background: '#1E293B', border: 'none' }}>View Detailed Profile</Btn>
-                         <Btn variant="secondary" style={{ width: 44, height: 44, borderRadius: 12, display: 'grid', placeItems: 'center' }}><Mail size={18} /></Btn>
+                         <Btn variant="primary" style={{ flex: 1, height: 44, borderRadius: 12, background: '#1E293B', border: 'none' }}>{t('View Detailed Profile')}</Btn>
+                         <Btn
+                           variant="secondary"
+                           onClick={() => { if (m.email) window.location.href = `mailto:${m.email}`; }}
+                           disabled={!m.email}
+                           title={m.email ? `${t('Email')} ${m.email}` : t('No email on file')}
+                           style={{ width: 44, height: 44, borderRadius: 12, display: 'grid', placeItems: 'center', opacity: m.email ? 1 : 0.5 }}
+                         >
+                           <Mail size={18} />
+                         </Btn>
                       </div>
                    </div>
                  ))}
