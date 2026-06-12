@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getTeamGoals, getTeamTasks, hrGetTeamOptions, hrGetEmployees, createTeamGoal, createTeamTask, approveTeamTask, returnTeamTaskWithNotes } from '../../api/index.js';
+import { getTeamGoals, getTeamTasks, hrGetTeamOptions, hrGetEmployees, hrGetWeeklyCapacity, getPublicHolidays, createTeamGoal, createTeamTask, approveTeamTask, returnTeamTaskWithNotes } from '../../api/index.js';
 import { Badge, Btn, EmployeeSelect, Input, Modal, Spinner, Textarea, useToast } from '../../components/shared/index.jsx';
 import ContactEmailModal from '../../components/shared/ContactEmailModal.jsx';
 import { useAuth } from '../../context/AuthContext';
@@ -13,6 +13,9 @@ const startOfMonth = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
 const endOfMonth = (d) => new Date(d.getFullYear(), d.getMonth() + 1, 0);
 const toDayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+const weekNavBtn = { height: 32, minWidth: 32, borderRadius: 8, border: '1.5px solid #E2E8F0', background: '#fff', color: '#64748B', cursor: 'pointer', display: 'grid', placeItems: 'center' };
+const fmtShort = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '');
+
 export function HRTeamHubPage({ showTeamFilter = true } = {}) {
   const { t } = useLanguage();
   const toast = useToast();
@@ -22,6 +25,10 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
   const [tasks, setTasks] = useState([]);
   const [teams, setTeams] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [capacityByEmp, setCapacityByEmp] = useState({});
+  const [capacityMeta, setCapacityMeta] = useState(null);
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [holidaysByDate, setHolidaysByDate] = useState({});
   const [loading, setLoading] = useState(true);
 
   const [selectedTeam, setSelectedTeam] = useState('');
@@ -77,6 +84,32 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
     load();
     return () => { active = false; };
   }, [t, toast]);
+
+  // Weekly capacity is fetched separately so the week selector can re-query it
+  // without reloading the whole page.
+  useEffect(() => {
+    let active = true;
+    hrGetWeeklyCapacity(weekOffset).then(data => {
+      if (!active) return;
+      const map = {};
+      (data?.employees || []).forEach(r => { map[r.employeeID] = r; });
+      setCapacityByEmp(map);
+      setCapacityMeta(data ? { weekStart: data.weekStart, weekEnd: data.weekEnd, holidayDays: data.holidayDays } : null);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [weekOffset]);
+
+  // Public holidays for the displayed calendar year (faded on the calendar grid).
+  useEffect(() => {
+    let active = true;
+    getPublicHolidays(calendarCursor.getFullYear()).then(list => {
+      if (!active) return;
+      const map = {};
+      (list || []).forEach(h => { map[h.date] = h.name; });
+      setHolidaysByDate(map);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [calendarCursor]);
 
   // Lightweight reloader for after create. Doesn't touch loading flag (modal stays open through any error).
   const reloadGoalsTasks = async () => {
@@ -221,6 +254,10 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
 
   // Per-member utilization cards. Build from scoped tasks so they reflect filters.
   const memberUtilization = useMemo(() => {
+    // Team leaders are not tracked as utilization cards (a TL leads the team,
+    // and shouldn't see their own card). Also drop the logged-in user's own card.
+    const leaderIds = new Set((employees || []).filter(e => e?.role === 'TeamLeader').map(e => String(e.employeeID)));
+    const selfId = String(user?.employee_id || '');
     const byEmp = {};
     scopedTasks.forEach(task => {
       const id = task?.employeeID;
@@ -260,11 +297,28 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
         };
       }
     });
-    return Object.values(byEmp).map(emp => ({
-      ...emp,
-      utilizationRate: emp.contractedHours > 0 ? Math.round((emp.estimatedHours / emp.contractedHours) * 100) : 0,
-    })).sort((a, b) => b.utilizationRate - a.utilizationRate);
-  }, [scopedTasks, memberOptions]);
+    return Object.values(byEmp).map(emp => {
+      // Capacity = contracted weekly hours minus public holidays + approved leave
+      // this week (from the backend). Falls back to contracted hours if absent.
+      const cap = capacityByEmp[emp.employeeID];
+      const availableHours = cap ? cap.availableHours : emp.contractedHours;
+      const unavailable = availableHours <= 0;  // fully consumed by holidays/leave this week
+      return {
+        ...emp,
+        availableHours,
+        holidayDays: cap ? cap.holidayDays : 0,
+        leaveDays: cap ? cap.leaveDays : 0,
+        unavailable,
+        utilizationRate: unavailable ? (emp.estimatedHours > 0 ? 100 : 0)
+          : Math.round((emp.estimatedHours / availableHours) * 100),
+      };
+    })
+    .filter(emp => {
+      const id = String(emp.employeeID);
+      return !leaderIds.has(id) && id !== selfId;
+    })
+    .sort((a, b) => b.utilizationRate - a.utilizationRate);
+  }, [scopedTasks, memberOptions, capacityByEmp, employees, user]);
 
   // Calendar — month grid with task counts per day
   const monthGrid = useMemo(() => {
@@ -375,10 +429,27 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
 
       {/* ─── Per-Member Utilization Cards ─── */}
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
           <Users size={20} style={{ color: 'var(--red-600)' }} />
           <h3 style={{ fontSize: 18, fontWeight: 900, color: '#1E293B', margin: 0 }}>{t('Utilization by Member')}</h3>
           {selectedTeam && <Badge label={selectedTeamName} color="accent" />}
+          <div style={{ marginInlineStart: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button onClick={() => setWeekOffset(o => Math.max(-8, o - 1))} title={t('Previous week')} style={weekNavBtn}><ChevronLeft size={16} /></button>
+            <div style={{ textAlign: 'center', minWidth: 132 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 900, color: '#1E293B' }}>
+                {weekOffset === 0 ? t('This week') : weekOffset === 1 ? t('Next week') : weekOffset === -1 ? t('Last week') : `${weekOffset > 0 ? '+' : ''}${weekOffset} ${t('weeks')}`}
+              </div>
+              {capacityMeta && (
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8' }}>
+                  {fmtShort(capacityMeta.weekStart)} – {fmtShort(capacityMeta.weekEnd)}{capacityMeta.holidayDays ? ` • ${capacityMeta.holidayDays} ${t('holiday')}` : ''}
+                </div>
+              )}
+            </div>
+            <button onClick={() => setWeekOffset(o => Math.min(8, o + 1))} title={t('Next week')} style={weekNavBtn}><ChevronRight size={16} /></button>
+            {weekOffset !== 0 && (
+              <button onClick={() => setWeekOffset(0)} style={{ ...weekNavBtn, width: 'auto', minWidth: 0, padding: '0 10px', fontSize: 12, fontWeight: 800 }}>{t('This week')}</button>
+            )}
+          </div>
         </div>
         {memberUtilization.length === 0 ? (
           <div style={{ padding: '40px 20px', textAlign: 'center', background: '#F8FAFC', borderRadius: 20, border: '1.5px dashed #E2E8F0', color: '#94A3B8' }}>
@@ -389,7 +460,8 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
             {memberUtilization.map(emp => {
-              const color = emp.utilizationRate > 100 ? 'var(--red-600)'
+              const color = emp.unavailable ? '#94A3B8'
+                : emp.utilizationRate > 100 ? 'var(--red-600)'
                 : emp.utilizationRate >= 70 ? '#10B981'
                 : emp.utilizationRate > 0 ? '#F59E0B'
                 : '#94A3B8';
@@ -400,15 +472,20 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
                       <div style={{ fontSize: 14, fontWeight: 900, color: '#1E293B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.employeeName}</div>
                       <div style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', marginTop: 2 }}>{emp.team}</div>
                     </div>
-                    <div style={{ fontSize: 22, fontWeight: 900, color, flexShrink: 0 }}>{emp.utilizationRate}%</div>
+                    {emp.unavailable
+                      ? <div style={{ fontSize: 13, fontWeight: 900, color: '#94A3B8', flexShrink: 0, textTransform: 'uppercase' }} title={t('No available hours this week (holiday/leave)')}>{t('On leave')}</div>
+                      : <div style={{ fontSize: 22, fontWeight: 900, color, flexShrink: 0 }}>{emp.utilizationRate}%</div>}
                   </div>
                   <div style={{ height: 8, background: '#F1F5F9', borderRadius: 4, overflow: 'hidden', marginBottom: 14 }}>
-                    <div style={{ width: `${Math.min(100, emp.utilizationRate)}%`, height: '100%', background: color, transition: 'width 0.3s' }} />
+                    <div style={{ width: emp.unavailable ? '100%' : `${Math.min(100, emp.utilizationRate)}%`, height: '100%', background: color, transition: 'width 0.3s' }} />
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, fontSize: 11, fontWeight: 700, color: '#64748B' }}>
-                    <div>
-                      <div style={{ color: '#94A3B8', fontSize: 9, textTransform: 'uppercase', marginBottom: 2 }}>{t('Hours')}</div>
-                      <div style={{ color: '#1E293B', fontSize: 13, fontWeight: 800 }}>{emp.estimatedHours.toFixed(1)}h</div>
+                    <div title={(emp.holidayDays || emp.leaveDays) ? t('Capacity reduced by holidays/leave this week') : ''}>
+                      <div style={{ color: '#94A3B8', fontSize: 9, textTransform: 'uppercase', marginBottom: 2 }}>{t('Used / Avail')}</div>
+                      <div style={{ color: '#1E293B', fontSize: 13, fontWeight: 800 }}>
+                        {emp.estimatedHours.toFixed(1)} / {Number(emp.availableHours || 0).toFixed(0)}h
+                        {(emp.holidayDays || emp.leaveDays) ? <span style={{ color: '#F59E0B', marginLeft: 4 }}>•</span> : null}
+                      </div>
                     </div>
                     <div>
                       <div style={{ color: '#94A3B8', fontSize: 9, textTransform: 'uppercase', marginBottom: 2 }}>{t('Open')}</div>
@@ -465,14 +542,27 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
               const isSelected = key === selectedDay;
               const isToday = key === toDayKey(new Date());
               const hasOverdue = dayTasks.some(tk => tk.status !== 'Done' && key < toDayKey(new Date()));
+              const isWeekend = day.getDay() === 5 || day.getDay() === 6;  // Fri/Sat
+              const holidayName = holidaysByDate[key];
+              const isHoliday = !!holidayName;
+              const faded = isWeekend || isHoliday;
+              const bg = isSelected ? 'var(--red-50)'
+                : isHoliday ? '#FFF4E6'      // faded amber — public holiday
+                : isWeekend ? '#EDF0F4'      // faded grey — weekend
+                : '#F8FAFC';
+              const numColor = isSelected ? 'var(--red-600)' : isToday ? '#4338CA' : faded ? '#9AA4B2' : '#1E293B';
               return (
                 <button
                   key={key}
+                  title={holidayName || (isWeekend ? t('Weekend') : '')}
                   onClick={() => { setSelectedDay(key); openTaskModalForDate(key); }}
                   style={{
                     minHeight: 70,
-                    background: isSelected ? 'var(--red-50)' : '#F8FAFC',
-                    border: isSelected ? '1.5px solid var(--red-600)' : isToday ? '1.5px solid #C7D2FE' : '1.5px solid #F1F5F9',
+                    background: bg,
+                    border: isSelected ? '1.5px solid var(--red-600)'
+                      : isToday ? '1.5px solid #C7D2FE'
+                      : isHoliday ? '1.5px solid #FCD9A8'
+                      : '1.5px solid #F1F5F9',
                     borderRadius: 10,
                     padding: 8,
                     cursor: 'pointer',
@@ -482,9 +572,26 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
                     transition: 'all 0.15s',
                   }}
                 >
-                  <div style={{ fontSize: 12, fontWeight: 800, color: isSelected ? 'var(--red-600)' : isToday ? '#4338CA' : '#1E293B', marginBottom: 'auto' }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: numColor, marginBottom: 'auto' }}>
                     {day.getDate()}
                   </div>
+                  {isHoliday && (
+                    <div style={{
+                      fontSize: 8.5,
+                      lineHeight: 1.15,
+                      fontWeight: 800,
+                      color: '#D97706',
+                      marginTop: 4,
+                      width: '100%',
+                      wordBreak: 'break-word',
+                      overflow: 'hidden',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                    }}>
+                      {holidayName}
+                    </div>
+                  )}
                   {dayTasks.length > 0 && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6 }}>
                       <div style={{ width: 6, height: 6, borderRadius: '50%', background: hasOverdue ? 'var(--red-600)' : 'var(--red-400)' }} />
@@ -494,6 +601,15 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
                 </button>
               );
             })}
+          </div>
+
+          <div style={{ display: 'flex', gap: 16, marginTop: 14, fontSize: 11, fontWeight: 700, color: '#94A3B8' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 12, height: 12, borderRadius: 3, background: '#EDF0F4', border: '1px solid #E2E8F0' }} /> {t('Weekend')}
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 12, height: 12, borderRadius: 3, background: '#FFF4E6', border: '1px solid #FCD9A8' }} /> {t('Public holiday')}
+            </span>
           </div>
         </div>
 

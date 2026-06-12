@@ -17,7 +17,7 @@ from .serializers import (
     TimeCorrectionRequestSerializer, TimeCorrectionCreateSerializer, TimeCorrectionReviewSerializer,
     HolidayOverrideSerializer, HolidayOverrideCreateSerializer, LeaveBalanceSerializer, AbsenceRunSerializer,
 )
-from . import leave_services, holiday_service, absence_service
+from . import leave_services, holiday_service, absence_service, capacity
 
 
 def _compute_overtime(record):
@@ -889,6 +889,16 @@ class HRHolidayCalendarView(APIView):
         return Response(holiday_service.effective_holidays_for_year(year))
 
 
+class PublicHolidayListView(APIView):
+    """GET /holidays/?year= — effective public holidays for the year, readable by
+    any internal employee (used by the team calendars and leave pages)."""
+    permission_classes = [IsAuthenticated, IsInternalEmployee]
+
+    def get(self, request):
+        year = int(request.query_params.get('year') or timezone.localdate().year)
+        return Response(holiday_service.effective_holidays_for_year(year))
+
+
 class HRHolidayOverrideListCreateView(APIView):
     """GET/POST /hr/holiday-overrides/ — HR add/remove adjustments on top of the
     holidays library."""
@@ -1005,3 +1015,36 @@ class TeamLeaveRequestListView(APIView):
                 'remainingDays': balance.remainingDays,
             }
         return Response(payload)
+
+
+class TeamWeeklyCapacityView(APIView):
+    """GET /attendance_leave/team/weekly-capacity/?team= — per-employee available
+    work hours this week (weekly contracted hours minus public-holiday and
+    approved-leave hours). HR/Admin see all active employees; a Team Leader sees
+    their own team. Used as the denominator for the utilization rate."""
+    permission_classes = [IsAuthenticated, IsTeamLeader]
+
+    def get(self, request):
+        from datetime import date, timedelta
+
+        employees = Employee.objects.filter(isDeleted=False, employmentStatus='Active')
+
+        if getattr(request.user, 'role', None) == 'TeamLeader':
+            leader = Employee.objects.filter(
+                employeeID=getattr(request.user, 'employee_id', None), isDeleted=False).first()
+            employees = employees.filter(team=leader.team) if (leader and leader.team_id) else employees.none()
+
+        team = request.query_params.get('team')
+        if team:
+            employees = employees.filter(team__name__iexact=team)
+
+        # weekOffset: 0 = current work week, +1 = next, -1 = previous (clamped).
+        try:
+            week_offset = int(request.query_params.get('weekOffset') or 0)
+        except (TypeError, ValueError):
+            week_offset = 0
+        week_offset = max(-8, min(8, week_offset))
+        reference = date.today() + timedelta(days=7 * week_offset)
+
+        meta, rows = capacity.weekly_capacity(employees, reference=reference)
+        return Response({**meta, 'weekOffset': week_offset, 'employees': rows})

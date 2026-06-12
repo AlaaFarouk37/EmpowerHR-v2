@@ -23,6 +23,7 @@ from payroll.models import Deduction
 from . import holiday_service as hs
 from . import leave_services as ls
 from . import absence_service as ab
+from . import capacity as cap
 from .models import AttendanceRecord, HolidayOverride, LeaveBalance, LeaveRequest
 
 
@@ -145,6 +146,17 @@ class BalanceServiceTests(TestCase):
     def test_other_type_uses_leavetype_max(self):
         bal = ls.get_or_create_balance(self.emp, 'Casual', 2026)
         self.assertEqual(bal.entitledDays, 7)
+
+    def test_custom_unpaid_type_is_uncapped(self):
+        # Any admin-created type flagged is_paid=False is uncapped, not just 'Unpaid'.
+        LeaveType.objects.create(name='Sabbatical', max_days_per_year=0, is_paid=False)
+        bal = ls.get_or_create_balance(self.emp, 'Sabbatical', 2026)
+        self.assertIsNone(bal.entitledDays)
+
+    def test_custom_paid_type_uses_its_max(self):
+        LeaveType.objects.create(name='Bereavement', max_days_per_year=5, is_paid=True)
+        bal = ls.get_or_create_balance(self.emp, 'Bereavement', 2026)
+        self.assertEqual(bal.entitledDays, 5)
 
     def test_evaluate_counts_working_days(self):
         days, _bal, exceeded, _msg = ls.evaluate_request(
@@ -376,6 +388,49 @@ class AbsenceServiceTests(TestCase):
         self.emp.save()
         ab.detect_and_deduct(self.emp, date(2026, 3, 9), date(2026, 3, 9))
         self.assertEqual(Deduction.objects.get(employee=self.emp).amount, Decimal('0.00'))
+
+
+# ── Weekly capacity (utilization denominator) ────────────────────────────────
+
+class WeeklyCapacityTests(TestCase):
+    def _emp(self, eid):
+        return _emp(employeeID=eid, contracted_hours=Decimal('40'),
+                    contracted_hours_day=Decimal('8'), employmentStatus='Active')
+
+    def test_clean_week_is_full_capacity(self):
+        emp = self._emp('E-CAP1')
+        meta, rows = cap.weekly_capacity([emp], reference=date(2026, 3, 10))  # clean Sun-Thu week
+        self.assertEqual(meta['holidayDays'], 0)
+        self.assertEqual(rows[0]['availableHours'], 40.0)
+
+    def test_public_holiday_reduces_capacity(self):
+        emp = self._emp('E-CAP2')
+        # Week of Tue Jun 16 2026 contains the Thu Jun 18 public holiday.
+        meta, rows = cap.weekly_capacity([emp], reference=date(2026, 6, 16))
+        self.assertEqual(meta['holidayDays'], 1)
+        self.assertEqual(rows[0]['availableHours'], 32.0)  # 40 - 1*8
+
+    def test_approved_leave_reduces_capacity(self):
+        emp = self._emp('E-CAP3')
+        annual = LeaveType.objects.get(name='Annual')
+        LeaveRequest.objects.create(
+            employee=emp, leaveType=annual, startDate=date(2026, 3, 9), endDate=date(2026, 3, 10),
+            daysRequested=2, reason='x', status=LeaveRequest.STATUS_APPROVED)
+        _meta, rows = cap.weekly_capacity([emp], reference=date(2026, 3, 11))
+        self.assertEqual(rows[0]['leaveDays'], 2)
+        self.assertEqual(rows[0]['availableHours'], 24.0)  # 40 - 2*8
+
+    def test_capacity_endpoint_scopes_and_returns_rows(self):
+        hr = User.objects.create_user(email='caphr@x.com', password='x', role=User.Role.HR_MANAGER, full_name='HR')
+        member = User.objects.create_user(email='capm@x.com', password='x', role=User.Role.TEAM_MEMBER, full_name='M')
+        e = member.employee
+        e.contracted_hours = Decimal('40'); e.contracted_hours_day = Decimal('8'); e.employmentStatus = 'Active'; e.save()
+        client = APIClient()
+        client.force_authenticate(user=hr)
+        res = client.get(reverse('team-weekly-capacity'))
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('employees', res.data)
+        self.assertTrue(any(r['employeeID'] == member.employee_id for r in res.data['employees']))
 
 
 # ── HR API: holiday overrides + absence run ──────────────────────────────────

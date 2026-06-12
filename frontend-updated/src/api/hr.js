@@ -57,6 +57,14 @@ export const hrGetEmployees = async (filters = {}) => {
   return toList(await api.get(`/employee_management/hr/employees/${query}`));
 };
 export const hrGetRosterHealth = () => api.get('/employee_management/hr/employees/roster-health/');
+// Holiday/leave-aware available work hours per employee. weekOffset 0=this week, 1=next, -1=prev.
+export const hrGetWeeklyCapacity = (weekOffset = 0, team) =>
+  api.get(`/attendance_leave/team/weekly-capacity/?weekOffset=${weekOffset}${team ? `&team=${encodeURIComponent(team)}` : ''}`);
+// Effective public holidays for a year (readable by any internal employee).
+export const getPublicHolidays = async (year) => {
+  const data = await api.get(`/attendance_leave/holidays/${year ? `?year=${year}` : ''}`);
+  return Array.isArray(data) ? data : [];
+};
 export const hrCreateEmployeeRecord = (data) => api.post('/employee_management/hr/employees/', data);
 export const hrUpdateEmployeeRecord = (id, data) => api.put(`/employee_management/hr/employees/${id}/`, data);
 export const hrDeleteEmployeeRecord = (id) => api.delete(`/employee_management/hr/employees/${id}/`);

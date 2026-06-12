@@ -99,6 +99,13 @@ def working_days_in_month(year: int, month: int) -> int:
     return working_days_in_range(date(year, month, 1), date(year, month, last_day))
 
 
+def holiday_dates_in_range(start: date, end: date) -> set:
+    """Set of effective public-holiday dates in the inclusive range (library
+    combined with overrides). Used by payroll to exclude holidays from its
+    day-count math."""
+    return _effective_holidays(start, end)
+
+
 def effective_holidays_for_year(year: int) -> list:
     from .models import HolidayOverride
 

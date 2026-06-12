@@ -214,13 +214,16 @@ class ComputePayrollDBTests(TestCase):
 
         r = calc.compute_payroll(self.employee, JULY_2024, base_salary=23000)
 
-        self.assertEqual(r['unpaidLeaveDays'], 4)
-        self.assertEqual(r['unpaidLeaveDeduction'], Decimal('4000.00'))
+        # July 2024 has weekday holidays Jul 11 & Jul 25; the Jul 8-12 unpaid
+        # leave now counts only Mon 8, Tue 9, Wed 10 (Jul 11 holiday, Jul 12 weekend).
+        # Working days in month = 21 -> daily rate 23000/21.
+        self.assertEqual(r['unpaidLeaveDays'], 3)
+        self.assertEqual(r['unpaidLeaveDeduction'], Decimal('3285.71'))
         self.assertEqual(r['commissions'], Decimal('2500.00'))
         self.assertEqual(r['deductions'], Decimal('1000.00'))
         self.assertEqual(r['expenseReimbursements'], Decimal('800.00'))
-        # 23000 - 4000 + 2500 - 1000 + 800
-        self.assertEqual(r['netPay'], Decimal('21300.00'))
+        # 23000 - 3285.71 + 2500 - 1000 + 800
+        self.assertEqual(r['netPay'], Decimal('22014.29'))
 
     def test_approved_without_approved_amount_contributes_zero(self):
         self._make_expense('Approved', '1000', None)
@@ -237,11 +240,12 @@ class ComputePayrollDBTests(TestCase):
             overtimeHours=Decimal('3'), overtimeStatus=AttendanceRecord.OT_PENDING_REVIEW)
 
         r = calc.compute_payroll(self.employee, JULY_2024, base_salary=23000)
-        self.assertEqual(r['hourlyRate'], Decimal('125.0000'))
+        # 21 working days (2 holidays) -> daily 23000/21, hourly = daily/8 = 136.9048.
+        self.assertEqual(r['hourlyRate'], Decimal('136.9048'))
         self.assertEqual(r['overtimeHours'], Decimal('6.00'))
-        self.assertEqual(r['overtimePay'], Decimal('1125.00'))
-        # 23000 - 4000 + 2500 - 1000 + 0 + 1125
-        self.assertEqual(r['netPay'], Decimal('21625.00'))
+        self.assertEqual(r['overtimePay'], Decimal('1232.14'))  # 136.9048 * 6 * 1.5
+        # 23000 - 3285.71 + 2500 - 1000 + 0 + 1232.14
+        self.assertEqual(r['netPay'], Decimal('22446.43'))
 
 
 class RunCycleTests(TestCase):

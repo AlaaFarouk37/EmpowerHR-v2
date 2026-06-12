@@ -21,6 +21,12 @@ export const adminGetLeaveTypes = () => api.get('/employee_management/leave-type
 export const adminCreateLeaveType = (data) => api.post('/employee_management/leave-types/', data);
 export const adminDeleteLeaveType = (id) => api.delete(`/employee_management/leave-types/${id}/`);
 
+// Public holidays (effective = holidays library combined with overrides)
+export const adminGetPublicHolidays = (year) => api.get(`/attendance_leave/hr/holidays/${year ? `?year=${year}` : ''}`);
+export const adminGetHolidayOverrides = (year) => api.get(`/attendance_leave/hr/holiday-overrides/${year ? `?year=${year}` : ''}`);
+export const adminCreateHolidayOverride = (data) => api.post('/attendance_leave/hr/holiday-overrides/', data);
+export const adminDeleteHolidayOverride = (id) => api.delete(`/attendance_leave/hr/holiday-overrides/${id}/`);
+
 // Governance & Stability
 export const adminGetSystemHealth = () => api.get('/ai/health-snapshot/');
 export const adminGetActivityLogs = () => api.get('/governance/activity-logs/');

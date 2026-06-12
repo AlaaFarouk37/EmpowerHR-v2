@@ -31,6 +31,12 @@ urlpatterns = [
     path('team/leave-requests/', views.TeamLeaveRequestListView.as_view(), name='team-leave-request-list'),
     path('team/leave-requests/<str:pk>/review/', views.review_leave_request, name='team-leave-request-review'),
 
+    # ─── Team utilization capacity (holiday/leave-aware) ─────────────────────
+    path('team/weekly-capacity/', views.TeamWeeklyCapacityView.as_view(), name='team-weekly-capacity'),
+
+    # ─── Public holidays (read-only, any internal employee) ──────────────────
+    path('holidays/', views.PublicHolidayListView.as_view(), name='public-holidays'),
+
     # ─── HR oversight ────────────────────────────────────────────────────────
     path('hr/attendance/', views.HRAttendanceListView.as_view(), name='hr-attendance-list'),
     path('hr/attendance/watch/', views.HRAttendanceWatchView.as_view(), name='hr-attendance-watch'),

@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { 
   getJobs, hrGetEmployees, 
   adminGetOrgConfig, adminUpdateOrgConfig, 
-  adminGetSkills, adminCreateSkill, adminDeleteSkill, 
+  adminGetSkills, adminCreateSkill, adminDeleteSkill,
   adminGetLeaveTypes, adminCreateLeaveType, adminDeleteLeaveType,
+  adminGetPublicHolidays, adminGetHolidayOverrides, adminCreateHolidayOverride, adminDeleteHolidayOverride,
   adminGetSystemHealth
 } from '../../api/index.js';
 import { 
@@ -61,6 +62,7 @@ export function OrganizationConfigPage() {
     { id: 'jobs', label: 'Jobs', icon: <Briefcase size={18} /> },
     { id: 'skills', label: 'Skills', icon: <Target size={18} /> },
     { id: 'leaveTypes', label: 'Leave Types', icon: <Calendar size={18} /> },
+    { id: 'holidays', label: 'Public Holidays', icon: <Globe size={18} /> },
     { id: 'hierarchy', label: 'Hierarchy', icon: <GitBranch size={18} /> },
     { id: 'governance', label: 'Governance', icon: <ShieldCheck size={18} /> },
   ], []);
@@ -69,6 +71,9 @@ export function OrganizationConfigPage() {
   const [security, setSecurity] = useState({ twoFactorEnabled: true, sessionTimeout: 30, notificationsEnabled: true });
   const [skills, setSkills] = useState([]);
   const [leaveTypes, setLeaveTypes] = useState([]);
+  const [holidayYear, setHolidayYear] = useState(new Date().getFullYear());
+  const [holidays, setHolidays] = useState([]);
+  const [holidayOverrides, setHolidayOverrides] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -177,6 +182,57 @@ export function OrganizationConfigPage() {
       toast(t('Leave type removed'));
     } catch (err) {
       toast(err.message || t('Failed to remove leave type'), 'error');
+    }
+  };
+
+  const reloadHolidays = async (year = holidayYear) => {
+    const [hs, ov] = await Promise.all([
+      adminGetPublicHolidays(year).catch(() => []),
+      adminGetHolidayOverrides(year).catch(() => []),
+    ]);
+    setHolidays(Array.isArray(hs) ? hs : []);
+    setHolidayOverrides(Array.isArray(ov) ? ov : []);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'holidays') reloadHolidays(holidayYear);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, holidayYear]);
+
+  const addCompanyHoliday = async () => {
+    if (!form.date) return toast(t('Pick a date'), 'error');
+    try {
+      await adminCreateHolidayOverride({ date: form.date, name: form.name || 'Company holiday', type: 'add' });
+      setModal(null); setForm({});
+      await reloadHolidays();
+      toast(t('Holiday added'));
+    } catch (err) {
+      toast(err.message || t('Failed to add holiday'), 'error');
+    }
+  };
+
+  // Library holiday -> create a 'remove' override; company-added -> delete its override.
+  const removeHoliday = async (holiday, override) => {
+    try {
+      if (override && override.type === 'add') {
+        await adminDeleteHolidayOverride(override.overrideID);
+      } else {
+        await adminCreateHolidayOverride({ date: holiday.date, name: holiday.name, type: 'remove' });
+      }
+      await reloadHolidays();
+      toast(t('Holiday removed'));
+    } catch (err) {
+      toast(err.message || t('Failed to remove holiday'), 'error');
+    }
+  };
+
+  const restoreHoliday = async (override) => {
+    try {
+      await adminDeleteHolidayOverride(override.overrideID);
+      await reloadHolidays();
+      toast(t('Holiday restored'));
+    } catch (err) {
+      toast(err.message || t('Failed to restore holiday'), 'error');
     }
   };
 
@@ -413,6 +469,77 @@ export function OrganizationConfigPage() {
           </div>
         )}
 
+        {activeTab === 'holidays' && (() => {
+          const overridesByDate = {};
+          holidayOverrides.forEach(o => { overridesByDate[o.date] = o; });
+          const removed = holidayOverrides.filter(o => o.type === 'remove');
+          const fmt = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+          return (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32, flexWrap: 'wrap', gap: 16 }}>
+                <div>
+                  <h3 style={{ fontSize: 20, fontWeight: 950, color: '#1E293B', marginBottom: 4 }}>{t('Public Holidays')}</h3>
+                  <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>{t('Egyptian national holidays from the holidays library, plus any company adjustments.')}</p>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', borderRadius: 14, border: '1.5px solid #E2E8F0', padding: '6px 10px' }}>
+                    <button onClick={() => setHolidayYear(y => y - 1)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748B', fontWeight: 900, fontSize: 18 }}>−</button>
+                    <span style={{ fontSize: 15, fontWeight: 900, color: '#1E293B', minWidth: 48, textAlign: 'center' }}>{holidayYear}</span>
+                    <button onClick={() => setHolidayYear(y => y + 1)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#64748B', fontWeight: 900, fontSize: 18 }}>+</button>
+                  </div>
+                  <Btn variant="primary" style={{ height: 48, borderRadius: 14, background: '#10B981', border: 'none', fontWeight: 900, padding: '0 24px' }} onClick={() => { setForm({}); setModal('holiday'); }}>
+                    <Plus size={18} style={{ marginRight: 8 }} /> {t('Add Holiday')}
+                  </Btn>
+                </div>
+              </div>
+
+              {holidays.length === 0 ? (
+                <EmptyState icon={<Globe size={40} />} title={t('No holidays for this year')} subtitle={t('Use Add Holiday to configure a company day off.')} />
+              ) : (
+                <div className="glass-card-employee" style={{ padding: 0, border: '1.5px solid #fff', overflow: 'hidden' }}>
+                  {holidays.map((h, i) => {
+                    const override = overridesByDate[h.date];
+                    const isCompany = h.source === 'override';
+                    return (
+                      <div key={h.date} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '18px 28px', borderTop: i === 0 ? 'none' : '1px solid #F1F5F9' }}>
+                        <div style={{ width: 12, height: 12, borderRadius: '50%', background: isCompany ? '#8B5CF6' : '#10B981' }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 15, fontWeight: 900, color: '#1E293B' }}>{h.name}</div>
+                          <div style={{ fontSize: 13, color: '#94A3B8', fontWeight: 700 }}>{fmt(h.date)}</div>
+                        </div>
+                        <Badge label={isCompany ? t('Company') : t('Official')} color={isCompany ? 'accent' : 'green'} />
+                        <button className="delete-btn" onClick={() => removeHoliday(h, override)} title={t('Remove from calendar')} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#CBD5E1', padding: 8 }}>
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {removed.length > 0 && (
+                <div style={{ marginTop: 32 }}>
+                  <h4 style={{ fontSize: 14, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 16 }}>{t('Removed official days')}</h4>
+                  <div className="glass-card-employee" style={{ padding: 0, border: '1.5px solid #fff', overflow: 'hidden' }}>
+                    {removed.map((o, i) => (
+                      <div key={o.overrideID} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 28px', borderTop: i === 0 ? 'none' : '1px solid #F1F5F9' }}>
+                        <Info size={16} color="#94A3B8" />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: '#475569', textDecoration: 'line-through' }}>{o.name || fmt(o.date)}</div>
+                          <div style={{ fontSize: 12.5, color: '#94A3B8', fontWeight: 700 }}>{fmt(o.date)}</div>
+                        </div>
+                        <button onClick={() => restoreHoliday(o)} style={{ border: '1.5px solid #E2E8F0', background: '#fff', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', color: '#10B981', fontSize: 13, fontWeight: 900 }}>
+                          {t('Restore')}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {activeTab === 'hierarchy' && (
           <div className="glass-card-employee" style={{ padding: 60, textAlign: 'center', border: '1.5px solid #fff' }}>
              <div style={{ maxWidth: 640, margin: '0 auto' }}>
@@ -484,6 +611,17 @@ export function OrganizationConfigPage() {
             </p>
           )}
           <Btn onClick={addLeaveType} style={{ width: '100%', height: 52, borderRadius: 14, fontWeight: 900, background: '#10B981' }}>{t('Create Leave Type')}</Btn>
+        </div>
+      </Modal>
+
+      <Modal open={modal === 'holiday'} onClose={() => setModal(null)} title={t('Add Public Holiday')}>
+        <div style={{ display: 'grid', gap: 24 }}>
+          <Input label={t('Date')} type="date" value={form.date || ''} onChange={e => setForm(p => ({...p, date: e.target.value}))} />
+          <Input label={t('Holiday Name')} value={form.name || ''} onChange={e => setForm(p => ({...p, name: e.target.value}))} placeholder="e.g. Company Foundation Day" />
+          <p style={{ margin: 0, fontSize: 13, color: '#64748B', fontWeight: 600 }}>
+            {t('This adds a company day off on top of the national holidays. It counts as a non-working day for leave, attendance and pay.')}
+          </p>
+          <Btn onClick={addCompanyHoliday} style={{ width: '100%', height: 52, borderRadius: 14, fontWeight: 900, background: '#10B981' }}>{t('Add Holiday')}</Btn>
         </div>
       </Modal>
 
