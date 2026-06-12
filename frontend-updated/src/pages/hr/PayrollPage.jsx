@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hrGetPayroll, hrMarkPayrollPaid, hrCreatePayroll, hrRunPayrollCycle } from '../../api/index.js';
+import { hrGetPayroll, hrMarkPayrollPaid, hrCreatePayroll, hrRunPayrollCycle, hrEditPayroll, hrGetPayrollSignals } from '../../api/index.js';
 import { Badge, Btn, Spinner, useToast, Input, Modal, Textarea, EmployeeSelect } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -22,7 +22,9 @@ import {
   ChevronDown,
   ShieldAlert,
   Target,
-  Activity
+  Activity,
+  Edit3,
+  ClipboardCheck
 } from 'lucide-react';
 
 const defaultPeriod = () => {
@@ -48,11 +50,30 @@ export function HRPayrollPage() {
   const [cycleOpen, setCycleOpen] = useState(false);
   const [cycleRunning, setCycleRunning] = useState(false);
   const [cyclePeriod, setCyclePeriod] = useState(defaultPeriod());
+  const [viewPeriod, setViewPeriod] = useState('');
+  const [signals, setSignals] = useState({ pendingOvertimeCount: 0, pendingExpenseCount: 0 });
+  const [editOpen, setEditOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState(null);
 
-  const loadPayroll = async () => {
+  const loadSignals = async (period = viewPeriod) => {
+    try {
+      const data = await hrGetPayrollSignals(period || undefined);
+      setSignals({
+        pendingOvertimeCount: data?.pendingOvertimeCount ?? 0,
+        pendingExpenseCount: data?.pendingExpenseCount ?? 0,
+      });
+    } catch (error) {
+      setSignals({ pendingOvertimeCount: 0, pendingExpenseCount: 0 });
+    }
+  };
+
+  useEffect(() => { loadSignals(viewPeriod); }, [viewPeriod]);
+
+  const loadPayroll = async (period = viewPeriod) => {
     setLoading(true);
     try {
-      const data = await hrGetPayroll();
+      const data = await hrGetPayroll(period ? { pay_period: period } : {});
       setRecords(Array.isArray(data) ? data : []);
     } catch (error) {
       toast('Failed to load payroll data', 'error');
@@ -61,7 +82,7 @@ export function HRPayrollPage() {
     }
   };
 
-  useEffect(() => { loadPayroll(); }, []);
+  useEffect(() => { loadPayroll(viewPeriod); }, [viewPeriod]);
 
   const handleMarkPaid = async (record) => {
     if (!record?.payrollID || savingId === record.payrollID) return;
@@ -130,6 +151,55 @@ export function HRPayrollPage() {
     }
   };
 
+  const openEdit = (record) => {
+    setEditForm({
+      payrollID: record.payrollID,
+      employeeName: record.employeeName,
+      proratedBaseSalary: record.proratedBaseSalary ?? record.baseSalary ?? 0,
+      commissions: record.commissions ?? 0,
+      unpaidLeaveDeduction: record.unpaidLeaveDeduction ?? 0,
+      deductions: record.deductions ?? 0,
+      expenseReimbursements: record.expenseReimbursements ?? 0,
+      overtimePay: record.overtimePay ?? 0,
+      notes: record.notes ?? '',
+      editReason: '',
+    });
+    setEditOpen(true);
+  };
+
+  const editNetPreview = useMemo(() => {
+    if (!editForm) return 0;
+    const n = (v) => Number(v || 0);
+    return n(editForm.proratedBaseSalary) - n(editForm.unpaidLeaveDeduction) + n(editForm.commissions)
+      - n(editForm.deductions) + n(editForm.expenseReimbursements) + n(editForm.overtimePay);
+  }, [editForm]);
+
+  const handleSaveEdit = async () => {
+    if (!editForm) return;
+    if (!editForm.editReason.trim()) { toast(t('Please add a note explaining the edit'), 'error'); return; }
+    const payload = {
+      editReason: editForm.editReason.trim(),
+      proratedBaseSalary: Number(editForm.proratedBaseSalary || 0),
+      commissions: Number(editForm.commissions || 0),
+      unpaidLeaveDeduction: Number(editForm.unpaidLeaveDeduction || 0),
+      deductions: Number(editForm.deductions || 0),
+      expenseReimbursements: Number(editForm.expenseReimbursements || 0),
+      overtimePay: Number(editForm.overtimePay || 0),
+      notes: editForm.notes || '',
+    };
+    setEditing(true);
+    try {
+      await hrEditPayroll(editForm.payrollID, payload);
+      toast(t('Payroll record updated'), 'success');
+      setEditOpen(false);
+      await loadPayroll();
+    } catch (err) {
+      toast(err?.message || t('Failed to update payroll record'), 'error');
+    } finally {
+      setEditing(false);
+    }
+  };
+
   const filteredRecords = useMemo(() => {
     return records.filter(r => {
       const matchesSearch = r.employeeName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -160,7 +230,11 @@ export function HRPayrollPage() {
         failed ? 'error' : 'success',
       );
       setCycleOpen(false);
-      await loadPayroll();
+      if (viewPeriod === cyclePeriod) {
+        await loadPayroll(cyclePeriod);
+      } else {
+        setViewPeriod(cyclePeriod);
+      }
     } catch (err) {
       toast(err?.message || t('Failed to run payroll cycle'), 'error');
     } finally {
@@ -191,6 +265,7 @@ export function HRPayrollPage() {
         <td class="num neg">${money(r.unpaidLeaveDeduction)}</td>
         <td class="num neg">${money(r.deductions)}</td>
         <td class="num pos">${money(r.expenseReimbursements)}</td>
+        <td class="num pos">${money(r.overtimePay)}</td>
         <td class="num bold">${money(r.netPay)}</td>
         <td>${r.status === 'Paid' ? 'Approved' : 'Unapproved'}</td>
       </tr>`).join('');
@@ -220,10 +295,10 @@ export function HRPayrollPage() {
         <thead><tr>
           <th>Employee</th><th>Department</th><th>Pay Period</th>
           <th class="num">Base</th><th class="num">Commissions</th><th class="num">Unpaid Leave</th>
-          <th class="num">Deductions</th><th class="num">Reimbursements</th><th class="num">Net Pay</th><th>Status</th>
+          <th class="num">Deductions</th><th class="num">Reimbursements</th><th class="num">Overtime</th><th class="num">Net Pay</th><th>Status</th>
         </tr></thead>
         <tbody>${bodyRows}</tbody>
-        <tfoot><tr><td colspan="8">Total Net Pay</td><td class="num">${money(totalNet)}</td><td></td></tr></tfoot>
+        <tfoot><tr><td colspan="9">Total Net Pay</td><td class="num">${money(totalNet)}</td><td></td></tr></tfoot>
       </table>
       <script>window.onload = function(){ window.print(); }</script>
       </body></html>`);
@@ -243,9 +318,6 @@ export function HRPayrollPage() {
     const total = records.reduce((acc, r) => acc + Number(r.netPay || 0), 0);
     return [
       { label: 'Cycle Total', value: formatMoney(total), icon: DollarSign, color: '#1E293B', bg: '#F8FAFC' },
-      { label: 'Distribution Velocity', value: '78%', icon: Activity, color: 'var(--red-600)', bg: 'var(--red-50)' },
-      { label: 'Compliance Index', value: '99.2%', icon: ShieldCheck, color: 'var(--red-800)', bg: 'var(--red-50)' },
-      { label: 'Critical Overdue', value: '02', icon: ShieldAlert, color: 'var(--pink-600)', bg: 'var(--pink-50)' },
     ];
   }, [records]);
 
@@ -290,10 +362,27 @@ export function HRPayrollPage() {
         </div>
       </div>
 
+      {(signals.pendingOvertimeCount > 0 || signals.pendingExpenseCount > 0) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 28 }}>
+          {signals.pendingOvertimeCount > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderRadius: 14, background: '#FFFBEB', border: '1.5px solid #FDE68A', color: '#92400E', fontWeight: 700, fontSize: 13 }}>
+              <Clock size={18} />
+              {t(`${signals.pendingOvertimeCount} overtime ${signals.pendingOvertimeCount === 1 ? 'request is' : 'requests are'} awaiting Team Leader approval${viewPeriod ? ` for ${viewPeriod}` : ''}.`)}
+            </div>
+          )}
+          {signals.pendingExpenseCount > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', borderRadius: 14, background: '#EFF6FF', border: '1.5px solid #BFDBFE', color: '#1E40AF', fontWeight: 700, fontSize: 13, cursor: 'pointer' }} onClick={() => navigate('/hr/expenses')}>
+              <ClipboardCheck size={18} />
+              {t(`${signals.pendingExpenseCount} expense ${signals.pendingExpenseCount === 1 ? 'claim is' : 'claims are'} waiting for your approval${viewPeriod ? ` for ${viewPeriod}` : ''}.`)}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Financial Telemetry Strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, marginBottom: 48 }}>
+      <div style={{ display: 'flex', gap: 24, marginBottom: 48 }}>
         {financialStats.map(s => (
-          <div key={s.label} style={{ padding: '24px', borderRadius: 28, background: '#fff', border: '1.5px solid #F1F5F9', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 20 }}>
+          <div key={s.label} style={{ padding: '24px', borderRadius: 28, background: '#fff', border: '1.5px solid #F1F5F9', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 20, minWidth: 320 }}>
             <div style={{ width: 48, height: 48, borderRadius: 14, background: s.bg, color: s.color, display: 'grid', placeItems: 'center' }}>
               <s.icon size={22} />
             </div>
@@ -308,8 +397,23 @@ export function HRPayrollPage() {
       {/* Control Bar */}
       <div style={{ background: '#fff', padding: '16px 24px', borderRadius: 24, border: '1.5px solid #F1F5F9', marginBottom: 32, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="month"
+                value={viewPeriod}
+                onChange={(e) => setViewPeriod(e.target.value)}
+                title={t('Filter payroll by month')}
+                style={{ height: 44, padding: '0 14px', borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', fontSize: 13, fontWeight: 800, color: '#1E293B', outline: 'none' }}
+              />
+              {viewPeriod && (
+                <Btn onClick={() => setViewPeriod('')} variant="ghost" style={{ height: 44, borderRadius: 12, fontWeight: 800 }}>
+                  {t('All months')}
+                </Btn>
+              )}
+           </div>
+
            <div style={{ position: 'relative' }}>
-              <select 
+              <select
                 value={activeDept}
                 onChange={(e) => setActiveDept(e.target.value)}
                 style={{ height: 44, padding: '0 40px 0 16px', borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', fontSize: 13, fontWeight: 800, color: '#1E293B', outline: 'none', appearance: 'none', minWidth: 200 }}
@@ -318,7 +422,7 @@ export function HRPayrollPage() {
               </select>
               <ChevronDown size={14} style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', pointerEvents: 'none' }} />
            </div>
-           
+
            <div style={{ position: 'relative' }}>
               <Search size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
               <input 
@@ -406,6 +510,9 @@ export function HRPayrollPage() {
                               {num(item.expenseReimbursements) > 0 && (
                                 <div style={add}>+{formatMoney(item.expenseReimbursements)} <span style={muted}>(Approved Expenses)</span></div>
                               )}
+                              {num(item.overtimePay) > 0 && (
+                                <div style={add}>+{formatMoney(item.overtimePay)} <span style={muted}>(Overtime · {item.overtimeHours}h)</span></div>
+                              )}
                             </>
                           );
                         })()}
@@ -437,8 +544,10 @@ export function HRPayrollPage() {
                        ) : (
                          <Badge label="Distributed" color="green" />
                        )}
-                       <button className="action-btn" title="Audit History"><Clock size={16} /></button>
-                       <button className="action-btn" title="Strategic Actions"><MoreVertical size={16} /></button>
+                       <button className="action-btn" title={t('Edit payroll record')} onClick={() => openEdit(item)}><Edit3 size={16} /></button>
+                       {item.editedBy ? (
+                         <button className="action-btn" title={`${t('Edited by')} ${item.editedBy}${item.editReason ? ` — ${item.editReason}` : ''}`}><Clock size={16} /></button>
+                       ) : null}
                     </div>
                   </td>
                 </tr>
@@ -501,6 +610,31 @@ export function HRPayrollPage() {
             {t('Run Cycle')}
           </Btn>
         </div>
+      </Modal>
+
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title={editForm ? `${t('Edit Payroll')} — ${editForm.employeeName || ''}` : t('Edit Payroll')} maxWidth={620}>
+        {editForm && (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <Input label={t('Base (Prorated)')} type="number" step="0.01" value={editForm.proratedBaseSalary} onChange={(e) => setEditForm((f) => ({ ...f, proratedBaseSalary: e.target.value }))} />
+              <Input label={t('Commissions')} type="number" step="0.01" value={editForm.commissions} onChange={(e) => setEditForm((f) => ({ ...f, commissions: e.target.value }))} />
+              <Input label={t('Unpaid Leave Deduction')} type="number" step="0.01" value={editForm.unpaidLeaveDeduction} onChange={(e) => setEditForm((f) => ({ ...f, unpaidLeaveDeduction: e.target.value }))} />
+              <Input label={t('Deductions')} type="number" step="0.01" value={editForm.deductions} onChange={(e) => setEditForm((f) => ({ ...f, deductions: e.target.value }))} />
+              <Input label={t('Approved Expenses')} type="number" step="0.01" value={editForm.expenseReimbursements} onChange={(e) => setEditForm((f) => ({ ...f, expenseReimbursements: e.target.value }))} />
+              <Input label={t('Overtime Pay')} type="number" step="0.01" value={editForm.overtimePay} onChange={(e) => setEditForm((f) => ({ ...f, overtimePay: e.target.value }))} />
+            </div>
+            <div style={{ padding: '12px 16px', borderRadius: 12, background: '#F8FAFC', border: '1.5px solid #F1F5F9', margin: '4px 0 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase' }}>{t('New Net Pay')}</span>
+              <span style={{ fontSize: 18, fontWeight: 900, color: '#1E293B' }}>{formatMoney(editNetPreview)}</span>
+            </div>
+            <Textarea label={t('Notes')} value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} />
+            <Textarea label={t('Edit Reason (required)')} placeholder={t('Why are you making this change?')} value={editForm.editReason} onChange={(e) => setEditForm((f) => ({ ...f, editReason: e.target.value }))} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
+              <Btn variant="secondary" onClick={() => setEditOpen(false)}>{t('Cancel')}</Btn>
+              <Btn variant="primary" loading={editing} onClick={handleSaveEdit} style={{ background: 'var(--red-600)', border: 'none' }}>{t('Save Changes')}</Btn>
+            </div>
+          </>
+        )}
       </Modal>
 
       <style dangerouslySetInnerHTML={{ __html: `

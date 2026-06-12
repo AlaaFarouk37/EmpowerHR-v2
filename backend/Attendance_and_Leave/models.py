@@ -79,11 +79,15 @@ class LeaveRequest(models.Model):
     employee           = models.ForeignKey(
                              'employee_management.Employee', on_delete=models.CASCADE,
                              db_column='employeeID', related_name='leave_requests')
-    leaveType          = models.CharField(max_length=20, choices=LEAVE_TYPES)
+    leaveType          = models.ForeignKey(
+                             'employee_management.LeaveType', on_delete=models.PROTECT,
+                             db_column='leave_type_id', related_name='leave_requests')
     startDate          = models.DateField()
     endDate            = models.DateField()
     daysRequested      = models.IntegerField(default=1)
     reason             = models.TextField()
+    document           = models.FileField(upload_to='leave_documents/', null=True, blank=True,
+                             help_text="Optional supporting document (e.g. medical note).")
     status             = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
     eligibilityMessage = models.CharField(max_length=255, blank=True)
     reviewNotes        = models.TextField(blank=True)
@@ -97,5 +101,106 @@ class LeaveRequest(models.Model):
 
     def __str__(self):
         return f"{self.employee.fullName} — {self.leaveType} ({self.status})"
+
+
+class HolidayOverride(models.Model):
+    """HR-managed adjustments to the holidays library: 'add' marks a company /
+    ad-hoc day off the library doesn't know, 'remove' cancels a library day that
+    doesn't apply. One override per date; 'remove' wins over the library."""
+    TYPE_ADD = 'add'
+    TYPE_REMOVE = 'remove'
+    TYPE_CHOICES = [
+        (TYPE_ADD, 'Add'),
+        (TYPE_REMOVE, 'Remove'),
+    ]
+
+    overrideID = models.CharField(max_length=50, primary_key=True, default=gen_id)
+    date       = models.DateField(unique=True)
+    name       = models.CharField(max_length=150, blank=True)
+    type       = models.CharField(max_length=10, choices=TYPE_CHOICES, default=TYPE_ADD)
+    createdBy  = models.CharField(max_length=150, blank=True)
+    createdAt  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'HolidayOverride'
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"{self.date} — {self.type} ({self.name})"
+
+
+class LeaveBalance(models.Model):
+    """Per employee / leave type / year balance. ``entitledDays`` is the cap
+    (annual leave uses the Egyptian Labor Law entitlement; other types use the
+    LeaveType max; None means uncapped, e.g. Unpaid). ``usedDays`` grows when a
+    request is approved. Keyed by leaveTypeName so the CharField on LeaveRequest
+    stays the source of truth (leaveType FK is the matching config row if any)."""
+    balanceID     = models.CharField(max_length=50, primary_key=True, default=gen_id)
+    employee      = models.ForeignKey(
+                        'employee_management.Employee', on_delete=models.CASCADE,
+                        db_column='employeeID', related_name='leave_balances')
+    leaveTypeName = models.CharField(max_length=50)
+    leaveType     = models.ForeignKey(
+                        'employee_management.LeaveType', on_delete=models.SET_NULL,
+                        null=True, blank=True, db_column='leave_type_id',
+                        related_name='leave_balances')
+    year          = models.PositiveIntegerField()
+    entitledDays  = models.PositiveIntegerField(null=True, blank=True,
+                        help_text="Max days for the year; None = uncapped (Unpaid).")
+    usedDays      = models.PositiveIntegerField(default=0)
+    createdAt     = models.DateTimeField(auto_now_add=True)
+    updatedAt     = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'LeaveBalance'
+        ordering = ['-year', 'leaveTypeName']
+        unique_together = ('employee', 'leaveTypeName', 'year')
+
+    def __str__(self):
+        return f"{self.employee.fullName} — {self.leaveTypeName} {self.year} ({self.usedDays}/{self.entitledDays})"
+
+    @property
+    def remainingDays(self):
+        if self.entitledDays is None:
+            return None
+        return self.entitledDays - self.usedDays
+
+
+class TimeCorrectionRequest(models.Model):
+    """An employee's request to correct the clock in / clock out times on one of
+    their attendance records. A Team Leader reviews it; on approval the requested
+    times are written back onto the underlying AttendanceRecord."""
+    STATUS_PENDING = 'Pending'
+    STATUS_APPROVED = 'Approved'
+    STATUS_DENIED = 'Denied'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_DENIED, 'Denied'),
+    ]
+
+    correctionID      = models.CharField(max_length=50, primary_key=True, default=gen_id)
+    employee          = models.ForeignKey(
+                            'employee_management.Employee', on_delete=models.CASCADE,
+                            db_column='employeeID', related_name='time_correction_requests')
+    attendance        = models.ForeignKey(
+                            AttendanceRecord, on_delete=models.CASCADE,
+                            db_column='attendanceID', related_name='correction_requests')
+    date              = models.DateField()
+    requestedClockIn  = models.DateTimeField(null=True, blank=True)
+    requestedClockOut = models.DateTimeField(null=True, blank=True)
+    reason            = models.TextField(blank=True)
+    status            = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    reviewNote        = models.TextField(blank=True)
+    reviewedBy        = models.CharField(max_length=150, blank=True)
+    reviewedAt        = models.DateTimeField(null=True, blank=True)
+    createdAt         = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'TimeCorrectionRequest'
+        ordering = ['-createdAt']
+
+    def __str__(self):
+        return f"{self.employee.fullName} — correction {self.date} ({self.status})"
     
     

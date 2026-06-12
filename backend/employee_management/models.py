@@ -266,6 +266,9 @@ class LeaveType(models.Model):
     leave_type_id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=50) # e.g. Sick, Annual, Casual
     max_days_per_year = models.PositiveIntegerField()
+    is_paid = models.BooleanField(default=True,
+        help_text="Paid leave is capped (by entitlement / max days); unpaid leave "
+                  "is uncapped and drives the unpaid-salary deduction.")
 
     def __str__(self):
         return self.name
@@ -460,6 +463,32 @@ class SupportTicket(models.Model):
 
     def __str__(self):
         return f"{self.employee.fullName} — {self.subject}"
+
+
+class SupportTicketMessage(models.Model):
+    """A single message in a support ticket conversation between the ticket
+    owner (Employee) and an Admin. Resolution notes are messages flagged with
+    isResolution=True."""
+    AUTHOR_ROLE_CHOICES = [
+        ('Employee', 'Employee'),
+        ('Admin', 'Admin'),
+    ]
+
+    messageID    = models.CharField(max_length=50, primary_key=True, default=gen_id)
+    ticket       = models.ForeignKey(SupportTicket, on_delete=models.CASCADE,
+                                     db_column='ticketID', related_name='messages')
+    authorRole   = models.CharField(max_length=20, choices=AUTHOR_ROLE_CHOICES)
+    authorName   = models.CharField(max_length=150, blank=True)
+    body         = models.TextField()
+    isResolution = models.BooleanField(default=False)
+    createdAt    = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'SupportTicketMessage'
+        ordering = ['createdAt']
+
+    def __str__(self):
+        return f"{self.authorRole} on {self.ticket_id} @ {self.createdAt:%Y-%m-%d}"
 
 
 class EmployeeGoal(models.Model):

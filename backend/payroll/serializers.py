@@ -30,6 +30,22 @@ class PayrollMarkPaidSerializer(serializers.Serializer):
     paymentDate = serializers.DateField(required=False)
 
 
+class PayrollRecordEditSerializer(serializers.Serializer):
+    editReason = serializers.CharField()
+    proratedBaseSalary = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    commissions = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    unpaidLeaveDeduction = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    deductions = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    expenseReimbursements = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    overtimePay = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_editReason(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError('An edit reason is required.')
+        return value.strip()
+
+
 class CommissionSerializer(serializers.ModelSerializer):
     employeeName = serializers.CharField(source='employee.fullName', read_only=True)
 

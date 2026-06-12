@@ -14,6 +14,7 @@ from accounts.models import User
 from .models import (
     Department, Team, Job, LeaveType, Employee, EmployeeJobHistory,
     RecognitionAward, BenefitEnrollment, ExpenseClaim, DocumentRequest, SupportTicket,
+    SupportTicketMessage,
     EmployeeGoal, WorkTask, WorkTaskLog, TrainingCourse, PerformanceReview, ShiftSchedule, PolicyAnnouncement
 )
 from Attendance_and_Leave.models import AttendanceRecord, LeaveRequest
@@ -36,7 +37,8 @@ from .serializers import (
     BenefitEnrollmentCreateSerializer, BenefitEnrollmentStatusSerializer, ExpenseClaimSerializer,
     ExpenseClaimCreateSerializer, ExpenseClaimReviewSerializer, DocumentRequestSerializer,
     DocumentRequestCreateSerializer, DocumentRequestIssueSerializer, SupportTicketSerializer,
-    SupportTicketCreateSerializer, SupportTicketStatusSerializer
+    SupportTicketCreateSerializer, SupportTicketStatusSerializer,
+    SupportTicketMessageSerializer, SupportTicketDetailSerializer
 )
 
 
@@ -843,9 +845,9 @@ class HREmployeeRoleChangeView(APIView):
         if not updates and not user_updates:
             return Response({'error': 'No promotion/demotion changes were provided.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if data['action'] == 'Promotion':
-            employee.numberOfPromotions = (employee.numberOfPromotions or 0) + 1
-            updates['numberOfPromotions'] = employee.numberOfPromotions
+        # numberOfPromotions is a read-only computed property (counts 'Promotion'
+        # job-history rows), so it auto-increments when the history entry below is
+        # created — no manual assignment needed.
 
         if updates:
             employee.save(update_fields=list(updates.keys()))
@@ -2274,6 +2276,64 @@ class HRReviewListCreateView(APIView):
         return Response(PerformanceReviewSerializer(review).data, status=status.HTTP_201_CREATED)
 
 
+class TeamReviewListCreateView(APIView):
+    permission_classes = [IsAuthenticated, IsTeamLeader]
+
+    def _leader_team(self, request):
+        return getattr(getattr(request.user, 'employee', None), 'team', None)
+
+    def _leader_id(self, request):
+        return getattr(request.user, 'employee_id', None)
+
+    def get(self, request):
+        team = self._leader_team(request)
+        if not team:
+            return Response({'error': 'Team information not available.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        reviews = PerformanceReview.objects.select_related('employee').filter(
+            employee__team=team, employee__isDeleted=False,
+        ).exclude(employee_id=self._leader_id(request))
+
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            reviews = reviews.filter(status=status_filter)
+
+        return Response(PerformanceReviewSerializer(
+            reviews.order_by('-reviewDate', '-createdAt'), many=True).data)
+
+    def post(self, request):
+        team = self._leader_team(request)
+        if not team:
+            return Response({'error': 'Team information not available.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = PerformanceReviewCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        employee_id = serializer.validated_data['employeeID']
+        if employee_id == self._leader_id(request):
+            return Response({'error': 'You cannot write a performance review for yourself.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            employee = Employee.objects.get(pk=employee_id, team=team, isDeleted=False)
+        except Employee.DoesNotExist:
+            return Response({'error': 'Employee not found in your team.'}, status=status.HTTP_404_NOT_FOUND)
+
+        review = PerformanceReview.objects.create(
+            employee=employee,
+            reviewPeriod=serializer.validated_data['reviewPeriod'],
+            reviewType=serializer.validated_data.get('reviewType', 'Quarterly'),
+            overallRating=serializer.validated_data['overallRating'],
+            status=serializer.validated_data.get('status', 'Submitted'),
+            strengths=serializer.validated_data.get('strengths', ''),
+            improvementAreas=serializer.validated_data.get('improvementAreas', ''),
+            goalsSummary=serializer.validated_data.get('goalsSummary', ''),
+            reviewDate=serializer.validated_data.get('reviewDate') or timezone.localdate(),
+            createdBy=getattr(request.user, 'full_name', '') or getattr(request.user, 'email', ''),
+        )
+        return Response(PerformanceReviewSerializer(review).data, status=status.HTTP_201_CREATED)
+
+
 class EmployeeCareerPlanListView(APIView):
     permission_classes = [IsAuthenticated, IsInternalEmployee]
 
@@ -2736,7 +2796,7 @@ class HRApprovalSnapshotView(APIView):
         today = timezone.localdate()
 
         pending_leaves = list(
-            LeaveRequest.objects.filter(status=LeaveRequest.STATUS_PENDING).select_related('employee')
+            LeaveRequest.objects.filter(status=LeaveRequest.STATUS_PENDING).select_related('employee', 'leaveType')
         )
         pending_expenses = list(
             ExpenseClaim.objects.filter(status__in=['Pending', 'Submitted']).select_related('employee')
@@ -2805,7 +2865,7 @@ class HRApprovalSnapshotView(APIView):
                 'Leave Request',
                 item.leaveRequestID,
                 item.employee.fullName,
-                item.leaveType,
+                item.leaveType.name,
                 item.status,
                 waiting_days,
                 sla_state,
@@ -3725,4 +3785,126 @@ class HRTicketStatusView(APIView):
         return Response(SupportTicketSerializer(ticket).data)
 
 
-    
+def _can_access_ticket(request, ticket):
+    """Admins can access any ticket; everyone else only their own."""
+    if getattr(request.user, 'role', None) == 'Admin':
+        return True
+    return ticket.employee_id == getattr(request.user, 'employee_id', None)
+
+
+class AdminTicketListView(APIView):
+    """GET /api/employee_management/admin/tickets/ — all support tickets (Admin)."""
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        tickets = SupportTicket.objects.select_related('employee').filter(employee__isDeleted=False)
+        status_filter = request.query_params.get('status')
+        category = request.query_params.get('category')
+        priority = request.query_params.get('priority')
+        if status_filter:
+            tickets = tickets.filter(status=status_filter)
+        if category:
+            tickets = tickets.filter(category=category)
+        if priority:
+            tickets = tickets.filter(priority=priority)
+        return Response(SupportTicketSerializer(tickets.order_by('-updatedAt', '-createdAt'), many=True).data)
+
+
+class TicketDetailView(APIView):
+    """GET /api/employee_management/tickets/<id>/ — ticket + conversation thread.
+    Accessible by the ticket owner or an Admin."""
+    permission_classes = [IsAuthenticated, IsInternalEmployee]
+
+    def get(self, request, ticket_id):
+        ticket = (SupportTicket.objects.select_related('employee')
+                  .prefetch_related('messages').filter(pk=ticket_id).first())
+        if not ticket:
+            return Response({'error': 'Support ticket not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if not _can_access_ticket(request, ticket):
+            return Response({'error': 'You do not have access to this ticket.'}, status=status.HTTP_403_FORBIDDEN)
+        return Response(SupportTicketDetailSerializer(ticket).data)
+
+
+class TicketMessageCreateView(APIView):
+    """POST /api/employee_management/tickets/<id>/messages/ — add a reply to the
+    conversation. Admin or the ticket owner; blocked once the ticket is Closed."""
+    permission_classes = [IsAuthenticated, IsInternalEmployee]
+
+    def post(self, request, ticket_id):
+        ticket = SupportTicket.objects.select_related('employee').filter(pk=ticket_id).first()
+        if not ticket:
+            return Response({'error': 'Support ticket not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if not _can_access_ticket(request, ticket):
+            return Response({'error': 'You do not have access to this ticket.'}, status=status.HTTP_403_FORBIDDEN)
+        if ticket.status == 'Closed':
+            return Response({'error': 'This ticket is closed; no further replies can be added.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        body = (request.data.get('body') or '').strip()
+        if not body:
+            return Response({'body': 'Message cannot be empty.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        is_admin = getattr(request.user, 'role', None) == 'Admin'
+        message = SupportTicketMessage.objects.create(
+            ticket=ticket,
+            authorRole='Admin' if is_admin else 'Employee',
+            authorName=getattr(request.user, 'full_name', '') or getattr(request.user, 'email', ''),
+            body=body,
+            isResolution=False,
+        )
+        # An owner replying to a resolved ticket reopens it so the admin notices.
+        if not is_admin and ticket.status == 'Resolved':
+            ticket.status = 'In Progress'
+            ticket.save(update_fields=['status', 'updatedAt'])
+        else:
+            ticket.save(update_fields=['updatedAt'])
+        return Response(SupportTicketMessageSerializer(message).data, status=status.HTTP_201_CREATED)
+
+
+class AdminTicketStatusView(APIView):
+    """POST /api/employee_management/admin/tickets/<id>/status/ — Admin sets any of
+    the four statuses. A note is required when resolving and is stored as a
+    resolution message in the thread."""
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, ticket_id):
+        ticket = SupportTicket.objects.select_related('employee').filter(pk=ticket_id).first()
+        if not ticket:
+            return Response({'error': 'Support ticket not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        new_status = request.data.get('status')
+        valid_statuses = [choice[0] for choice in SupportTicket.STATUS_CHOICES]
+        if new_status not in valid_statuses:
+            return Response({'status': f'Invalid status. Must be one of {valid_statuses}.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        note = (request.data.get('note') or '').strip()
+        if new_status == 'Resolved' and not note:
+            return Response({'note': 'A resolution note is required when resolving a ticket.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        ticket.status = new_status
+        ticket.assignedTo = getattr(request.user, 'full_name', '') or getattr(request.user, 'email', '')
+        update_fields = ['status', 'assignedTo', 'updatedAt']
+        if new_status in ('Resolved', 'Closed'):
+            ticket.resolvedAt = timezone.now()
+            update_fields.append('resolvedAt')
+        if note and new_status == 'Resolved':
+            ticket.resolutionNote = note
+            update_fields.append('resolutionNote')
+        ticket.save(update_fields=update_fields)
+
+        if note:
+            SupportTicketMessage.objects.create(
+                ticket=ticket,
+                authorRole='Admin',
+                authorName=ticket.assignedTo,
+                body=note,
+                isResolution=(new_status == 'Resolved'),
+            )
+
+        ticket = (SupportTicket.objects.select_related('employee')
+                  .prefetch_related('messages').get(pk=ticket_id))
+        return Response(SupportTicketDetailSerializer(ticket).data)
+
+

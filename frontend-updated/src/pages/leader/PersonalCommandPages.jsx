@@ -2,18 +2,19 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   getMyAttendance, clockAttendance, getMyLeaveRequests, submitLeaveRequest,
-  getMyPayroll, getMyDocuments, getMyTickets, submitSupportTicket,
+  getMyPayroll, getMyDocuments,
   changePassword
 } from '../../api/index.js';
 import { 
   LeaderPortalLayout, Btn, Badge, Spinner, useToast, Modal, NeuralInput, Skeleton
 } from '../../components/shared/index.jsx';
+import { PersonalTicketsPage } from '../shared/PersonalTicketsPage.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { 
   Zap, Clock, Calendar, Shield, Activity, FileText, Headphones, User, 
   TrendingUp, ArrowUpRight, DollarSign, Wallet, Lock, Sparkles, Bell, 
-  ChevronRight, Brain, Globe, CheckCircle2, AlertCircle
+  ChevronRight, Brain, Globe, CheckCircle2
 } from 'lucide-react';
 
 /* --- Shared Mini Components --- */
@@ -373,131 +374,11 @@ export function LeaderPersonalVaultPage() {
   );
 }
 
-/* --- 4. Support Tickets (Leader Edition) --- */
+/* --- 4. Support Tickets (shared personal workspace) --- */
+// Team Leaders use the same personal support-ticket workspace as employees and
+// HR Managers (create / pending / 6-month history). See PersonalTicketsPage.
 export function LeaderPersonalTicketsPage() {
-  const { user } = useAuth();
-  const { t } = useLanguage();
-  const toast = useToast();
-  const [loading, setLoading] = useState(true);
-  const [tickets, setTickets] = useState([]);
-
-  const loadData = async () => {
-    if (!user?.employee_id) return;
-    setLoading(true);
-    try {
-      const data = await getMyTickets(user?.employee_id);
-      setTickets(data);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadData();
-  }, [user?.employee_id]);
-
-  const [submitting, setSubmitting] = useState(false);
-  const EMPTY_INCIDENT = { subject: '', priority: 'Medium', description: '' };
-  const [incidentForm, setIncidentForm] = useState(EMPTY_INCIDENT);
-
-  const handleLaunchReport = async () => {
-    if (!incidentForm.subject.trim()) {
-      toast(t('Please add an incident title.'), 'error');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await submitSupportTicket({
-        subject: incidentForm.subject.trim(),
-        priority: incidentForm.priority,
-        description: incidentForm.description.trim(),
-      });
-      toast(t('Incident reported. Triage node will respond shortly.'), 'success');
-      setIncidentForm(EMPTY_INCIDENT);
-      await loadData();
-    } catch (e) {
-      toast(e?.response?.data?.subject?.[0] || e?.message || t('Failed to file incident'), 'error');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (loading) return <LeaderPortalLayout><Skeleton count={8} /></LeaderPortalLayout>;
-
-  return (
-    <LeaderPortalLayout>
-      <div style={{ marginBottom: 40 }}>
-        <h2 style={{ fontSize: 32, fontWeight: 900, color: '#1E293B', margin: '0 0 8px' }}>Support Radar</h2>
-        <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>Triage your personal technical and administrative support incidents.</p>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, marginBottom: 40 }}>
-        <TelemetryChip label="Open Incidents" value={tickets.filter(t => t.status !== 'Resolved').length} sub="High Priority First" color="var(--red-600)" icon={AlertCircle} />
-        <TelemetryChip label="Avg Response" value="1.2h" sub="System Speed" color="var(--red-800)" icon={TrendingUp} />
-        <TelemetryChip label="Resolved Items" value={tickets.filter(t => t.status === 'Resolved').length} sub="Lifetime Total" color="var(--red-600)" icon={CheckCircle2} />
-        <TelemetryChip label="System Status" value="Optimal" sub="Global Node State" color="var(--pink-400)" icon={Activity} />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 0.7fr', gap: 40 }}>
-         <TacticalCard title="Incident Triage Ledger">
-            <div style={{ display: 'grid', gap: 16 }}>
-               {tickets.map(t => (
-                 <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px', background: '#F8FAFC', borderRadius: 20, border: '1px solid #F1F5F9' }}>
-                    <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                       <div style={{ width: 44, height: 44, borderRadius: 12, background: '#fff', display: 'grid', placeItems: 'center', color: 'var(--red-600)' }}>
-                          <AlertCircle size={20} />
-                       </div>
-                       <div>
-                          <div style={{ fontSize: 15, fontWeight: 900 }}>{t.subject}</div>
-                          <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600 }}>Incident #{t.ticketID} • {t.updatedAt}</div>
-                       </div>
-                    </div>
-                    <Badge label={t.status} color={t.status === 'Resolved' ? 'red' : 'pink'} />
-                 </div>
-               ))}
-            </div>
-         </TacticalCard>
-
-         <div style={{ background: '#fff', borderRadius: 32, border: '1.5px solid #F1F5F9', padding: 32, alignSelf: 'start' }}>
-            <h3 style={{ fontSize: 16, fontWeight: 900, marginBottom: 24 }}>New Incident Report</h3>
-            <div style={{ display: 'grid', gap: 20 }}>
-               <NeuralInput
-                 label="Incident Title"
-                 placeholder="e.g., Access denied to neural map"
-                 value={incidentForm.subject}
-                 onChange={(e) => setIncidentForm(f => ({ ...f, subject: e.target.value }))}
-               />
-               <div>
-                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>Priority</label>
-                 <select
-                   value={incidentForm.priority}
-                   onChange={(e) => setIncidentForm(f => ({ ...f, priority: e.target.value }))}
-                   style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #E2E8F0', padding: '0 14px', fontSize: 13, fontWeight: 600, outline: 'none', background: '#fff', cursor: 'pointer' }}
-                 >
-                   <option value="Low">Low</option>
-                   <option value="Medium">Medium</option>
-                   <option value="High">High</option>
-                 </select>
-               </div>
-               <NeuralInput
-                 label="Context"
-                 placeholder="Describe the system anomaly..."
-                 value={incidentForm.description}
-                 onChange={(e) => setIncidentForm(f => ({ ...f, description: e.target.value }))}
-               />
-               <Btn
-                 onClick={handleLaunchReport}
-                 loading={submitting}
-                 variant="primary"
-                 style={{ height: 56, background: '#111827' }}
-               >
-                 Launch Report
-               </Btn>
-            </div>
-         </div>
-      </div>
-    </LeaderPortalLayout>
-  );
+  return <PersonalTicketsPage />;
 }
 
 /* --- 5. Profile Hub (Leader Edition) --- */

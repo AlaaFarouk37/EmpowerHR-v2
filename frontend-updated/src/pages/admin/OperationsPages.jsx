@@ -48,7 +48,7 @@ import { HRReviewsPage } from '../hr/ReviewsPage';
 import { HRShiftsPage } from '../hr/ShiftsPage';
 import { HRSubmissionPage } from '../hr/SubmissionPage';
 import { HRSuccessionPage } from '../hr/SuccessionPage';
-import { HRTicketsPage } from '../hr/TicketsPage';
+import { AdminTicketsManagementPage } from './TicketsManagementPage';
 import { HRTrainingPage } from '../hr/TrainingPage';
 import { TeamGoalsPage } from '../leader/TeamPage';
 import { TeamRecognitionPage } from '../leader/RecognitionPage';
@@ -372,7 +372,7 @@ export function AdminDocumentsPage() {
 }
 
 export function AdminTicketsPage() {
-  return <AdminOwnedShell titleKey="nav.supportTickets" subtitleKey="System Activity" variant="services"><HRTicketsPage /></AdminOwnedShell>;
+  return <AdminOwnedShell titleKey="nav.supportTickets" subtitleKey="System Activity" variant="services"><AdminTicketsManagementPage /></AdminOwnedShell>;
 }
 
 export function AdminTrainingPage() {

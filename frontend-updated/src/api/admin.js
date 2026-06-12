@@ -1,4 +1,11 @@
-import { api } from './base';
+import { api, toList } from './base';
+
+// Support ticket management (Admin)
+export const adminGetTickets = async (filters = {}) => {
+  const params = new URLSearchParams(filters).toString();
+  return toList(await api.get(`/employee_management/admin/tickets/${params ? `?${params}` : ''}`));
+};
+export const adminUpdateTicketStatus = (id, data) => api.post(`/employee_management/admin/tickets/${id}/status/`, data);
 
 // Organization & System Configuration
 export const adminGetOrgConfig = () => api.get('/governance/organization/current/');
@@ -10,9 +17,9 @@ export const adminCreateSkill = (data) => api.post('/workforce/skills/', data);
 export const adminDeleteSkill = (id) => api.delete(`/workforce/skills/${id}/`);
 
 // Leave Policies
-export const adminGetLeaveTypes = () => api.get('/ops/leave-types/');
-export const adminCreateLeaveType = (data) => api.post('/ops/leave-types/', data);
-export const adminDeleteLeaveType = (id) => api.delete(`/ops/leave-types/${id}/`);
+export const adminGetLeaveTypes = () => api.get('/employee_management/leave-types/');
+export const adminCreateLeaveType = (data) => api.post('/employee_management/leave-types/', data);
+export const adminDeleteLeaveType = (id) => api.delete(`/employee_management/leave-types/${id}/`);
 
 // Governance & Stability
 export const adminGetSystemHealth = () => api.get('/ai/health-snapshot/');

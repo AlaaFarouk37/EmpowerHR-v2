@@ -21,6 +21,8 @@ import {
   Search,
   Plus,
   DollarSign,
+  Star,
+  Plane,
   LogOut
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -73,7 +75,9 @@ const SidebarIcon = ({ name, active }) => {
     Briefcase,
     Search,
     Plus,
-    DollarSign
+    DollarSign,
+    Star,
+    Plane
   };
   const Icon = icons[name] || HelpCircle;
   return <Icon size={20} style={{ color: active ? 'var(--color-primary-teal)' : 'inherit' }} />;
@@ -128,50 +132,55 @@ const NAV_GROUPS = {
   ],
   HRManager: [
     {
-      titleKey: 'nav.workforceOverview',
+      titleKey: 'Employee Management',
       items: [
-        { path: '/hr/dashboard', labelKey: 'nav.dashboard', icon: 'Layout' },
-        { path: '/hr/org-map', labelKey: 'nav.orgMap', icon: 'Zap' },
         { path: '/hr/employees', labelKey: 'nav.employees', icon: 'Users' },
         { path: '/hr/team', labelKey: 'nav.teamHub', icon: 'Users' },
-        { path: '/hr/tickets', labelKey: 'nav.supportTickets', icon: 'Activity' },
-      ],
-    },
-    {
-      titleKey: 'nav.stabilityAndFinance',
-      items: [
         { path: '/hr/attendance', labelKey: 'nav.attendance', icon: 'Activity' },
-        { path: '/hr/payroll', labelKey: 'nav.payroll', icon: 'Activity' },
-        { path: '/hr/adjustments', labelKey: 'Commissions & Deductions', icon: 'DollarSign' },
-        { path: '/hr/benefits', labelKey: 'nav.benefits', icon: 'Shield' },
-        { path: '/hr/expenses', labelKey: 'nav.expenses', icon: 'Activity' },
-        { path: '/hr/approvals', labelKey: 'nav.approvals', icon: 'ShieldCheck' },
-        { path: '/hr/documents', labelKey: 'nav.documents', icon: 'Copy' },
+        { path: '/hr/training', labelKey: 'nav.training', icon: 'Database' },
         { path: '/hr/shifts', labelKey: 'nav.shifts', icon: 'Activity' },
       ],
     },
     {
-      titleKey: 'nav.talentAndGrowth',
+      titleKey: 'Finances',
       items: [
-        { path: '/hr/reviews', labelKey: 'nav.reviews', icon: 'Bell' },
-        { path: '/hr/training', labelKey: 'nav.training', icon: 'Database' },
-        { path: '/hr/planning', labelKey: 'nav.workforcePlanning', icon: 'Zap' },
-        { path: '/hr/succession', labelKey: 'nav.succession', icon: 'Users' },
+        { path: '/hr/payroll', labelKey: 'nav.payroll', icon: 'Activity' },
+        { path: '/hr/adjustments', labelKey: 'Commissions & Deductions', icon: 'DollarSign' },
+        { path: '/hr/expenses', labelKey: 'nav.expenses', icon: 'Activity' },
         { path: '/hr/benchmarking', labelKey: 'nav.salaryBenchmarking', icon: 'Activity' },
-        { path: '/hr/talent-matrix', labelKey: 'nav.talentMatrix', icon: 'Layout' },
-        { path: '/hr/recognition', labelKey: 'nav.recognition', icon: 'Bell' },
+        { path: '/hr/policies', labelKey: 'nav.policies', icon: 'Shield' },
       ],
     },
     {
-      titleKey: 'nav.hiringAndEngagement',
+      titleKey: 'Hiring',
       items: [
         { path: '/hr/jobs', labelKey: 'nav.jobs', icon: 'Copy' },
         { path: '/hr/cv-ranking', labelKey: 'nav.cvRanking', icon: 'Zap' },
-        { path: '/hr/onboarding', labelKey: 'nav.onboarding', icon: 'Users' },
-        { path: '/hr/attrition', labelKey: 'nav.attritionStability', icon: 'Activity' },
+        { path: '/hr/succession', labelKey: 'nav.succession', icon: 'Users' },
+      ],
+    },
+    {
+      titleKey: 'Attrition and Feedback Cycle',
+      items: [
         { path: '/hr/forms', labelKey: 'nav.forms', icon: 'Copy' },
         { path: '/hr/submissions', labelKey: 'nav.submissions', icon: 'Copy' },
-        { path: '/hr/policies', labelKey: 'nav.policies', icon: 'Shield' },
+        { path: '/hr/attrition', labelKey: 'nav.attritionStability', icon: 'Activity' },
+      ],
+    },
+    {
+      titleKey: 'Miscellaneous',
+      items: [
+        { path: '/hr/dashboard', labelKey: 'nav.dashboard', icon: 'Layout' },
+        { path: '/hr/org-map', labelKey: 'nav.orgMap', icon: 'Zap' },
+        { path: '/hr/approvals', labelKey: 'nav.approvals', icon: 'ShieldCheck' },
+        { path: '/hr/reviews', labelKey: 'nav.reviews', icon: 'Bell' },
+        { path: '/hr/planning', labelKey: 'nav.workforcePlanning', icon: 'Zap' },
+        { path: '/hr/talent-matrix', labelKey: 'nav.talentMatrix', icon: 'Layout' },
+        { path: '/hr/onboarding', labelKey: 'nav.onboarding', icon: 'Users' },
+        { path: '/hr/benefits', labelKey: 'nav.benefits', icon: 'Shield' },
+        { path: '/hr/documents', labelKey: 'nav.documents', icon: 'Copy' },
+        { path: '/hr/tickets', labelKey: 'nav.supportTickets', icon: 'Activity' },
+        { path: '/hr/recognition', labelKey: 'nav.recognition', icon: 'Bell' },
       ],
     },
   ],
@@ -223,9 +232,12 @@ const NAV_GROUPS = {
       titleKey: 'nav.workforceOperations',
       items: [
         { path: '/leader/team-requests', labelKey: 'nav.strategicRequests', icon: 'FileText' },
+        { path: '/leader/leave-requests', labelKey: 'Team Leave Requests', icon: 'Plane' },
+        { path: '/leader/attendance-corrections', labelKey: 'Attendance Corrections', icon: 'Calendar' },
         { path: '/leader/team-support', labelKey: 'nav.supportRadar', icon: 'Activity' },
         { path: '/leader/team-feedback', labelKey: 'nav.pulseSignals', icon: 'Bell' },
         { path: '/leader/team-directory', labelKey: 'nav.teamRoster', icon: 'Users' },
+        { path: '/leader/team-reviews', labelKey: 'Performance Reviews', icon: 'Star' },
         { path: '/leader/recognition', labelKey: 'nav.rewardsMerit', icon: 'Zap' },
       ],
     },

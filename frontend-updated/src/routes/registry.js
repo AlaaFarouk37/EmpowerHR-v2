@@ -63,10 +63,13 @@ import { EmployeeSheetPage } from "../pages/employee/EmployeeSheetPage";
 import { TeamRecognitionPage } from "../pages/leader/RecognitionPage";
 import { TeamCalendarPage } from "../pages/leader/TeamCalendarPage";
 import { TeamRequestsPage } from "../pages/leader/TeamRequestsPage";
+import { LeaderAttendanceCorrectionsPage } from "../pages/leader/AttendanceCorrectionsPage";
+import { LeaderTeamLeavePage } from "../pages/leader/TeamLeavePage";
 import { TeamAnalyticsPage } from "../pages/leader/TeamAnalyticsPage";
 import { TeamSupportPage } from "../pages/leader/TeamSupportPage";
 import { TeamFeedbackPage } from "../pages/leader/TeamFeedbackPage";
 import { TeamDirectoryPage } from "../pages/leader/TeamDirectoryPage";
+import { TeamReviewsPage } from "../pages/leader/TeamReviewsPage";
 import { LeaderDashboardPage } from "../pages/leader/DashboardPage";
 import { TeamGoalsPage } from "../pages/leader/TeamPage";
 import { LeaderTeamHubPage } from "../pages/leader/TeamHubPage";
@@ -166,10 +169,13 @@ export const PROTECTED_ROUTES = [
   // Team Leader workspace
   { path: "/leader/team-calendar", element: <TeamCalendarPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
   { path: "/leader/team-requests", element: <TeamRequestsPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
+  { path: "/leader/attendance-corrections", element: <LeaderAttendanceCorrectionsPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
+  { path: "/leader/leave-requests", element: <LeaderTeamLeavePage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
   { path: "/leader/team-analytics", element: <TeamAnalyticsPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
   { path: "/leader/team-support", element: <TeamSupportPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
   { path: "/leader/team-feedback", element: <TeamFeedbackPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
   { path: "/leader/team-directory", element: <TeamDirectoryPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
+  { path: "/leader/team-reviews", element: <TeamReviewsPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
   { path: "/leader/team", element: <LeaderTeamHubPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
   { path: "/leader/recognition", element: <TeamRecognitionPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
 

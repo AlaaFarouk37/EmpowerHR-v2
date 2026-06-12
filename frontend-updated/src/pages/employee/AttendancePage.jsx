@@ -2,23 +2,41 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   getMyAttendance,
   clockAttendance,
+  getMyTimeCorrections,
+  submitTimeCorrection,
 } from '../../api/index.js';
-import { Spinner, Btn, Badge, useToast } from '../../components/shared/index.jsx';
+import { Spinner, Btn, Badge, Input, Textarea, Modal, useToast } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { 
-  Clock, 
-  Calendar, 
-  Activity, 
-  Plus,
+import {
+  Clock,
+  Calendar,
+  Activity,
   ArrowUpRight,
   TrendingUp,
   History,
-  MoreVertical,
+  Edit3,
   ChevronLeft,
   ChevronRight,
   Download
 } from 'lucide-react';
+
+// ISO datetime → value for <input type="datetime-local"> (local time).
+function toLocalInput(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// ISO datetime → short readable time, or em dash.
+function toTime(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
 
 const STATUS_COLORS = {
   Present: 'red',
@@ -35,19 +53,71 @@ export function EmployeeAttendancePage() {
   const employeeID = user?.employee_id;
 
   const [attendance, setAttendance] = useState([]);
+  const [corrections, setCorrections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Time-correction modal state
+  const EMPTY_CORRECTION = { clockIn: '', clockOut: '', reason: '' };
+  const [correctionRecord, setCorrectionRecord] = useState(null);
+  const [correctionForm, setCorrectionForm] = useState(EMPTY_CORRECTION);
+  const [submittingCorrection, setSubmittingCorrection] = useState(false);
 
   const loadData = async () => {
     if (!employeeID) return;
     setLoading(true);
     try {
-      const data = await getMyAttendance(employeeID).catch(() => []);
+      const [data, corr] = await Promise.all([
+        getMyAttendance(employeeID).catch(() => []),
+        getMyTimeCorrections(employeeID).catch(() => []),
+      ]);
       setAttendance(Array.isArray(data) ? data : []);
+      setCorrections(Array.isArray(corr) ? corr : []);
     } catch (error) {
       toast(error.message || 'Failed to load attendance data', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // attendanceID → latest correction request (for the "pending" badge).
+  const correctionByRecord = useMemo(() => {
+    const map = {};
+    for (const c of corrections) {
+      if (!map[c.attendance]) map[c.attendance] = c;
+    }
+    return map;
+  }, [corrections]);
+
+  const openCorrection = (record) => {
+    setCorrectionRecord(record);
+    setCorrectionForm({
+      clockIn: toLocalInput(record.clockIn),
+      clockOut: toLocalInput(record.clockOut),
+      reason: '',
+    });
+  };
+
+  const submitCorrection = async () => {
+    if (!correctionRecord) return;
+    if (!correctionForm.clockIn && !correctionForm.clockOut) {
+      return toast(t('Enter a corrected clock in and/or clock out time.'), 'error');
+    }
+    setSubmittingCorrection(true);
+    try {
+      await submitTimeCorrection({
+        attendanceID: correctionRecord.attendanceID,
+        requestedClockIn: correctionForm.clockIn ? new Date(correctionForm.clockIn).toISOString() : null,
+        requestedClockOut: correctionForm.clockOut ? new Date(correctionForm.clockOut).toISOString() : null,
+        reason: correctionForm.reason.trim(),
+      });
+      toast(t('Correction request submitted for review.'), 'success');
+      setCorrectionRecord(null);
+      await loadData();
+    } catch (error) {
+      toast(error?.response?.data?.error || error.message || t('Failed to submit correction request'), 'error');
+    } finally {
+      setSubmittingCorrection(false);
     }
   };
 
@@ -69,7 +139,7 @@ export function EmployeeAttendancePage() {
 
   if (loading) return (
     <div style={{ height: '70vh', display: 'grid', placeItems: 'center' }}>
-      <Spinner size="lg" color="var(--red-600)" />
+      <Spinner size={48} />
     </div>
   );
 
@@ -84,17 +154,13 @@ export function EmployeeAttendancePage() {
             <p style={{ fontSize: 14, color: '#64748B', fontWeight: 600, marginTop: 4 }}>{t('Manage your working hours and attendance logs')}</p>
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
-            <button style={{ 
-              padding: '10px 20px', borderRadius: 12, border: '1.5px solid #E2E8F0', 
+            <button style={{
+              padding: '10px 20px', borderRadius: 12, border: '1.5px solid #E2E8F0',
               background: '#fff', color: '#1E293B', fontSize: 14, fontWeight: 800,
               display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer'
             }}>
               <Download size={18} />
               {t('Export PDF')}
-            </button>
-            <button className="btn-red-primary" style={{ padding: '10px 20px', borderRadius: 12, background: '#DC2626', color: '#fff', border: 'none', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <Plus size={18} />
-              {t('Clock Correction')}
             </button>
           </div>
         </div>
@@ -165,8 +231,8 @@ export function EmployeeAttendancePage() {
                         <div style={{ fontWeight: 800 }}>{new Date(row.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</div>
                         <div style={{ fontSize: 12, color: '#94A3B8' }}>{new Date(row.date).toLocaleDateString('en-GB', { weekday: 'long' })}</div>
                       </td>
-                      <td style={{ padding: '16px 0' }}>{row.clockIn || '—'}</td>
-                      <td style={{ padding: '16px 0' }}>{row.clockOut || '—'}</td>
+                      <td style={{ padding: '16px 0' }}>{toTime(row.clockIn)}</td>
+                      <td style={{ padding: '16px 0' }}>{toTime(row.clockOut)}</td>
                       <td style={{ padding: '16px 0' }}>{row.workedHours || '0'}h</td>
                       <td style={{ padding: '16px 0' }}>
                         <span style={{ color: row.overtime > 0 ? '#10B981' : '#94A3B8', fontWeight: 700 }}>
@@ -177,9 +243,32 @@ export function EmployeeAttendancePage() {
                         <Badge label={t(row.status)} color={STATUS_COLORS[row.status] || 'gray'} />
                       </td>
                       <td style={{ padding: '16px 0', textAlign: 'right' }}>
-                        <button style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94A3B8' }}>
-                          <MoreVertical size={18} />
-                        </button>
+                        {(() => {
+                          const correction = correctionByRecord[row.attendanceID];
+                          const corrStatus = correction?.status;
+                          if (corrStatus === 'Pending') return <Badge label={t('Correction pending')} color="orange" />;
+                          if (corrStatus === 'Approved') return <Badge label={t('Correction approved')} color="red" />;
+                          // Denied corrections are final: show the outcome (with the
+                          // reviewer's note on hover) and don't offer a new request.
+                          if (corrStatus === 'Denied') return (
+                            <span title={correction?.reviewNote || t('Correction request was denied.')}>
+                              <Badge label={t('Correction denied')} color="gray" />
+                            </span>
+                          );
+                          return (
+                            <button
+                              onClick={() => openCorrection(row)}
+                              title={t('Request Time Correction')}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px',
+                                borderRadius: 10, border: '1.5px solid #FECACA', background: '#FEF2F2',
+                                color: '#DC2626', fontSize: 12.5, fontWeight: 800, cursor: 'pointer',
+                              }}
+                            >
+                              <Edit3 size={14} /> {t('Request Correction')}
+                            </button>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ))}
@@ -248,6 +337,46 @@ export function EmployeeAttendancePage() {
           </div>
         </div>
       </div>
+
+      {/* Request Time Correction modal */}
+      <Modal
+        open={!!correctionRecord}
+        onClose={() => setCorrectionRecord(null)}
+        title={correctionRecord ? `${t('Request Time Correction')} — ${new Date(correctionRecord.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}
+      >
+        <div style={{ display: 'grid', gap: 18 }}>
+          <p style={{ margin: 0, fontSize: 13, color: '#64748B', fontWeight: 600 }}>
+            {t('Enter your actual clock in / clock out times. Your team leader will review the request.')}
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <Input
+              label={t('Actual Clock In')}
+              type="datetime-local"
+              value={correctionForm.clockIn}
+              onChange={(e) => setCorrectionForm((f) => ({ ...f, clockIn: e.target.value }))}
+            />
+            <Input
+              label={t('Actual Clock Out')}
+              type="datetime-local"
+              value={correctionForm.clockOut}
+              onChange={(e) => setCorrectionForm((f) => ({ ...f, clockOut: e.target.value }))}
+            />
+          </div>
+          <Textarea
+            label={t('Reason')}
+            value={correctionForm.reason}
+            onChange={(e) => setCorrectionForm((f) => ({ ...f, reason: e.target.value }))}
+            placeholder={t('Why does this record need correcting?')}
+            style={{ minHeight: 90 }}
+          />
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Btn variant="ghost" onClick={() => setCorrectionRecord(null)} style={{ flex: 1 }}>{t('Cancel')}</Btn>
+            <Btn onClick={submitCorrection} loading={submittingCorrection} style={{ flex: 1, background: '#DC2626', border: 'none', fontWeight: 900 }}>
+              {t('Submit Request')}
+            </Btn>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

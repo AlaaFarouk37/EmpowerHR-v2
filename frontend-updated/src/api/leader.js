@@ -43,3 +43,28 @@ export const getTeamRecognition = async (filters = {}) => {
   return toList(await api.get(`/employee_management/team/recognition/${query}`));
 };
 export const createTeamRecognition = (data) => api.post('/employee_management/team/recognition/', data);
+
+export const getTeamPendingOvertime = async () => toList(await api.get('/attendance_leave/team/overtime/'));
+export const reviewTeamOvertime = (attendanceID, data) => api.post(`/attendance_leave/team/overtime/${attendanceID}/review/`, data);
+
+export const getTeamTimeCorrections = async () => toList(await api.get('/attendance_leave/team/time-corrections/'));
+export const reviewTimeCorrection = (correctionID, data) => api.post(`/attendance_leave/team/time-corrections/${correctionID}/review/`, data);
+
+// Leave requests from the leader's team members (their own route to HR).
+export const getTeamLeaveRequests = async (status) =>
+  toList(await api.get(`/attendance_leave/team/leave-requests/${status ? `?status=${status}` : ''}`));
+// Body: { action: 'approve' | 'reject', reviewNotes?: '' }.
+export const reviewTeamLeaveRequest = (leaveRequestID, data) =>
+  api.post(`/attendance_leave/team/leave-requests/${leaveRequestID}/review/`, data);
+
+export const getTeamReviews = async (filters = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      params.append(key, String(value).trim());
+    }
+  });
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return toList(await api.get(`/employee_management/team/reviews/${query}`));
+};
+export const createTeamReview = (data) => api.post('/employee_management/team/reviews/', data);

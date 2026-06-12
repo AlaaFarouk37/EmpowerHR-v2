@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import (
     Department, Team, Job, LeaveType, Employee, EmployeeJobHistory,
     RecognitionAward, BenefitEnrollment, ExpenseClaim, DocumentRequest, SupportTicket,
+    SupportTicketMessage,
     EmployeeGoal, WorkTask, WorkTaskLog, TrainingCourse, PerformanceReview, ShiftSchedule, PolicyAnnouncement
 )
 
@@ -30,7 +31,7 @@ class JobSerializer(serializers.ModelSerializer):
 class LeaveTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeaveType
-        fields = ['leave_type_id', 'name', 'max_days_per_year']
+        fields = ['leave_type_id', 'name', 'max_days_per_year', 'is_paid']
         read_only_fields = ['leave_type_id']
 
 
@@ -508,6 +509,20 @@ class SupportTicketSerializer(serializers.ModelSerializer):
             'subject', 'category', 'priority', 'description', 'status',
             'resolutionNote', 'assignedTo', 'resolvedAt', 'createdAt', 'updatedAt'
         ]
+
+
+class SupportTicketMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SupportTicketMessage
+        fields = ['messageID', 'authorRole', 'authorName', 'body', 'isResolution', 'createdAt']
+
+
+class SupportTicketDetailSerializer(SupportTicketSerializer):
+    """Ticket plus its full conversation thread."""
+    messages = SupportTicketMessageSerializer(many=True, read_only=True)
+
+    class Meta(SupportTicketSerializer.Meta):
+        fields = SupportTicketSerializer.Meta.fields + ['messages']
 
 
 class SupportTicketCreateSerializer(serializers.Serializer):

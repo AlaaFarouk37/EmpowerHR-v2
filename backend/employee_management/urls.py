@@ -26,7 +26,7 @@ from .views import (
     HRBenefitWatchView, HRBenefitListCreateView,
     # Reviews
     EmployeeReviewListView, EmployeeReviewAcknowledgeView,
-    HRReviewCalibrationView, HRReviewListCreateView,
+    HRReviewCalibrationView, HRReviewListCreateView, TeamReviewListCreateView,
     # Career path
     EmployeeCareerPlanListView, EmployeeCareerPlanAcknowledgeView,
     # Shifts
@@ -47,6 +47,7 @@ from .views import (
     # Tickets
     EmployeeTicketListCreateView,
     HRTicketListView, HRTicketWatchView, HRTicketStatusView,
+    AdminTicketListView, AdminTicketStatusView, TicketDetailView, TicketMessageCreateView,
 )
 
 urlpatterns = [
@@ -113,6 +114,7 @@ urlpatterns = [
     path('employee/reviews/<str:review_id>/acknowledge/', EmployeeReviewAcknowledgeView.as_view(), name='employee-review-acknowledge'),
     path('hr/reviews/', HRReviewListCreateView.as_view(), name='hr-review-list-create'),
     path('hr/reviews/calibration/', HRReviewCalibrationView.as_view(), name='hr-review-calibration'),
+    path('team/reviews/', TeamReviewListCreateView.as_view(), name='team-review-list-create'),
 
     # ─── Career path ─────────────────────────────────────────────────────────
     path('employee/career-path/', EmployeeCareerPlanListView.as_view(), name='employee-career-list'),
@@ -154,4 +156,8 @@ urlpatterns = [
     path('hr/tickets/', HRTicketListView.as_view(), name='hr-ticket-list'),
     path('hr/tickets/watch/', HRTicketWatchView.as_view(), name='hr-ticket-watch'),
     path('hr/tickets/<str:ticket_id>/status/', HRTicketStatusView.as_view(), name='hr-ticket-status'),
+    path('admin/tickets/', AdminTicketListView.as_view(), name='admin-ticket-list'),
+    path('admin/tickets/<str:ticket_id>/status/', AdminTicketStatusView.as_view(), name='admin-ticket-status'),
+    path('tickets/<str:ticket_id>/', TicketDetailView.as_view(), name='ticket-detail'),
+    path('tickets/<str:ticket_id>/messages/', TicketMessageCreateView.as_view(), name='ticket-message-create'),
 ]

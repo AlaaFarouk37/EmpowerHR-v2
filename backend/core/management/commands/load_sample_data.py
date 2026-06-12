@@ -15,7 +15,7 @@ from feedback.models import (
 )
 from onboarding.models import OnboardingPlan
 from resume_pipeline.models import Job, Submission, SuccessionPlan
-from employee_management.models import Employee, EmployeeGoal, PerformanceReview, TrainingCourse, WorkTask
+from employee_management.models import Employee, EmployeeGoal, PerformanceReview, TrainingCourse, WorkTask, LeaveType
 from Attendance_and_Leave.models import AttendanceRecord, LeaveRequest
 from payroll.models import PayrollRecord
 from employee_management.models import PolicyAnnouncement, RecognitionAward, ShiftSchedule, SupportTicket, DocumentRequest, ExpenseClaim   
@@ -257,12 +257,17 @@ class Command(BaseCommand):
             },
         )
 
+        annual_type, _ = LeaveType.objects.get_or_create(
+            name=LeaveRequest.TYPE_ANNUAL, defaults={'max_days_per_year': 21})
+        casual_type, _ = LeaveType.objects.get_or_create(
+            name=LeaveRequest.TYPE_CASUAL, defaults={'max_days_per_year': 7})
+
         LeaveRequest.objects.update_or_create(
             employee=team_member,
             startDate=today + timedelta(days=9),
             endDate=today + timedelta(days=10),
             defaults={
-                'leaveType': LeaveRequest.TYPE_ANNUAL,
+                'leaveType': annual_type,
                 'daysRequested': 2,
                 'reason': 'Family travel already booked for the weekend extension.',
                 'status': LeaveRequest.STATUS_PENDING,
@@ -275,7 +280,7 @@ class Command(BaseCommand):
             startDate=today - timedelta(days=18),
             endDate=today - timedelta(days=18),
             defaults={
-                'leaveType': LeaveRequest.TYPE_CASUAL,
+                'leaveType': casual_type,
                 'daysRequested': 1,
                 'reason': 'Personal appointment.',
                 'status': LeaveRequest.STATUS_APPROVED,

@@ -151,6 +151,35 @@ export function OrganizationConfigPage() {
     }
   };
 
+  const addLeaveType = async () => {
+    const name = (form.name || '').trim();
+    if (!name) return toast(t('Leave name is required'), 'error');
+    const isPaid = form.isPaid !== false; // default paid
+    try {
+      const res = await adminCreateLeaveType({
+        name,
+        max_days_per_year: isPaid ? Number(form.maxDays || 0) : 0,
+        is_paid: isPaid,
+      });
+      setLeaveTypes(p => [...p, res]);
+      setModal(null);
+      setForm({});
+      toast(t('Leave type created'));
+    } catch (err) {
+      toast(err.message || t('Failed to create leave type'), 'error');
+    }
+  };
+
+  const deleteLeaveType = async (id) => {
+    try {
+      await adminDeleteLeaveType(id);
+      setLeaveTypes(p => p.filter(lt => lt.leave_type_id !== id));
+      toast(t('Leave type removed'));
+    } catch (err) {
+      toast(err.message || t('Failed to remove leave type'), 'error');
+    }
+  };
+
   if (loading) return (
     <div className="page-content" style={{ padding: '40px 60px', background: '#F8FAFC' }}>
       <Skeleton height={80} style={{ marginBottom: 40, borderRadius: 16 }} />
@@ -343,47 +372,44 @@ export function OrganizationConfigPage() {
                 <h3 style={{ fontSize: 20, fontWeight: 950, color: '#1E293B', marginBottom: 4 }}>{t('Absence Governance')}</h3>
                 <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>{t('Configure global leave parameters and accrual logic.')}</p>
               </div>
-              <Btn 
-                variant="primary" 
+              <Btn
+                variant="primary"
                 style={{ height: 48, borderRadius: 14, background: '#10B981', border: 'none', fontWeight: 900, padding: '0 24px' }}
-                onClick={() => setModal('leave')}
+                onClick={() => { setForm({ isPaid: true }); setModal('leave'); }}
               >
-                <Plus size={18} style={{ marginRight: 8 }} /> {t('Initialize Policy')}
+                <Plus size={18} style={{ marginRight: 8 }} /> {t('Add Leave Type')}
               </Btn>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: 24 }}>
+            {leaveTypes.length === 0 ? (
+              <EmptyState icon={<Calendar size={40} />} title={t('No leave types yet')} subtitle={t('Add a leave type to define how time off is tracked across the organization.')} />
+            ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 24 }}>
               {leaveTypes.map(lt => (
-                <div key={lt.leaveTypeID} className="glass-card-employee" style={{ padding: 32, border: '1.5px solid #fff' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
+                <div key={lt.leave_type_id} className="glass-card-employee" style={{ padding: 32, border: '1.5px solid #fff' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
                     <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                      <div style={{ width: 14, height: 14, borderRadius: '50%', background: lt.color || '#10B981', boxShadow: `0 0 10px ${lt.color || '#10B981'}80` }} />
+                      <div style={{ width: 14, height: 14, borderRadius: '50%', background: lt.is_paid ? '#10B981' : '#94A3B8', boxShadow: `0 0 10px ${lt.is_paid ? '#10B98180' : '#94A3B880'}` }} />
                       <div style={{ fontWeight: 950, fontSize: 18, color: '#1E293B' }}>{lt.name}</div>
                     </div>
-                    <Badge label={`${lt.maxDays} Node Days`} color="green" />
+                    <button className="delete-btn" onClick={() => deleteLeaveType(lt.leave_type_id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#CBD5E1', padding: 6 }} title={t('Remove')}>
+                      <Trash2 size={18} />
+                    </button>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                      <div style={{ background: '#F8FAFC', padding: 16, borderRadius: 14, border: '1.5px solid #F1F5F9' }}>
-                        <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 900, textTransform: 'uppercase' }}>{t('Accrual Logic')}</div>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: '#1E293B', marginTop: 4 }}>{lt.accrualRate || 'Static-Flat'}</div>
+                        <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 900, textTransform: 'uppercase' }}>{t('Max Days / Year')}</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: '#1E293B', marginTop: 4 }}>{lt.is_paid ? lt.max_days_per_year : t('Uncapped')}</div>
                      </div>
                      <div style={{ background: '#F8FAFC', padding: 16, borderRadius: 14, border: '1.5px solid #F1F5F9' }}>
-                        <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 900, textTransform: 'uppercase' }}>{t('Rollover Limit')}</div>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: '#1E293B', marginTop: 4 }}>{lt.carryOver || 0} Days</div>
+                        <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 900, textTransform: 'uppercase' }}>{t('Type')}</div>
+                        <div style={{ marginTop: 6 }}><Badge label={lt.is_paid ? t('Paid') : t('Unpaid')} color={lt.is_paid ? 'green' : 'gray'} /></div>
                      </div>
                   </div>
-                  {lt.documentRequired && (
-                    <div style={{ 
-                      padding: '12px 16px', borderRadius: 12, background: '#FEF2F2', 
-                      color: '#DC2626', fontSize: 13, fontWeight: 800, 
-                      display: 'flex', gap: 10, alignItems: 'center', border: '1.5px solid #FEE2E2' 
-                    }}>
-                      <Info size={16} /> {t('Registry Required')}: {lt.requiredDocName}
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
+            )}
           </div>
         )}
 
@@ -433,15 +459,31 @@ export function OrganizationConfigPage() {
         </div>
       </Modal>
 
-      <Modal open={modal === 'leave'} onClose={() => setModal(null)} title={t('Initialize Absence Protocol')}>
+      <Modal open={modal === 'leave'} onClose={() => setModal(null)} title={t('Add Leave Type')}>
         <div style={{ display: 'grid', gap: 24 }}>
-          <Input label={t('Protocol Designation')} value={form.name || ''} onChange={e => setForm(p => ({...p, name: e.target.value}))} />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-            <Input label={t('Annual Quota (Days)')} type="number" value={form.maxDays || ''} onChange={e => setForm(p => ({...p, maxDays: e.target.value}))} />
-            <Input label={t('Max Rollover (Days)')} type="number" value={form.carryOver || ''} onChange={e => setForm(p => ({...p, carryOver: e.target.value}))} />
+          <Input label={t('Leave Name')} value={form.name || ''} onChange={e => setForm(p => ({...p, name: e.target.value}))} placeholder="e.g. Bereavement" />
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>{t('Compensation')}</label>
+            <div style={{ display: 'flex', gap: 12 }}>
+              {[{ k: true, label: t('Paid') }, { k: false, label: t('Unpaid') }].map(opt => (
+                <button key={String(opt.k)} type="button" onClick={() => setForm(p => ({ ...p, isPaid: opt.k }))} style={{
+                  flex: 1, height: 48, borderRadius: 14, fontWeight: 900, cursor: 'pointer',
+                  border: '1.5px solid', borderColor: (form.isPaid !== false) === opt.k ? '#10B981' : '#E2E8F0',
+                  background: (form.isPaid !== false) === opt.k ? '#10B981' : '#fff',
+                  color: (form.isPaid !== false) === opt.k ? '#fff' : '#64748B',
+                }}>{opt.label}</button>
+              ))}
+            </div>
           </div>
-          <Input label={t('Accrual Delta')} value={form.accrualRate || ''} onChange={e => setForm(p => ({...p, accrualRate: e.target.value}))} placeholder="e.g. 1.67 per 30-day cycle" />
-          <Btn onClick={() => toast('Registry Updated')} style={{ width: '100%', height: 52, borderRadius: 14, fontWeight: 900, background: '#10B981' }}>{t('Activate Protocol')}</Btn>
+          {form.isPaid !== false && (
+            <Input label={t('Max Days / Year')} type="number" min="0" value={form.maxDays || ''} onChange={e => setForm(p => ({...p, maxDays: e.target.value}))} placeholder="e.g. 14" />
+          )}
+          {form.isPaid === false && (
+            <p style={{ margin: 0, fontSize: 13, color: '#64748B', fontWeight: 600 }}>
+              {t('Unpaid leave is uncapped and triggers a salary deduction for the days taken.')}
+            </p>
+          )}
+          <Btn onClick={addLeaveType} style={{ width: '100%', height: 52, borderRadius: 14, fontWeight: 900, background: '#10B981' }}>{t('Create Leave Type')}</Btn>
         </div>
       </Modal>
 

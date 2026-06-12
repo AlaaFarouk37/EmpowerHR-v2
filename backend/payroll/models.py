@@ -40,6 +40,12 @@ class PayrollRecord(models.Model):
                                help_text="Daily rate × counted unpaid-leave weekdays within the employment window.")
     expenseReimbursements= models.DecimalField(max_digits=10, decimal_places=2, default=0,
                                help_text="Sum of approvedAmount for HR-approved expense claims in the pay period.")
+    hourlyRate           = models.DecimalField(max_digits=12, decimal_places=4, default=0,
+                               help_text="Regular hourly rate = daily rate / contracted hours per day.")
+    overtimeHours        = models.DecimalField(max_digits=8, decimal_places=2, default=0,
+                               help_text="Approved overtime hours in the pay period.")
+    overtimePay          = models.DecimalField(max_digits=10, decimal_places=2, default=0,
+                               help_text="Overtime pay = approved overtime hours × hourly rate × 1.5.")
     workingDays          = models.PositiveIntegerField(default=0,
                                help_text="Weekdays (Mon-Fri) in the pay-period month.")
     weekdaysEmployed     = models.PositiveIntegerField(default=0,
@@ -50,6 +56,14 @@ class PayrollRecord(models.Model):
     paymentDate = models.DateField(null=True, blank=True)
     notes       = models.TextField(blank=True)
     createdAt   = models.DateTimeField(auto_now_add=True)
+    createdBy   = models.CharField(max_length=150, blank=True,
+                      help_text="Who generated this payroll record.")
+    editedAt    = models.DateTimeField(null=True, blank=True,
+                      help_text="When an HR user last manually edited this record.")
+    editedBy    = models.CharField(max_length=150, blank=True,
+                      help_text="Who last manually edited this record.")
+    editReason  = models.TextField(blank=True,
+                      help_text="Note explaining the most recent manual edit.")
 
     class Meta:
         db_table = 'PayrollRecord'

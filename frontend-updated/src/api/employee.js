@@ -6,6 +6,8 @@ export const submitPeerFeedback = (data) => api.post('/feedback/employee/peer-fe
 export const getReceivedFeedback = async (employeeID) => toList(await api.get(`/feedback/employee/received-feedback/?employee_id=${employeeID}`));
 
 export const getMyAttendance = async (employeeID) => toList(await api.get(`/attendance_leave/employee/attendance/?employee_id=${employeeID}`));
+export const getMyTimeCorrections = async (employeeID) => toList(await api.get(`/attendance_leave/employee/time-corrections/${employeeID ? `?employee_id=${employeeID}` : ''}`));
+export const submitTimeCorrection = (data) => api.post('/attendance_leave/employee/time-corrections/', data);
 export const clockAttendance = (data = {}) => {
   const TYPE_TO_ACTION = { in: 'clock_in', out: 'clock_out' };
 
@@ -32,9 +34,22 @@ export const getMyLeaveRequests = async (employeeID) => {
   const items = toList(await api.get(`/attendance_leave/employee/leave-requests/?employee_id=${employeeID}`));
   return items.map((item) => ({ ...item, leaveType: LEAVE_TYPE_ENUM_TO_DISPLAY[item?.leaveType] || item?.leaveType }));
 };
+// Per-type balances (also the source of truth for the leave-type dropdown).
+export const getMyLeaveBalances = async (employeeID, year) =>
+  toList(await api.get(`/attendance_leave/employee/leave-balances/?employee_id=${employeeID}${year ? `&year=${year}` : ''}`));
 export const submitLeaveRequest = (data) => {
   const leaveType = LEAVE_TYPE_DISPLAY_TO_ENUM[data?.leaveType] || data?.leaveType;
-  return api.post('/attendance_leave/employee/leave-requests/', { ...data, leaveType });
+  const { document, ...rest } = data;
+  // Send multipart only when a supporting document is attached.
+  if (document) {
+    const form = new FormData();
+    Object.entries({ ...rest, leaveType }).forEach(([k, v]) => {
+      if (v !== undefined && v !== null) form.append(k, v);
+    });
+    form.append('document', document);
+    return api.postForm('/attendance_leave/employee/leave-requests/', form);
+  }
+  return api.post('/attendance_leave/employee/leave-requests/', { ...rest, leaveType });
 };
 
 export const getMyPayroll = async (employeeID) => toList(await api.get(`/payroll/employee/payroll/${employeeID ? `?employee_id=${employeeID}` : ''}`));
@@ -77,6 +92,10 @@ export const submitDocumentRequest = (data) => api.post('/employee_management/em
 export const getMyTickets = async (employeeID) => toList(await api.get(`/employee_management/employee/tickets/${employeeID ? `?employee_id=${employeeID}` : ''}`));
 export const submitSupportTicket = (data) => api.post('/employee_management/employee/tickets/', data);
 export const closeSupportTicket = (id) => api.post(`/feedback/employee/tickets/${id}/close/`, {});
+
+// Ticket conversation thread (ticket owner or Admin)
+export const getTicketDetail = (id) => api.get(`/employee_management/tickets/${id}/`);
+export const postTicketMessage = (id, body) => api.post(`/employee_management/tickets/${id}/messages/`, { body });
 
 export const getMyGoals = async (employeeID) => toList(await api.get(`/employee_management/employee/goals/${employeeID ? `?employee_id=${employeeID}` : ''}`));
 export const updateMyGoalProgress = (id, data) => api.post(`/employee_management/employee/goals/${id}/progress/`, data);

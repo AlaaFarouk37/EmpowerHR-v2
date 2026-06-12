@@ -12,9 +12,14 @@ from .models import PayrollRecord, Commission, Deduction
 from .calculations import compute_payroll
 from .serializers import (
     PayrollRecordSerializer, PayrollRecordCreateSerializer, PayrollMarkPaidSerializer,
+    PayrollRecordEditSerializer,
     CommissionSerializer, CommissionCreateSerializer,
     DeductionSerializer, DeductionCreateSerializer,
 )
+
+
+def _actor_name(user):
+    return getattr(user, 'full_name', '') or getattr(user, 'email', '')
 
 
 def _label(value):
@@ -239,11 +244,15 @@ class HRPayrollListCreateView(APIView):
             commissions=breakdown['commissions'],
             unpaidLeaveDeduction=breakdown['unpaidLeaveDeduction'],
             expenseReimbursements=breakdown['expenseReimbursements'],
+            hourlyRate=breakdown['hourlyRate'],
+            overtimeHours=breakdown['overtimeHours'],
+            overtimePay=breakdown['overtimePay'],
             workingDays=breakdown['workingDays'],
             weekdaysEmployed=breakdown['weekdaysEmployed'],
             unpaidLeaveDays=breakdown['unpaidLeaveDays'],
             netPay=breakdown['netPay'],
             notes=serializer.validated_data.get('notes', ''),
+            createdBy=_actor_name(request.user),
         )
         return Response(PayrollRecordSerializer(payroll).data, status=status.HTTP_201_CREATED)
 
@@ -267,7 +276,82 @@ class HRPayrollMarkPaidView(APIView):
         return Response(PayrollRecordSerializer(payroll).data)
 
 
-def _generate_payroll_for_employee(employee, pay_period):
+class HRPayrollEditView(APIView):
+    """Let HR manually adjust a payslip's components. Net pay is recomputed from
+    the resulting components and the edit is stamped with who/when/why."""
+    permission_classes = [IsAuthenticated, IsHRManager | IsAdmin]
+
+    EDITABLE_FIELDS = (
+        'proratedBaseSalary', 'commissions', 'unpaidLeaveDeduction',
+        'deductions', 'expenseReimbursements', 'overtimePay', 'notes',
+    )
+
+    def post(self, request, payroll_id):
+        try:
+            payroll = PayrollRecord.objects.select_related('employee').get(pk=payroll_id)
+        except PayrollRecord.DoesNotExist:
+            return Response({'error': 'Payroll record not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = PayrollRecordEditSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        update_fields = []
+        for field in self.EDITABLE_FIELDS:
+            if field in data:
+                setattr(payroll, field, data[field])
+                update_fields.append(field)
+
+        payroll.netPay = (
+            (payroll.proratedBaseSalary or Decimal('0'))
+            - (payroll.unpaidLeaveDeduction or Decimal('0'))
+            + (payroll.commissions or Decimal('0'))
+            - (payroll.deductions or Decimal('0'))
+            + (payroll.expenseReimbursements or Decimal('0'))
+            + (payroll.overtimePay or Decimal('0'))
+        )
+        payroll.editReason = data['editReason']
+        payroll.editedBy = _actor_name(request.user)
+        payroll.editedAt = timezone.now()
+        update_fields += ['netPay', 'editReason', 'editedBy', 'editedAt']
+
+        payroll.save(update_fields=update_fields)
+        return Response(PayrollRecordSerializer(payroll).data)
+
+
+class HRPayrollPendingSignalsView(APIView):
+    """Lightweight counters for the payroll page banner: overtime awaiting Team
+    Leader review, and expense claims awaiting HR approval."""
+    permission_classes = [IsAuthenticated, IsHRManager | IsAdmin]
+
+    def get(self, request):
+        from Attendance_and_Leave.models import AttendanceRecord
+        from employee_management.models import ExpenseClaim
+        from .calculations import parse_pay_period
+
+        overtime_qs = AttendanceRecord.objects.filter(
+            overtimeStatus=AttendanceRecord.OT_PENDING_REVIEW,
+            employee__isDeleted=False,
+        )
+        expense_qs = ExpenseClaim.objects.filter(
+            status='Submitted', employee__isDeleted=False,
+        )
+
+        pay_period = request.query_params.get('pay_period')
+        if pay_period and re.match(r'^\d{4}-\d{2}$', pay_period):
+            period_start, period_end = parse_pay_period(pay_period)
+            overtime_qs = overtime_qs.filter(date__gte=period_start, date__lte=period_end)
+            expense_qs = expense_qs.filter(expenseDate__gte=period_start, expenseDate__lte=period_end)
+
+        return Response({
+            'payPeriod': pay_period or None,
+            'pendingOvertimeCount': overtime_qs.count(),
+            'pendingExpenseCount': expense_qs.count(),
+        })
+
+
+def _generate_payroll_for_employee(employee, pay_period, created_by=''):
     """Create a PayrollRecord for one employee + period using the computed
     breakdown. Returns (record_or_None, skip_reason_or_None)."""
     if employee.monthlyIncome is None:
@@ -291,10 +375,14 @@ def _generate_payroll_for_employee(employee, pay_period):
         commissions=breakdown['commissions'],
         unpaidLeaveDeduction=breakdown['unpaidLeaveDeduction'],
         expenseReimbursements=breakdown['expenseReimbursements'],
+        hourlyRate=breakdown['hourlyRate'],
+        overtimeHours=breakdown['overtimeHours'],
+        overtimePay=breakdown['overtimePay'],
         workingDays=breakdown['workingDays'],
         weekdaysEmployed=breakdown['weekdaysEmployed'],
         unpaidLeaveDays=breakdown['unpaidLeaveDays'],
         netPay=breakdown['netPay'],
+        createdBy=created_by,
     )
     return record, None
 
@@ -334,7 +422,8 @@ class HRPayrollRunCycleView(APIView):
                                 'reason': 'Already generated'})
                 continue
             try:
-                record, reason = _generate_payroll_for_employee(employee, pay_period)
+                record, reason = _generate_payroll_for_employee(
+                    employee, pay_period, created_by=_actor_name(request.user))
                 if record is None:
                     skipped.append({'employeeID': employee.employeeID,
                                     'employeeName': employee.fullName,

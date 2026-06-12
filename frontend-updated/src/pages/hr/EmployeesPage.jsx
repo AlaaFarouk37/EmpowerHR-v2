@@ -47,6 +47,7 @@ const EMPTY_FORM = {
 
 const EMPTY_ROLE_CHANGE = {
   action: 'Promotion',
+  jobTitle: '',
   job: '',
   role: 'TeamMember',
   department: '',
@@ -79,7 +80,7 @@ function uniqueValues(items, key) {
   return [...new Set(items.map(item => item?.[key]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
 }
 
-function JobTitleLevelPicker({ jobs, value, onChange, t, selectStyle }) {
+function JobTitleLevelPicker({ jobs, value, onChange, t, selectStyle, disabled = false }) {
   const jobsArr = Array.isArray(jobs) ? jobs : [];
   const savedJob = jobsArr.find(j => String(j.job_id) === String(value)) || null;
 
@@ -126,7 +127,7 @@ function JobTitleLevelPicker({ jobs, value, onChange, t, selectStyle }) {
         <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
           {t('Job Title')}
         </label>
-        <select value={selectedTitle} onChange={handleTitleChange} style={selectStyle}>
+        <select value={selectedTitle} onChange={handleTitleChange} style={selectStyle} disabled={disabled}>
           <option value="">{t('Select a job title')}</option>
           {titles.map(title => (
             <option key={title} value={title}>{title}</option>
@@ -141,7 +142,7 @@ function JobTitleLevelPicker({ jobs, value, onChange, t, selectStyle }) {
           value={selectedLevel}
           onChange={handleLevelChange}
           style={selectStyle}
-          disabled={!selectedTitle}
+          disabled={disabled || !selectedTitle}
         >
           <option value="">{t('Select a job level')}</option>
           {levelsForTitle.map(level => (
@@ -377,6 +378,37 @@ export function HREmployeesPage() {
     setRoleChange((prev) => ({ ...prev, [key]: event.target.value }));
   };
 
+  // Distinct job titles (each title shown only once) from the jobs table.
+  const jobTitleOptions = useMemo(() => {
+    const seen = new Set();
+    const titles = [];
+    for (const j of jobOptions) {
+      if (j.title && !seen.has(j.title)) {
+        seen.add(j.title);
+        titles.push(j.title);
+      }
+    }
+    return titles;
+  }, [jobOptions]);
+
+  // Levels available for the currently selected job title. Each option resolves
+  // to a specific job row (job_id), since a (title, level) pair is one job.
+  const jobLevelOptions = useMemo(
+    () => jobOptions.filter((j) => j.title === roleChange.jobTitle),
+    [jobOptions, roleChange.jobTitle],
+  );
+
+  // Picking a title resets the level/job; if the title has a single level, auto-select it.
+  const handleJobTitleChange = (event) => {
+    const title = event.target.value;
+    const matches = jobOptions.filter((j) => j.title === title);
+    setRoleChange((prev) => ({
+      ...prev,
+      jobTitle: title,
+      job: matches.length === 1 ? matches[0].job_id : '',
+    }));
+  };
+
   const normalizePayload = () => ({
     ...form,
     fullName: form.fullName.trim(),
@@ -411,6 +443,7 @@ export function HREmployeesPage() {
     setSelected(employee);
     setRoleChange({
       action: 'Promotion',
+      jobTitle: employee.jobTitle ?? '',
       job: employee.job ?? '',
       role: employee.role || 'TeamMember',
       department: employee.department ?? '',
@@ -885,38 +918,45 @@ export function HREmployeesPage() {
           <Input label={t('Email *')} type="email" value={form.email} onChange={setField('email')} placeholder="employee@company.com" />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <JobTitleLevelPicker
-            jobs={jobOptions}
-            value={form.job}
-            onChange={(jobId) => setField('job')({ target: { value: jobId } })}
-            t={t}
-            selectStyle={selectStyle}
-          />
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
-              {t('Department')}
-            </label>
-            <select value={form.department} onChange={setField('department')} style={selectStyle}>
-              <option value="">{t('Select a department')}</option>
-              {departmentOptions.map(d => (
-                <option key={d.department_id} value={d.department_id}>{d.name}</option>
-              ))}
-            </select>
+        <div style={{ opacity: 0.55, pointerEvents: 'none' }} aria-disabled="true">
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--gray-500)', marginBottom: 10, fontStyle: 'italic' }}>
+            {t('Edit job related fields via Promote/Demote.')}
           </div>
-          <div>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
-              {t('Team')}
-            </label>
-            <select value={form.team} onChange={setField('team')} style={selectStyle}>
-              <option value="">{t('Select a team')}</option>
-              {teamOptions.map(t => (
-                <option key={t.team_id} value={t.team_id}>{t.name}</option>
-              ))}
-            </select>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <JobTitleLevelPicker
+              jobs={jobOptions}
+              value={form.job}
+              onChange={(jobId) => setField('job')({ target: { value: jobId } })}
+              t={t}
+              selectStyle={selectStyle}
+              disabled
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+                {t('Department')}
+              </label>
+              <select value={form.department} onChange={setField('department')} style={selectStyle} disabled>
+                <option value="">{t('Select a department')}</option>
+                {departmentOptions.map(d => (
+                  <option key={d.department_id} value={d.department_id}>{d.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>
+                {t('Team')}
+              </label>
+              <select value={form.team} onChange={setField('team')} style={selectStyle} disabled>
+                <option value="">{t('Select a team')}</option>
+                {teamOptions.map(t => (
+                  <option key={t.team_id} value={t.team_id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
@@ -948,9 +988,9 @@ export function HREmployeesPage() {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
-          <div>
+          <div style={{ opacity: 0.55, pointerEvents: 'none' }} aria-disabled="true">
             <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('Role')}</label>
-            <select value={form.role} onChange={setField('role')} style={selectStyle}>
+            <select value={form.role} onChange={setField('role')} style={selectStyle} disabled>
               {ROLE_OPTIONS.map(option => <option key={option} value={option}>{t(`role.${option}`)}</option>)}
             </select>
           </div>
@@ -1077,13 +1117,22 @@ export function HREmployeesPage() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('New Job Title')}</label>
-            <select value={roleChange.job} onChange={setRoleChangeField('job')} style={selectStyle}>
+            <select value={roleChange.jobTitle} onChange={handleJobTitleChange} style={selectStyle}>
               <option value="">{t('Select a job')}</option>
-              {jobOptions.map(j => (
-                <option key={j.job_id} value={j.job_id}>{j.title}</option>
+              {jobTitleOptions.map(title => (
+                <option key={title} value={title}>{title}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--gray-700)', marginBottom: 8 }}>{t('New Job Level')}</label>
+            <select value={roleChange.job} onChange={setRoleChangeField('job')} style={selectStyle} disabled={!roleChange.jobTitle}>
+              <option value="">{t('Select a level')}</option>
+              {jobLevelOptions.map(j => (
+                <option key={j.job_id} value={j.job_id}>{j.level || t('Standard')}</option>
               ))}
             </select>
           </div>

@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import path, include
@@ -43,3 +45,8 @@ urlpatterns = [
     path('api/send-email/', SendEmailView.as_view(), name='send-email'),
     path("api/auth/", include("accounts.urls"))
 ]
+
+# Serve uploaded media (e.g. leave documents) from the local filesystem in dev.
+# In production media is stored on Cloudinary, which serves its own URLs.
+if settings.DEBUG and not getattr(settings, 'USE_CLOUDINARY', False):
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

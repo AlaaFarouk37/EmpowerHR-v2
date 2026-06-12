@@ -15,11 +15,11 @@ class WeekdayMathTests(SimpleTestCase):
         self.assertEqual(calc.weekdays_in_month(2024, 7), 23)
 
     def test_weekdays_between_inclusive(self):
-        # Mon Jul 1 .. Fri Jul 5 = 5 weekdays
-        self.assertEqual(calc.weekdays_between(date(2024, 7, 1), date(2024, 7, 5)), 5)
+        # Mon Jul 1 .. Fri Jul 5: Fri is the (Egyptian) weekend -> Mon-Thu = 4
+        self.assertEqual(calc.weekdays_between(date(2024, 7, 1), date(2024, 7, 5)), 4)
 
     def test_weekdays_between_excludes_weekends(self):
-        # Fri Jul 5 .. Mon Jul 8 = 2 weekdays (Sat/Sun skipped)
+        # Fri Jul 5 .. Mon Jul 8: Fri/Sat skipped -> Sun 7 + Mon 8 = 2
         self.assertEqual(calc.weekdays_between(date(2024, 7, 5), date(2024, 7, 8)), 2)
 
     def test_weekdays_between_empty_range(self):
@@ -52,17 +52,17 @@ class EmploymentWindowTests(SimpleTestCase):
 
 class UnpaidLeaveWeekdayTests(SimpleTestCase):
     def test_counts_weekdays_in_window(self):
-        # Mon Jul 8 .. Fri Jul 12 = 5 weekdays
+        # Mon Jul 8 .. Fri Jul 12: Fri 12 is weekend -> Mon-Thu = 4
         days = calc.unpaid_leave_weekdays(
             [(date(2024, 7, 8), date(2024, 7, 12))], date(2024, 7, 1), date(2024, 7, 31))
-        self.assertEqual(days, 5)
+        self.assertEqual(days, 4)
 
     def test_overlapping_intervals_deduped(self):
         days = calc.unpaid_leave_weekdays(
             [(date(2024, 7, 8), date(2024, 7, 12)),
              (date(2024, 7, 10), date(2024, 7, 12))],
             date(2024, 7, 1), date(2024, 7, 31))
-        self.assertEqual(days, 5)
+        self.assertEqual(days, 4)
 
     def test_clipped_to_employment_window(self):
         # Leave covers the whole month but employee only joined Jul 16
@@ -101,16 +101,17 @@ class ComputeBreakdownTests(SimpleTestCase):
 
     def test_unpaid_leave_deduction(self):
         r = self._compute(unpaid_leave_intervals=[(date(2024, 7, 8), date(2024, 7, 12))])
-        self.assertEqual(r['unpaidLeaveDays'], 5)
-        self.assertEqual(r['unpaidLeaveDeduction'], Decimal('5000.00'))
-        self.assertEqual(r['netPay'], Decimal('18000.00'))
+        # Mon 8 .. Fri 12 -> 4 working days (Fri is weekend).
+        self.assertEqual(r['unpaidLeaveDays'], 4)
+        self.assertEqual(r['unpaidLeaveDeduction'], Decimal('4000.00'))
+        self.assertEqual(r['netPay'], Decimal('19000.00'))
 
     def test_full_formula(self):
         r = self._compute(
             manual_deductions=1000, commissions=2000, expense_reimbursements=500,
             unpaid_leave_intervals=[(date(2024, 7, 8), date(2024, 7, 12))])
-        # 23000 - 5000 + 2000 - 1000 + 500
-        self.assertEqual(r['netPay'], Decimal('19500.00'))
+        # 23000 - 4000 + 2000 - 1000 + 500
+        self.assertEqual(r['netPay'], Decimal('20500.00'))
 
     def test_not_employed_zero_base(self):
         r = self._compute(hiring_date=date(2024, 8, 1))
@@ -133,33 +134,55 @@ class ComputeBreakdownTests(SimpleTestCase):
         self.assertEqual(r['dailyRate'], Decimal('434.7826'))
         self.assertEqual(r['proratedBaseSalary'], Decimal('10000.00'))
 
+    def test_overtime_pay_at_one_and_half_hourly(self):
+        # base 23000, July 23 weekdays -> daily 1000, 8h/day -> hourly 125
+        # 10 OT hours -> 125 * 10 * 1.5 = 1875
+        r = self._compute(overtime_hours=10, hours_per_day=8)
+        self.assertEqual(r['hourlyRate'], Decimal('125.0000'))
+        self.assertEqual(r['overtimeHours'], Decimal('10.00'))
+        self.assertEqual(r['overtimePay'], Decimal('1875.00'))
+        self.assertEqual(r['netPay'], Decimal('24875.00'))
+
+    def test_overtime_defaults_to_eight_hour_day(self):
+        r = self._compute(overtime_hours=4)
+        self.assertEqual(r['hourlyRate'], Decimal('125.0000'))
+        self.assertEqual(r['overtimePay'], Decimal('750.00'))
+
+    def test_no_overtime_leaves_net_unchanged(self):
+        r = self._compute()
+        self.assertEqual(r['overtimePay'], Decimal('0.00'))
+        self.assertEqual(r['netPay'], Decimal('23000.00'))
+
 
 class ComputePayrollDBTests(TestCase):
     """Integration test: compute_payroll pulls approved unpaid leave, approved
     expenses (by approvedAmount) and commissions from the database."""
 
     def setUp(self):
-        from employee_management.models import Employee
+        from employee_management.models import Employee, LeaveType
         from Attendance_and_Leave.models import LeaveRequest
         from payroll.models import Commission, Deduction
+
+        unpaid = LeaveType.objects.get(name='Unpaid')
+        annual = LeaveType.objects.get(name='Annual')
 
         self.employee = Employee.objects.create(
             employeeID='EMP-TEST-1', fullName='Test Worker',
             employmentStatus='Active')
 
-        # Approved unpaid leave: Mon Jul 8 .. Fri Jul 12 (5 weekdays)
+        # Approved unpaid leave: Mon Jul 8 .. Fri Jul 12 (4 working days; Fri weekend)
         LeaveRequest.objects.create(
-            employee=self.employee, leaveType=LeaveRequest.TYPE_UNPAID,
+            employee=self.employee, leaveType=unpaid,
             startDate=date(2024, 7, 8), endDate=date(2024, 7, 12),
             reason='x', status=LeaveRequest.STATUS_APPROVED)
         # Paid (Annual) leave should be ignored even though approved
         LeaveRequest.objects.create(
-            employee=self.employee, leaveType=LeaveRequest.TYPE_ANNUAL,
+            employee=self.employee, leaveType=annual,
             startDate=date(2024, 7, 15), endDate=date(2024, 7, 16),
             reason='x', status=LeaveRequest.STATUS_APPROVED)
         # Pending unpaid leave should be ignored
         LeaveRequest.objects.create(
-            employee=self.employee, leaveType=LeaveRequest.TYPE_UNPAID,
+            employee=self.employee, leaveType=unpaid,
             startDate=date(2024, 7, 22), endDate=date(2024, 7, 23),
             reason='x', status=LeaveRequest.STATUS_PENDING)
 
@@ -191,18 +214,34 @@ class ComputePayrollDBTests(TestCase):
 
         r = calc.compute_payroll(self.employee, JULY_2024, base_salary=23000)
 
-        self.assertEqual(r['unpaidLeaveDays'], 5)
-        self.assertEqual(r['unpaidLeaveDeduction'], Decimal('5000.00'))
+        self.assertEqual(r['unpaidLeaveDays'], 4)
+        self.assertEqual(r['unpaidLeaveDeduction'], Decimal('4000.00'))
         self.assertEqual(r['commissions'], Decimal('2500.00'))
         self.assertEqual(r['deductions'], Decimal('1000.00'))
         self.assertEqual(r['expenseReimbursements'], Decimal('800.00'))
-        # 23000 - 5000 + 2500 - 1000 + 800
-        self.assertEqual(r['netPay'], Decimal('20300.00'))
+        # 23000 - 4000 + 2500 - 1000 + 800
+        self.assertEqual(r['netPay'], Decimal('21300.00'))
 
     def test_approved_without_approved_amount_contributes_zero(self):
         self._make_expense('Approved', '1000', None)
         r = calc.compute_payroll(self.employee, JULY_2024, base_salary=23000)
         self.assertEqual(r['expenseReimbursements'], Decimal('0.00'))
+
+    def test_approved_overtime_adds_pay_pending_ignored(self):
+        from Attendance_and_Leave.models import AttendanceRecord
+        AttendanceRecord.objects.create(
+            employee=self.employee, date=date(2024, 7, 9),
+            overtimeHours=Decimal('6'), overtimeStatus=AttendanceRecord.OT_AUTO_APPROVED)
+        AttendanceRecord.objects.create(
+            employee=self.employee, date=date(2024, 7, 10),
+            overtimeHours=Decimal('3'), overtimeStatus=AttendanceRecord.OT_PENDING_REVIEW)
+
+        r = calc.compute_payroll(self.employee, JULY_2024, base_salary=23000)
+        self.assertEqual(r['hourlyRate'], Decimal('125.0000'))
+        self.assertEqual(r['overtimeHours'], Decimal('6.00'))
+        self.assertEqual(r['overtimePay'], Decimal('1125.00'))
+        # 23000 - 4000 + 2500 - 1000 + 0 + 1125
+        self.assertEqual(r['netPay'], Decimal('21625.00'))
 
 
 class RunCycleTests(TestCase):
@@ -263,3 +302,60 @@ class RunCycleTests(TestCase):
             employee=tm.employee, payPeriod=JULY_2024).exists())
         self.assertFalse(PayrollRecord.objects.filter(
             employee=inactive.employee, payPeriod=JULY_2024).exists())
+
+
+class PayrollEditTests(TestCase):
+    def test_edit_recomputes_net_and_stamps_audit(self):
+        from rest_framework.test import APIClient
+        from django.urls import reverse
+        from accounts.models import User
+        from employee_management.models import Employee
+        from payroll.models import PayrollRecord
+
+        employee = Employee.objects.create(
+            employeeID='EMP-ED1', fullName='Edit Target', monthlyIncome=20000)
+        record = PayrollRecord.objects.create(
+            employee=employee, payPeriod=JULY_2024,
+            proratedBaseSalary=Decimal('20000.00'), netPay=Decimal('20000.00'))
+
+        admin = User.objects.create_user(email='admined@x.com', password='x',
+                                         role=User.Role.ADMIN, full_name='Admin Editor')
+        client = APIClient()
+        client.force_authenticate(user=admin)
+
+        res = client.post(
+            reverse('hr-payroll-edit', args=[record.payrollID]),
+            {'commissions': '1000.00', 'deductions': '500.00', 'editReason': 'Quarterly bonus correction'},
+            format='json')
+
+        self.assertEqual(res.status_code, 200)
+        record.refresh_from_db()
+        self.assertEqual(record.commissions, Decimal('1000.00'))
+        self.assertEqual(record.deductions, Decimal('500.00'))
+        # 20000 + 1000 - 500
+        self.assertEqual(record.netPay, Decimal('20500.00'))
+        self.assertEqual(record.editedBy, 'Admin Editor')
+        self.assertEqual(record.editReason, 'Quarterly bonus correction')
+        self.assertIsNotNone(record.editedAt)
+
+    def test_edit_requires_reason(self):
+        from rest_framework.test import APIClient
+        from django.urls import reverse
+        from accounts.models import User
+        from employee_management.models import Employee
+        from payroll.models import PayrollRecord
+
+        employee = Employee.objects.create(
+            employeeID='EMP-ED2', fullName='No Reason', monthlyIncome=20000)
+        record = PayrollRecord.objects.create(
+            employee=employee, payPeriod=JULY_2024, netPay=Decimal('20000.00'))
+
+        admin = User.objects.create_user(email='admined2@x.com', password='x',
+                                         role=User.Role.ADMIN, full_name='Admin Editor')
+        client = APIClient()
+        client.force_authenticate(user=admin)
+
+        res = client.post(
+            reverse('hr-payroll-edit', args=[record.payrollID]),
+            {'commissions': '1000.00'}, format='json')
+        self.assertEqual(res.status_code, 400)

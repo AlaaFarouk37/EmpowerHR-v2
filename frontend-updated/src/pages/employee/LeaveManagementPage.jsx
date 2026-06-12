@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { getMyLeaveRequests, submitLeaveRequest } from '../../api/index.js';
+import { getMyLeaveRequests, submitLeaveRequest, getMyLeaveBalances } from '../../api/index.js';
 import { Badge, Btn, Modal, Input, Textarea, useToast, Spinner } from '../../components/shared/index.jsx';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -22,23 +22,29 @@ export function EmployeeLeaveManagementPage() {
   const employeeID = user?.employee_id;
 
   const [leaves, setLeaves] = useState([]);
+  const [balanceRows, setBalanceRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
-    leaveType: 'Annual Leave',
+    leaveType: '',
     startDate: '',
     endDate: '',
     reason: ''
   });
+  const [documentFile, setDocumentFile] = useState(null);
 
   const loadData = async () => {
     if (!employeeID) return;
     setLoading(true);
     try {
-      const data = await getMyLeaveRequests(employeeID);
+      const [data, bal] = await Promise.all([
+        getMyLeaveRequests(employeeID).catch(() => []),
+        getMyLeaveBalances(employeeID, new Date().getFullYear()).catch(() => []),
+      ]);
       setLeaves(Array.isArray(data) ? data : []);
+      setBalanceRows(Array.isArray(bal) ? bal : []);
     } catch (error) {
       toast(error.message || 'Failed to load leave requests', 'error');
     } finally {
@@ -48,25 +54,46 @@ export function EmployeeLeaveManagementPage() {
 
   useEffect(() => { loadData(); }, [employeeID]);
 
-  const balances = useMemo(() => {
-    const annualUsed = (leaves || []).filter(l => l.leaveType === 'Annual Leave' && l.status === 'Approved').reduce((sum, l) => sum + (l.daysRequested || 0), 0);
-    const sickUsed = (leaves || []).filter(l => l.leaveType === 'Sick Leave' && l.status === 'Approved').reduce((sum, l) => sum + (l.daysRequested || 0), 0);
-    return [
-      { label: 'Annual Leave', used: annualUsed, total: 21, color: '#DC2626', bgColor: '#FEF2F2' },
-      { label: 'Sick Leave', used: sickUsed, total: 10, color: '#EA580C', bgColor: '#FFF7ED' },
-      { label: 'Unpaid Leave', used: 0, total: 5, color: '#2563EB', bgColor: '#EFF6FF' },
-    ];
-  }, [leaves]);
+  const PALETTE = ['#DC2626', '#EA580C', '#2563EB', '#7C3AED', '#0891B2'];
+
+  // Leave-type options come straight from the configured types in the system.
+  const leaveTypeOptions = useMemo(
+    () => balanceRows.map(b => b.leaveTypeName),
+    [balanceRows],
+  );
+
+  // Default the dropdown to the first available type once balances load.
+  useEffect(() => {
+    if (!formData.leaveType && leaveTypeOptions.length) {
+      setFormData(f => ({ ...f, leaveType: leaveTypeOptions[0] }));
+    }
+  }, [leaveTypeOptions]);
+
+  const balances = useMemo(() => balanceRows.map((b, i) => ({
+    label: b.leaveTypeName,
+    used: b.usedDays || 0,
+    total: b.entitledDays,             // null => uncapped (e.g. Unpaid)
+    remaining: b.remainingDays,        // null => uncapped
+    color: PALETTE[i % PALETTE.length],
+  })), [balanceRows]);
+
+  const selectedBalance = useMemo(
+    () => balances.find(b => b.label === formData.leaveType),
+    [balances, formData.leaveType],
+  );
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.startDate || !formData.endDate || !formData.reason) return toast(t('Please fill all required fields'), 'error');
+    if (!formData.leaveType || !formData.startDate || !formData.endDate || !formData.reason) {
+      return toast(t('Please fill all required fields'), 'error');
+    }
     setIsSubmitting(true);
     try {
-      await submitLeaveRequest({ ...formData, employeeID });
+      await submitLeaveRequest({ ...formData, employeeID, document: documentFile });
       toast(t('Leave request submitted'), 'success');
       setIsModalOpen(false);
-      setFormData({ leaveType: 'Annual Leave', startDate: '', endDate: '', reason: '' });
+      setFormData({ leaveType: leaveTypeOptions[0] || '', startDate: '', endDate: '', reason: '' });
+      setDocumentFile(null);
       loadData();
     } catch (error) { toast(error.message, 'error'); }
     finally { setIsSubmitting(false); }
@@ -95,31 +122,40 @@ export function EmployeeLeaveManagementPage() {
         </div>
 
         {/* Balance Progress Rings */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24, marginBottom: 32 }}>
-          {balances.map(b => (
-            <div key={b.label} className="glass-card-employee" style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-              <div style={{ position: 'relative', width: 80, height: 80 }}>
-                <svg viewBox="0 0 36 36" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
-                  <circle cx="18" cy="18" r="16" fill="none" stroke="#F1F5F9" strokeWidth="3.5" />
-                  <circle cx="18" cy="18" r="16" fill="none" stroke={b.color} strokeWidth="3.5" 
-                    strokeDasharray={`${((b.total - b.used) / b.total) * 100}, 100`} 
-                    strokeLinecap="round" 
-                  />
-                </svg>
-                <div style={{ 
-                  position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, 
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 14, fontWeight: 900, color: '#1E293B'
-                }}>
-                  {b.total - b.used}
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(balances.length, 1)}, 1fr)`, gap: 24, marginBottom: 32 }}>
+          {balances.map(b => {
+            const capped = b.total !== null && b.total !== undefined;
+            const remaining = capped ? b.total - b.used : null;
+            const pct = capped && b.total > 0 ? Math.max(0, Math.min(100, (remaining / b.total) * 100)) : 100;
+            return (
+              <div key={b.label} className="glass-card-employee" style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+                <div style={{ position: 'relative', width: 80, height: 80 }}>
+                  <svg viewBox="0 0 36 36" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
+                    <circle cx="18" cy="18" r="16" fill="none" stroke="#F1F5F9" strokeWidth="3.5" />
+                    <circle cx="18" cy="18" r="16" fill="none" stroke={b.color} strokeWidth="3.5"
+                      strokeDasharray={`${pct}, 100`}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div style={{
+                    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 14, fontWeight: 900, color: '#1E293B'
+                  }}>
+                    {capped ? remaining : '∞'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{b.label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: '#1E293B', marginTop: 2 }}>
+                    {capped
+                      ? <>{remaining} / {b.total} <span style={{ fontSize: 12, color: '#94A3B8' }}>Days</span></>
+                      : <>{b.used} <span style={{ fontSize: 12, color: '#94A3B8' }}>used (uncapped)</span></>}
+                  </div>
                 </div>
               </div>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{b.label}</div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: '#1E293B', marginTop: 2 }}>{b.total - b.used} / {b.total} <span style={{ fontSize: 12, color: '#94A3B8' }}>Days</span></div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 32 }}>
@@ -210,15 +246,22 @@ export function EmployeeLeaveManagementPage() {
           <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 20 }}>
              <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>Leave Type</label>
-                <select 
+                <select
                    style={{ width: '100%', padding: '0 16px', height: 48, borderRadius: 14, border: '1.5px solid #E2E8F0', background: '#F8FAFC', fontWeight: 800, color: '#1E293B', outline: 'none' }}
                    value={formData.leaveType}
                    onChange={e => setFormData({...formData, leaveType: e.target.value})}
                 >
-                   <option value="Annual Leave">Annual Leave</option>
-                   <option value="Sick Leave">Sick Leave</option>
-                   <option value="Unpaid Leave">Unpaid Leave</option>
+                   {leaveTypeOptions.map(name => (
+                     <option key={name} value={name}>{name}</option>
+                   ))}
                 </select>
+                {selectedBalance && (
+                  <div style={{ fontSize: 12, fontWeight: 700, color: selectedBalance.total !== null && (selectedBalance.total - selectedBalance.used) <= 0 ? '#DC2626' : '#64748B', marginTop: 6 }}>
+                    {selectedBalance.total === null || selectedBalance.total === undefined
+                      ? t('Uncapped leave type.')
+                      : `${Math.max(0, selectedBalance.total - selectedBalance.used)} ${t('day(s) remaining this year.')}`}
+                  </div>
+                )}
              </div>
              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div>
@@ -233,6 +276,18 @@ export function EmployeeLeaveManagementPage() {
              <div>
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>Reason</label>
                 <Textarea value={formData.reason} onChange={e => setFormData({...formData, reason: e.target.value})} placeholder="Provide context for your manager..." style={{ background: '#F8FAFC', border: '1.5px solid #E2E8F0', borderRadius: 14, padding: '16px', minHeight: 100, fontWeight: 600 }} />
+             </div>
+             <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>{t('Supporting Document')} <span style={{ textTransform: 'none', color: '#CBD5E1' }}>({t('optional')})</span></label>
+                <input
+                   type="file"
+                   accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+                   onChange={e => setDocumentFile(e.target.files?.[0] || null)}
+                   style={{ width: '100%', padding: '12px 16px', borderRadius: 14, border: '1.5px dashed #E2E8F0', background: '#F8FAFC', fontWeight: 600, color: '#475569' }}
+                />
+                {documentFile && (
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#64748B', marginTop: 6 }}>{documentFile.name}</div>
+                )}
              </div>
              <Btn type="submit" loading={isSubmitting} style={{ background: '#DC2626', height: 48, borderRadius: 14, fontWeight: 900, border: 'none', color: '#fff', width: '100%' }}>
                Submit Request
