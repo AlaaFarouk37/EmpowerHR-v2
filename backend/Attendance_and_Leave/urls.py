@@ -40,7 +40,10 @@ urlpatterns = [
     # ─── HR oversight ────────────────────────────────────────────────────────
     path('hr/attendance/', views.HRAttendanceListView.as_view(), name='hr-attendance-list'),
     path('hr/attendance/watch/', views.HRAttendanceWatchView.as_view(), name='hr-attendance-watch'),
+    path('hr/attendance/report/', views.HRAttendanceReportView.as_view(), name='hr-attendance-report'),
     path('hr/leave-requests/', views.LeaveRequestListCreateView.as_view(), name='hr-leave-request-list'),
+    # HR-named alias for the role-aware managed list (all requests + balance + document).
+    path('hr/leave-requests/managed/', views.TeamLeaveRequestListView.as_view(), name='hr-leave-request-managed'),
     path('hr/leave-requests/<str:pk>/review/', views.review_leave_request, name='hr-leave-request-review'),
     path('hr/leave-balances/', views.HRLeaveBalanceView.as_view(), name='hr-leave-balances'),
 

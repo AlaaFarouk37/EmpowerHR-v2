@@ -43,6 +43,19 @@ const TelemetryChip = ({ label, value, sub, color, icon: Icon }) => (
   </div>
 );
 
+const LateTag = ({ minutes, t }) => (
+  <span
+    title={minutes ? `${minutes} ${t('min late')}` : t('Late')}
+    style={{
+      fontSize: 10, fontWeight: 800, color: '#fff', background: '#E8321A',
+      padding: '2px 7px', borderRadius: 999, textTransform: 'uppercase',
+      letterSpacing: '.03em', whiteSpace: 'nowrap',
+    }}
+  >
+    {t('Late')}!
+  </span>
+);
+
 /* --- 1. Attendance Track (Leader Edition) --- */
 export function LeaderPersonalAttendancePage() {
   const { user } = useAuth();
@@ -173,7 +186,10 @@ export function LeaderPersonalAttendancePage() {
                          <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600 }}>{log.clockIn} — {log.clockOut || 'Active'}</div>
                       </div>
                    </div>
-                   <Badge label={log.status} color={log.status === 'Present' ? 'red' : 'pink'} />
+                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      {log.isLate && <LateTag minutes={log.lateMinutes} t={t} />}
+                      <Badge label={log.status} color={log.status === 'Present' ? 'red' : 'pink'} />
+                   </div>
                 </div>
               ))}
             </div>

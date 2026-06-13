@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { hrGetAttendanceRecords, hrGetLeaveRequests, hrGetEmployees } from '../../api/index.js';
 import { Badge, Btn, Spinner, useToast, Input } from '../../components/shared/index.jsx';
 import ContactEmailModal from '../../components/shared/ContactEmailModal.jsx';
+import { HRAttendanceReport } from './AttendanceReportPage.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import {
@@ -30,7 +31,20 @@ const formatTime = (value) => {
 
 const dateOnly = (value) => String(value || '').slice(0, 10);
 
-export function HRAttendancePage() {
+const LateTag = ({ minutes, t }) => (
+  <span
+    title={minutes ? `${minutes} ${t('min late')}` : t('Late')}
+    style={{
+      fontSize: 10, fontWeight: 800, color: '#fff', background: '#E8321A',
+      padding: '2px 7px', borderRadius: 999, textTransform: 'uppercase',
+      letterSpacing: '.03em', whiteSpace: 'nowrap',
+    }}
+  >
+    {t('Late')}!
+  </span>
+);
+
+function HRAttendanceDayToDay() {
   const toast = useToast();
   const { t } = useLanguage();
   const { user, loading: authLoading } = useAuth();
@@ -163,11 +177,10 @@ export function HRAttendancePage() {
   }
 
   return (
-    <div className="hr-page-shell" style={{ maxWidth: 1280, margin: '0 auto', padding: '40px 32px 80px' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
         <div>
-          <h2 style={{ fontSize: 24, fontWeight: 800, marginBottom: 4, color: '#1E293B' }}>{t('Attendance')}</h2>
-          <p style={{ fontSize: 13.5, color: 'var(--gray-500)' }}>
+          <p style={{ fontSize: 13.5, color: 'var(--gray-500)', margin: 0 }}>
             {t('Track who is on leave, who did not show up, and live clock-in / clock-out activity.')}
           </p>
         </div>
@@ -323,7 +336,10 @@ export function HRAttendancePage() {
                       <td style={{ padding: '14px 20px', fontSize: 13 }}>{rec.employeeDepartment || '—'}</td>
                       <td style={{ padding: '14px 20px', fontSize: 13 }}>{rec.employeeTeam || '—'}</td>
                       <td style={{ padding: '14px 20px', fontSize: 13, fontWeight: 700, color: '#1E293B', fontFamily: 'ui-monospace, monospace' }}>
-                        {formatTime(rec.clockIn)}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          {formatTime(rec.clockIn)}
+                          {rec.isLate && <LateTag minutes={rec.lateMinutes} t={t} />}
+                        </span>
                       </td>
                       <td style={{ padding: '14px 20px', fontSize: 13, fontWeight: 700, fontFamily: 'ui-monospace, monospace', color: out ? '#1E293B' : 'var(--gray-400)' }}>
                         {out ? formatTime(out) : '—'}
@@ -358,6 +374,41 @@ export function HRAttendancePage() {
           onSent={() => toast(t('Email sent'), 'success')}
         />
       )}
+    </div>
+  );
+}
+
+export function HRAttendancePage() {
+  const { t } = useLanguage();
+  const [tab, setTab] = useState('daily');
+
+  const tabs = [
+    { key: 'daily', label: t('Day-to-Day Tracking') },
+    { key: 'reporting', label: t('Weekly / Monthly Reporting') },
+  ];
+
+  return (
+    <div className="hr-page-shell" style={{ maxWidth: 1280, margin: '0 auto', padding: '40px 32px 80px' }}>
+      <h2 style={{ fontSize: 24, fontWeight: 800, marginBottom: 16, color: '#1E293B' }}>{t('Attendance')}</h2>
+      <div style={{ display: 'inline-flex', background: '#F8FAFC', borderRadius: 12, padding: 4, border: '1.5px solid #F1F5F9', marginBottom: 28 }}>
+        {tabs.map((tb) => (
+          <button
+            key={tb.key}
+            onClick={() => setTab(tb.key)}
+            style={{
+              padding: '8px 24px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 800, cursor: 'pointer',
+              background: tab === tb.key ? '#fff' : 'transparent',
+              color: tab === tb.key ? 'var(--red-600)' : '#94A3B8',
+              boxShadow: tab === tb.key ? '0 2px 4px rgba(0,0,0,0.05)' : 'none',
+              transition: 'all 0.2s',
+            }}
+          >
+            {tb.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'daily' ? <HRAttendanceDayToDay /> : <HRAttendanceReport />}
     </div>
   );
 }

@@ -6,6 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.db.models import Q
 from accounts.permissions import IsHRManager, IsInternalEmployee, IsTeamLeader
 from employee_management.models import Employee, WorkTaskLog, LeaveType
@@ -17,7 +18,7 @@ from .serializers import (
     TimeCorrectionRequestSerializer, TimeCorrectionCreateSerializer, TimeCorrectionReviewSerializer,
     HolidayOverrideSerializer, HolidayOverrideCreateSerializer, LeaveBalanceSerializer, AbsenceRunSerializer,
 )
-from . import leave_services, holiday_service, absence_service, capacity
+from . import leave_services, holiday_service, absence_service, capacity, reporting_service
 
 
 def _compute_overtime(record):
@@ -210,12 +211,10 @@ class LeaveRequestListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        if user.role == 'admin':
+        # HR/Admin see all requests; everyone else sees only their own.
+        if getattr(user, 'role', None) in ('Admin', 'HRManager'):
             return LeaveRequest.objects.all()
-        elif user.role == 'hr_manager':
-            return LeaveRequest.objects.all()
-        else:
-            return LeaveRequest.objects.filter(employee_id=user.employee_id)
+        return LeaveRequest.objects.filter(employee_id=user.employee_id)
 
     def perform_create(self, serializer):
         serializer.save()
@@ -227,12 +226,9 @@ class LeaveRequestDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        if user.role == 'admin':
+        if getattr(user, 'role', None) in ('Admin', 'HRManager'):
             return LeaveRequest.objects.all()
-        elif user.role == 'hr_manager':
-            return LeaveRequest.objects.all()
-        else:
-            return LeaveRequest.objects.filter(employee_id=user.employee_id)
+        return LeaveRequest.objects.filter(employee_id=user.employee_id)
 
 
 def _approve_leave(leave_request, reviewer):
@@ -766,6 +762,30 @@ class HRAttendanceListView(APIView):
         return Response(AttendanceRecordSerializer(records.order_by('-date', '-clockIn'), many=True).data)
 
 
+class HRAttendanceReportView(APIView):
+    """GET /hr/attendance/report/?range=week|month&date=YYYY-MM-DD — per-employee
+    and org-wide attendance analytics (late, no-shows, leave days, punctuality)
+    for the week/month containing ``date`` (defaults to today)."""
+    permission_classes = [IsAuthenticated, IsHRManager]
+
+    def get(self, request):
+        range_kind = (request.query_params.get('range') or 'month').strip().lower()
+        if range_kind not in ('week', 'month'):
+            return Response({'error': "range must be 'week' or 'month'."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        date_value = request.query_params.get('date')
+        if date_value:
+            anchor = parse_date(date_value)
+            if not anchor:
+                return Response({'error': 'date must be in YYYY-MM-DD format.'},
+                                status=status.HTTP_400_BAD_REQUEST)
+        else:
+            anchor = timezone.localdate()
+
+        return Response(reporting_service.build_report(range_kind, anchor))
+
+
 class EmployeeLeaveRequestListCreateView(APIView):
     permission_classes = [IsAuthenticated, IsInternalEmployee]
 
@@ -989,7 +1009,8 @@ class TeamLeaveRequestListView(APIView):
     permission_classes = [IsAuthenticated, IsTeamLeader]
 
     def get(self, request):
-        qs = LeaveRequest.objects.select_related('employee', 'leaveType').filter(
+        qs = LeaveRequest.objects.select_related(
+            'employee', 'leaveType', 'employee__user_account').filter(
             employee__isDeleted=False)
 
         status_filter = request.query_params.get('status')
@@ -1014,6 +1035,7 @@ class TeamLeaveRequestListView(APIView):
                 'usedDays': balance.usedDays,
                 'remainingDays': balance.remainingDays,
             }
+            item['employeeRole'] = req_obj.employee.role
         return Response(payload)
 
 

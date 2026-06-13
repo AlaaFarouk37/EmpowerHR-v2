@@ -1,19 +1,48 @@
 from rest_framework import serializers
+from django.utils import timezone
 from employee_management.models import LeaveType
 from .models import (
     AttendanceRecord, LeaveRequest, TimeCorrectionRequest,
     HolidayOverride, LeaveBalance,
 )
 
+# Minutes past the employee's default_clock_in that still count as on-time.
+LATE_GRACE_MINUTES = 15
+
+
+def late_minutes(record):
+    """How many minutes after their default_clock_in an employee clocked in.
+
+    None when there's nothing to compare (no clock-in yet, or the employee has
+    no default_clock_in on file). Negative means they were early.
+    """
+    expected = getattr(record.employee, 'default_clock_in', None)
+    if not record.clockIn or not expected:
+        return None
+    local_in = timezone.localtime(record.clockIn)
+    expected_in = local_in.replace(
+        hour=expected.hour, minute=expected.minute, second=0, microsecond=0)
+    return round((local_in - expected_in).total_seconds() / 60)
+
 
 class AttendanceRecordSerializer(serializers.ModelSerializer):
     employeeName = serializers.CharField(source='employee.fullName', read_only=True)
     employeeTeam = serializers.CharField(source='employee.team', read_only=True)
     employeeDepartment = serializers.CharField(source='employee.department', read_only=True)
+    isLate = serializers.SerializerMethodField()
+    lateMinutes = serializers.SerializerMethodField()
 
     class Meta:
         model = AttendanceRecord
         fields = '__all__'
+
+    def get_lateMinutes(self, obj):
+        minutes = late_minutes(obj)
+        return max(0, minutes) if minutes is not None else 0
+
+    def get_isLate(self, obj):
+        minutes = late_minutes(obj)
+        return minutes is not None and minutes > LATE_GRACE_MINUTES
 
 
 class LeaveRequestSerializer(serializers.ModelSerializer):

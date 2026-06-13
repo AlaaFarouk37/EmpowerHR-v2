@@ -23,6 +23,7 @@ import {
   DollarSign,
   Star,
   Plane,
+  Clock,
   LogOut
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -77,7 +78,8 @@ const SidebarIcon = ({ name, active }) => {
     Plus,
     DollarSign,
     Star,
-    Plane
+    Plane,
+    Clock
   };
   const Icon = icons[name] || HelpCircle;
   return <Icon size={20} style={{ color: active ? 'var(--color-primary-teal)' : 'inherit' }} />;
@@ -137,6 +139,7 @@ const NAV_GROUPS = {
         { path: '/hr/employees', labelKey: 'nav.employees', icon: 'Users' },
         { path: '/hr/team', labelKey: 'nav.teamHub', icon: 'Users' },
         { path: '/hr/attendance', labelKey: 'nav.attendance', icon: 'Activity' },
+        { path: '/hr/leave-management', labelKey: 'Leave Management', icon: 'Plane' },
         { path: '/hr/training', labelKey: 'nav.training', icon: 'Database' },
         { path: '/hr/shifts', labelKey: 'nav.shifts', icon: 'Activity' },
       ],
@@ -220,35 +223,44 @@ const NAV_GROUPS = {
   ],
   TeamLeader: [
     {
-      titleKey: 'nav.leadershipControl',
+      titleKey: 'Team Management',
+      items: [
+        { path: '/leader/team', labelKey: 'Team Hub', icon: 'Target' },
+        { path: '/leader/team-directory', labelKey: 'nav.teamRoster', icon: 'Users' },
+      ],
+    },
+    {
+      titleKey: 'Personal',
       items: [
         { path: '/leader/dashboard', labelKey: 'nav.tacticalDashboard', icon: 'Layout' },
+        { path: '/leader/my-leave-requests', labelKey: 'My Leave Requests', icon: 'Plane' },
+        { path: '/leader/tickets', labelKey: 'nav.supportTickets', icon: 'Activity' },
+        { path: '', labelKey: 'My Tasks & Goals', icon: 'Target', placeholder: true },
+        { path: '/leader/payroll', labelKey: 'Payroll', icon: 'Activity' },
+        { path: '/leader/expenses', labelKey: 'Expense Request', icon: 'DollarSign' },
+      ],
+    },
+    {
+      titleKey: 'Reviews and Approvals',
+      items: [
+        { path: '', labelKey: 'Overtime Reviews', icon: 'Clock', placeholder: true },
+        { path: '/leader/leave-requests', labelKey: 'Team Leave Requests', icon: 'Plane' },
+        { path: '/leader/team-reviews', labelKey: 'Performance Reviews', icon: 'Star' },
+        { path: '/leader/attendance-corrections', labelKey: 'Attendance Correction Requests', icon: 'Calendar' },
+      ],
+    },
+    {
+      titleKey: 'Miscellaneous',
+      items: [
         { path: '/leader/team-calendar', labelKey: 'nav.operationsSchedule', icon: 'Calendar' },
         { path: '/leader/team-analytics', labelKey: 'nav.performanceIntel', icon: 'BarChart' },
-        { path: '/leader/team', labelKey: 'nav.missionControl', icon: 'Target' },
-      ],
-    },
-    {
-      titleKey: 'nav.workforceOperations',
-      items: [
         { path: '/leader/team-requests', labelKey: 'nav.strategicRequests', icon: 'FileText' },
-        { path: '/leader/leave-requests', labelKey: 'Team Leave Requests', icon: 'Plane' },
-        { path: '/leader/attendance-corrections', labelKey: 'Attendance Corrections', icon: 'Calendar' },
         { path: '/leader/team-support', labelKey: 'nav.supportRadar', icon: 'Activity' },
         { path: '/leader/team-feedback', labelKey: 'nav.pulseSignals', icon: 'Bell' },
-        { path: '/leader/team-directory', labelKey: 'nav.teamRoster', icon: 'Users' },
-        { path: '/leader/team-reviews', labelKey: 'Performance Reviews', icon: 'Star' },
         { path: '/leader/recognition', labelKey: 'nav.rewardsMerit', icon: 'Zap' },
-      ],
-    },
-    {
-      titleKey: 'nav.personalWorkspace',
-      items: [
         { path: '/employee/profile', labelKey: 'nav.profile', icon: 'User' },
         { path: '/leader/attendance', labelKey: 'nav.attendanceTrack', icon: 'Activity' },
-        { path: '/leader/payroll', labelKey: 'nav.financialHub', icon: 'Activity' },
         { path: '/leader/documents', labelKey: 'nav.vault', icon: 'Copy' },
-        { path: '/leader/tickets', labelKey: 'nav.supportTickets', icon: 'Activity' },
       ],
     },
   ],
@@ -825,7 +837,7 @@ export function Navbar({ isCollapsed, onToggle }) {
         ...group,
         items: (group.items || [])
           .map((link) => ({ ...link, path: resolvePath(link.path) }))
-          .filter((link) => canAccessPath(link.path)),
+          .filter((link) => link.placeholder || canAccessPath(link.path)),
       }))
       .filter((group) => group.items.length > 0);
   }, [canAccessPath, resolvePath, user]);
@@ -1329,11 +1341,13 @@ export function Navbar({ isCollapsed, onToggle }) {
                   const active = activePath === link.path;
                   return (
                     <button
-                      key={link.path}
+                      key={link.path || link.labelKey}
                       type="button"
-                      onClick={() => navigate(link.path)}
+                      onClick={() => { if (!link.placeholder) navigate(link.path); }}
+                      disabled={link.placeholder}
                       className={`app-sidebar-item${active ? ' active' : ''}`}
                       title={isCollapsed ? t(link.labelKey) : ''}
+                      style={link.placeholder ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
                     >
                       <span className="app-sidebar-item-icon">
                         <SidebarIcon name={link.icon} active={active} />

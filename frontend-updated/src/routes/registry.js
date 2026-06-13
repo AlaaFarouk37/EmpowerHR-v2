@@ -30,6 +30,7 @@ import { HRDocumentsPage } from "../pages/hr/DocumentsPage";
 import { HRPlanningPage } from "../pages/hr/PlanningPage";
 import { HRTicketsPage } from "../pages/hr/TicketsPage";
 import { HRApprovalCenterPage } from "../pages/hr/ApprovalCenterPage";
+import { HRLeaveManagementPage } from "../pages/hr/LeaveManagementPage";
 import { HROrgNeuralMapPage } from "../pages/hr/OrgNeuralMapPage";
 import { AttritionPage } from "../pages/hr/AttritionPage";
 import { BenchmarkingPage } from "../pages/hr/BenchmarkingPage";
@@ -164,6 +165,7 @@ export const PROTECTED_ROUTES = [
   { path: "/leader/documents", element: <LeaderPersonalVaultPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
   { path: "/leader/tickets", element: <LeaderPersonalTicketsPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
   { path: "/leader/feedback", element: <LeaderFeedbackPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
+  { path: "/leader/my-leave-requests", element: <EmployeeLeaveManagementPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
   { path: "/leader/profile", element: <LeaderPersonalProfilePage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
 
   // Team Leader workspace
@@ -182,6 +184,7 @@ export const PROTECTED_ROUTES = [
   // HR Manager
   { path: "/hr/dashboard", element: <HRDashboardPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/approvals", element: <HRApprovalCenterPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
+  { path: "/hr/leave-management", element: <HRLeaveManagementPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/org-map", element: <HROrgNeuralMapPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/employees", element: <HREmployeesPage />, roles: ["HRManager"], permission: "hr.workspace.access" },
   { path: "/hr/attrition", element: <AttritionPage />, roles: ["HRManager"], permission: "hr.workspace.access" },

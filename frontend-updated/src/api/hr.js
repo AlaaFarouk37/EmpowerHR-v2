@@ -81,7 +81,14 @@ export const hrGetTeamOptions       = async () => toList(await api.get('/employe
 // Attendance & Leave
 export const hrGetAttendanceRecords = async () => toList(await api.get('/attendance_leave/hr/attendance/'));
 export const hrGetAttendanceWatch = () => api.get('/attendance_leave/hr/attendance/watch/');
+export const hrGetAttendanceReport = ({ range = 'month', date } = {}) => {
+  const qs = new URLSearchParams({ range, ...(date ? { date } : {}) }).toString();
+  return api.get(`/attendance_leave/hr/attendance/report/?${qs}`);
+};
 export const hrGetLeaveRequests = async () => toList(await api.get('/attendance_leave/hr/leave-requests/'));
+// Managed list for HR: all requests (incl. TLs') with per-request balance + document.
+export const hrGetManagedLeaveRequests = async (status) =>
+  toList(await api.get(`/attendance_leave/hr/leave-requests/managed/${status ? `?status=${status}` : ''}`));
 export const hrGetApprovalSnapshot = () => api.get('/employee_management/hr/approvals/snapshot/');
 export const hrGetApprovals = async () => toList(await api.get('/feedback/hr/approvals/'));
 export const hrProcessApproval = (id, data) => api.post(`/feedback/hr/approvals/${id}/process/`, data);
