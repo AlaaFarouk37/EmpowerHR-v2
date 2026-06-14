@@ -74,6 +74,7 @@ import { TeamReviewsPage } from "../pages/leader/TeamReviewsPage";
 import { LeaderDashboardPage } from "../pages/leader/DashboardPage";
 import { TeamGoalsPage } from "../pages/leader/TeamPage";
 import { LeaderTeamHubPage } from "../pages/leader/TeamHubPage";
+import { LeaderOvertimeReviewsPage } from "../pages/leader/OvertimeReviewsPage";
 import { 
   LeaderAttendancePage, LeaderBenefitsPage, LeaderCareerPathPage, LeaderDocumentsPage, 
   LeaderExpensesPage, LeaderFeedbackPage, LeaderGoalsPage, LeaderMyRecognitionPage, 
@@ -83,7 +84,6 @@ import {
 import {
   LeaderPersonalProfilePage,
   LeaderPersonalAttendancePage,
-  LeaderPersonalPayrollPage,
   LeaderPersonalVaultPage,
   LeaderPersonalTicketsPage
 } from "../pages/leader/PersonalCommandPages";
@@ -150,7 +150,7 @@ export const PROTECTED_ROUTES = [
   // Team Leader personal workspace
   { path: "/leader/dashboard", element: <LeaderDashboardPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
   { path: "/leader/attendance", element: <LeaderPersonalAttendancePage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
-  { path: "/leader/payroll", element: <LeaderPersonalPayrollPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
+  { path: "/leader/payroll", element: <EmployeePayrollPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
   { path: "/leader/reviews", element: <LeaderReviewsPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
   { path: "/leader/career-path", element: <LeaderCareerPathPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
   { path: "/leader/onboarding", element: <LeaderOnboardingPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
@@ -179,6 +179,7 @@ export const PROTECTED_ROUTES = [
   { path: "/leader/team-directory", element: <TeamDirectoryPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
   { path: "/leader/team-reviews", element: <TeamReviewsPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
   { path: "/leader/team", element: <LeaderTeamHubPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
+  { path: "/leader/overtime-reviews", element: <LeaderOvertimeReviewsPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
   { path: "/leader/recognition", element: <TeamRecognitionPage />, roles: ["TeamLeader"], permission: "leader.workspace.access" },
 
   // HR Manager

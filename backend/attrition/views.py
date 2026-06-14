@@ -301,6 +301,52 @@ class AttritionPredictionLatestView(APIView):
         return Response(data)
 
 
+class TeamAttritionLatestView(APIView):
+    """GET /api/attrition/team/latest/ — the latest attrition prediction for every
+    member of the requesting Team Leader's own team. Lightweight (id, name, risk
+    level/score, date) and scoped to the team, for the leader dashboard card."""
+    permission_classes = [IsAuthenticated, IsTeamLeader]
+
+    def get(self, request):
+        from django.db.models import Max
+
+        leader_id = getattr(request.user, 'employee_id', None)
+        employees = Employee.objects.filter(isDeleted=False, employmentStatus='Active')
+        if getattr(request.user, 'role', None) == 'TeamLeader':
+            leader = Employee.objects.filter(employeeID=leader_id, isDeleted=False).first()
+            employees = employees.filter(team=leader.team) if (leader and leader.team_id) else employees.none()
+        emp_ids = [e for e in employees.exclude(employeeID=leader_id).values_list('employeeID', flat=True)]
+
+        latest = (
+            AttritionPrediction.objects
+            .filter(employeeID_id__in=emp_ids)
+            .values('employeeID_id')
+            .annotate(latest=Max('predictedAt'))
+        )
+        rows = []
+        for entry in latest:
+            pred = (
+                AttritionPrediction.objects
+                .select_related('employeeID')
+                .get(employeeID_id=entry['employeeID_id'], predictedAt=entry['latest'])
+            )
+            rows.append({
+                'employeeID': pred.employeeID_id,
+                'employeeName': pred.employeeID.fullName,
+                'riskLevel': pred.riskLevel,
+                'riskScore': round(pred.riskScore, 4),
+                'predictedAt': pred.predictedAt.isoformat(),
+            })
+
+        risk_rank = {'High': 0, 'Medium': 1, 'Low': 2}
+        rows.sort(key=lambda r: (risk_rank.get(r['riskLevel'], 9), -r['riskScore']))
+        return Response({
+            'highRiskCount': sum(1 for r in rows if r['riskLevel'] == 'High'),
+            'total': len(rows),
+            'predictions': rows,
+        })
+
+
 class NotifyTeamLeaderOfRiskView(APIView):
     """POST /api/attrition/predictions/<predictionID>/notify-tl/ — HR manually notifies
     the team leader of an at-risk employee. Creates (or reuses) a WorkTask on the TL

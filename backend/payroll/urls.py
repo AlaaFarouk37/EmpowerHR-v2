@@ -11,6 +11,7 @@ urlpatterns = [
     path('hr/payroll/signals/', views.HRPayrollPendingSignalsView.as_view(), name='hr-payroll-signals'),
     path('hr/payroll/<str:payroll_id>/mark-paid/', views.HRPayrollMarkPaidView.as_view(), name='hr-payroll-mark-paid'),
     path('hr/payroll/<str:payroll_id>/edit/', views.HRPayrollEditView.as_view(), name='hr-payroll-edit'),
+    path('hr/payroll/<str:payroll_id>/recalculate/', views.HRPayrollRecalculateView.as_view(), name='hr-payroll-recalculate'),
     path('hr/commissions/', views.HRCommissionListCreateView.as_view(), name='hr-commission-list-create'),
     path('hr/commissions/<str:commission_id>/', views.HRCommissionDetailView.as_view(), name='hr-commission-detail'),
     path('hr/deductions/', views.HRDeductionListCreateView.as_view(), name='hr-deduction-list-create'),

@@ -958,47 +958,6 @@ class HRHolidayOverrideDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-# ─── Absence detection + deduction (HR-triggered) ────────────────────────────
-
-class HRAbsenceRunView(APIView):
-    """POST /hr/absence-run/ — Body: {startDate, endDate, employeeID?}.
-
-    Detects no-show working days in the range and records an unpaid-leave
-    Deduction per day. Idempotent: re-running the same range never double-counts.
-    """
-    permission_classes = [IsAuthenticated, IsHRManager]
-
-    def post(self, request):
-        serializer = AbsenceRunSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        start = serializer.validated_data['startDate']
-        end = serializer.validated_data['endDate']
-        created_by = getattr(request.user, 'full_name', '') or request.user.email
-
-        employee_id = serializer.validated_data.get('employeeID')
-        if employee_id:
-            employees = Employee.objects.filter(pk=employee_id, isDeleted=False)
-            if not employees.exists():
-                return Response({'error': 'Employee not found.'}, status=status.HTTP_404_NOT_FOUND)
-        else:
-            employees = Employee.objects.filter(isDeleted=False, employmentStatus='Active')
-
-        results = [
-            absence_service.detect_and_deduct(employee, start, end, created_by=created_by)
-            for employee in employees
-        ]
-        return Response({
-            'startDate': start.isoformat(),
-            'endDate': end.isoformat(),
-            'employeesProcessed': len(results),
-            'deductionsCreated': sum(item['deductionsCreated'] for item in results),
-            'deductionsSkipped': sum(item['deductionsSkipped'] for item in results),
-            'results': results,
-        })
-
-
 # ─── Team-leader leave-request review ────────────────────────────────────────
 
 class TeamLeaveRequestListView(APIView):
@@ -1047,7 +1006,8 @@ class TeamWeeklyCapacityView(APIView):
     permission_classes = [IsAuthenticated, IsTeamLeader]
 
     def get(self, request):
-        from datetime import date, timedelta
+        from datetime import timedelta
+        from django.utils import timezone
 
         employees = Employee.objects.filter(isDeleted=False, employmentStatus='Active')
 
@@ -1066,7 +1026,60 @@ class TeamWeeklyCapacityView(APIView):
         except (TypeError, ValueError):
             week_offset = 0
         week_offset = max(-8, min(8, week_offset))
-        reference = date.today() + timedelta(days=7 * week_offset)
+        reference = timezone.localdate() + timedelta(days=7 * week_offset)
 
         meta, rows = capacity.weekly_capacity(employees, reference=reference)
         return Response({**meta, 'weekOffset': week_offset, 'employees': rows})
+
+
+class TeamPresenceTodayView(APIView):
+    """GET /attendance_leave/team/presence/ — today's presence snapshot for the
+    Team Leader's own team: who has clocked in (present), who is on approved
+    leave today, and who is absent (no clock-in and not on leave). The leader's
+    own record is excluded — this is about their team members."""
+    permission_classes = [IsAuthenticated, IsTeamLeader]
+
+    def get(self, request):
+        from django.utils import timezone
+        today = timezone.localdate()
+
+        employees = Employee.objects.filter(isDeleted=False, employmentStatus='Active')
+        leader_id = getattr(request.user, 'employee_id', None)
+        if getattr(request.user, 'role', None) == 'TeamLeader':
+            leader = Employee.objects.filter(employeeID=leader_id, isDeleted=False).first()
+            employees = employees.filter(team=leader.team) if (leader and leader.team_id) else employees.none()
+        employees = [e for e in employees if e.employeeID != leader_id]
+        emp_ids = [e.employeeID for e in employees]
+
+        present_ids = set(
+            AttendanceRecord.objects.filter(
+                employee_id__in=emp_ids, date=today, clockIn__isnull=False,
+            ).values_list('employee_id', flat=True)
+        )
+        on_leave_ids = set(
+            LeaveRequest.objects.filter(
+                employee_id__in=emp_ids, status=LeaveRequest.STATUS_APPROVED,
+                startDate__lte=today, endDate__gte=today,
+            ).values_list('employee_id', flat=True)
+        )
+
+        present, on_leave, absent = [], [], []
+        for emp in employees:
+            entry = {'employeeID': emp.employeeID, 'employeeName': emp.fullName}
+            if emp.employeeID in present_ids:
+                present.append(entry)
+            elif emp.employeeID in on_leave_ids:
+                on_leave.append(entry)
+            else:
+                absent.append(entry)
+
+        return Response({
+            'date': today.isoformat(),
+            'total': len(employees),
+            'presentCount': len(present),
+            'onLeaveCount': len(on_leave),
+            'absentCount': len(absent),
+            'present': present,
+            'onLeave': on_leave,
+            'absent': absent,
+        })

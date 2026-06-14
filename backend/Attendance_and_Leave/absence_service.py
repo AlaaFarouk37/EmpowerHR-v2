@@ -1,87 +1,69 @@
-"""HR-triggered absence detection and unpaid-leave salary deduction.
+"""Workday status resolution for payroll.
 
-For a date range it finds working days (excluding weekends and public holidays)
-on which an employee has no AttendanceRecord and is not on approved leave,
-treats each as an unpaid-leave day, and records a payroll Deduction:
+For a date range and an employee, every working day (weekends and public
+holidays excluded) resolves to one of:
 
-    one_day_pay = monthlyIncome / working_days_in_month(month)
+    present        – an attendance record with a clock-in exists that day
+    paid_leave     – approved leave covers the day, leaveType.is_paid is True
+    unpaid_leave   – approved leave covers the day, leaveType.is_paid is False
+    unpaid_absence – no clock-in and no approved leave (a true no-show)
 
-where working days exclude weekends and public holidays. Idempotent: every
-created Deduction is tagged ``[auto-absence:YYYY-MM-DD]`` so re-running the same
-range never double-counts a day.
+``unpaid_leave`` and ``unpaid_absence`` are the deductible days. This module is
+the attendance/leave source of truth the payroll engine reads; it performs no
+money math and writes nothing — the deduction is computed at payroll-run time
+from the deductible-day count (see payroll/calculations.py).
 """
-from decimal import Decimal, ROUND_HALF_UP
-
-from payroll.models import Deduction
-
-from .holiday_service import working_dates_in_range, working_days_in_month
+from .holiday_service import working_dates_in_range
 from .models import AttendanceRecord, LeaveRequest
 
-CENTS = Decimal('0.01')
+PRESENT = 'present'
+PAID_LEAVE = 'paid_leave'            # approved leave on a paid type (is_paid=True)
+UNPAID_LEAVE = 'unpaid_leave'        # approved leave on an unpaid type (is_paid=False) — deductible
+UNPAID_ABSENCE = 'unpaid_absence'    # no-show with no approved leave — deductible
+
+DEDUCTIBLE_STATUSES = (UNPAID_LEAVE, UNPAID_ABSENCE)
 
 
-def _absence_tag(day):
-    return f'[auto-absence:{day.isoformat()}]'
+def resolve_workday_statuses(employee, start, end):
+    """Resolve every working day in [start, end] to a status. Returns
+    {date: status} for working days only (weekends/holidays are excluded).
 
-
-def _day_pay(monthly_income, year, month):
-    working = working_days_in_month(year, month)
-    if not working or not monthly_income:
-        return Decimal('0.00')
-    return (Decimal(monthly_income) / Decimal(working)).quantize(CENTS, rounding=ROUND_HALF_UP)
-
-
-def detect_and_deduct(employee, start, end, created_by=''):
-    """Run absence detection + deduction for one employee. Returns a summary."""
+    Both unpaid_leave and unpaid_absence reduce pay (see DEDUCTIBLE_STATUSES).
+    """
     work_dates = working_dates_in_range(start, end)
 
     present = set(
         AttendanceRecord.objects.filter(
-            employee=employee, date__gte=start, date__lte=end,
+            employee=employee, date__gte=start, date__lte=end, clockIn__isnull=False,
         ).values_list('date', flat=True)
     )
 
-    approved_leaves = LeaveRequest.objects.filter(
+    paid_leave_days, unpaid_leave_days = set(), set()
+    for leave_start, leave_end, is_paid in LeaveRequest.objects.filter(
         employee=employee,
         status=LeaveRequest.STATUS_APPROVED,
         startDate__lte=end,
         endDate__gte=start,
-    ).values_list('startDate', 'endDate')
-    on_leave = set()
-    for leave_start, leave_end in approved_leaves:
-        on_leave.update(d for d in work_dates if leave_start <= d <= leave_end)
+    ).values_list('startDate', 'endDate', 'leaveType__is_paid'):
+        target = paid_leave_days if is_paid else unpaid_leave_days
+        target.update(d for d in work_dates if leave_start <= d <= leave_end)
 
-    created, skipped = 0, 0
-    deducted_total = Decimal('0.00')
-    absence_days = []
+    statuses = {}
     for d in work_dates:
-        if d in present or d in on_leave:
-            continue
-        absence_days.append(d)
-        pay_period = f'{d.year:04d}-{d.month:02d}'
-        tag = _absence_tag(d)
-        if Deduction.objects.filter(
-            employee=employee, payPeriod=pay_period, description__contains=tag,
-        ).exists():
-            skipped += 1
-            continue
-        amount = _day_pay(employee.monthlyIncome, d.year, d.month)
-        Deduction.objects.create(
-            employee=employee,
-            payPeriod=pay_period,
-            amount=amount,
-            description=f'Unpaid absence {d.isoformat()} {tag}',
-            createdBy=created_by,
-        )
-        created += 1
-        deducted_total += amount
+        if d in present:
+            statuses[d] = PRESENT
+        elif d in paid_leave_days:
+            statuses[d] = PAID_LEAVE
+        elif d in unpaid_leave_days:
+            statuses[d] = UNPAID_LEAVE
+        else:
+            statuses[d] = UNPAID_ABSENCE
+    return statuses
 
-    return {
-        'employeeID': employee.employeeID,
-        'employeeName': employee.fullName,
-        'absenceDayCount': len(absence_days),
-        'absenceDays': [d.isoformat() for d in absence_days],
-        'deductionsCreated': created,
-        'deductionsSkipped': skipped,
-        'amountDeducted': str(deducted_total),
-    }
+
+def count_deductible_days(employee, start, end):
+    """Working days that reduce pay: approved unpaid-type leave + true no-shows."""
+    return sum(
+        1 for status in resolve_workday_statuses(employee, start, end).values()
+        if status in DEDUCTIBLE_STATUSES
+    )

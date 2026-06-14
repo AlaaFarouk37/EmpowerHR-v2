@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  getMyAttendance, clockAttendance, getMyLeaveRequests, submitLeaveRequest,
+  getMyAttendance, getMyLeaveRequests, submitLeaveRequest,
   getMyPayroll, getMyDocuments,
   changePassword
 } from '../../api/index.js';
@@ -64,7 +64,6 @@ export function LeaderPersonalAttendancePage() {
   const [loading, setLoading] = useState(true);
   const [attendance, setAttendance] = useState([]);
   const [leaveRequests, setLeaveRequests] = useState([]);
-  const [currentTime, setCurrentTime] = useState(new Date());
 
   const loadData = async () => {
     if (!user?.employee_id) return;
@@ -78,17 +77,6 @@ export function LeaderPersonalAttendancePage() {
       setLeaveRequests(lrv);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleClockAction = async () => {
-    try {
-      const type = !todayRecord?.clockIn ? 'in' : 'out';
-      await clockAttendance({ type });
-      toast(`${t('Attendance synchronized')}: ${type === 'in' ? t('Clocked In') : t('Clocked Out')}`, 'success');
-      await loadData();
-    } catch (err) {
-      toast(err.message || 'Clock action failed', 'error');
     }
   };
 
@@ -106,12 +94,7 @@ export function LeaderPersonalAttendancePage() {
 
   useEffect(() => {
     loadData();
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
   }, [user?.employee_id]);
-
-  const todayKey = new Date().toISOString().slice(0, 10);
-  const todayRecord = attendance.find(r => r.date === todayKey);
 
   if (loading) return <LeaderPortalLayout><Skeleton count={8} /></LeaderPortalLayout>;
 
@@ -131,48 +114,6 @@ export function LeaderPersonalAttendancePage() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 40 }}>
         <div style={{ display: 'grid', gap: 32 }}>
-          {/* Main Clock Terminal */}
-          <div style={{ background: '#1E293B', borderRadius: 32, padding: 60, color: 'white', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'var(--red-600)', opacity: 0.1, filter: 'blur(60px)' }} />
-            
-            <div style={{ fontSize: 12, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 20, letterSpacing: '0.1em' }}>System Node Time</div>
-            <div style={{ fontSize: 72, fontWeight: 900, marginBottom: 12, fontFamily: 'monospace' }}>
-              {currentTime.toLocaleTimeString([], { hour12: false })}
-            </div>
-            <div style={{ fontSize: 18, color: '#94A3B8', fontWeight: 600, marginBottom: 48 }}>{currentTime.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-            
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 20 }}>
-              {!todayRecord?.clockIn ? (
-                <button 
-                  onClick={handleClockAction}
-                  style={{ height: 64, padding: '0 48px', borderRadius: 16, background: 'var(--red-600)', color: 'white', border: 'none', fontSize: 18, fontWeight: 900, cursor: 'pointer' }}
-                >
-                  Clock In
-                </button>
-              ) : (
-                <button 
-                  onClick={handleClockAction}
-                  style={{ height: 64, padding: '0 48px', borderRadius: 16, background: 'none', border: '2px solid rgba(255,255,255,0.1)', color: 'white', fontSize: 18, fontWeight: 900, cursor: 'pointer' }}
-                >
-                  Clock Out
-                </button>
-              )}
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, background: 'rgba(255,255,255,0.05)', borderRadius: 24, marginTop: 60, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-              {[
-                { label: 'Start Time', value: todayRecord?.clockIn || '—' },
-                { label: 'End Time', value: todayRecord?.clockOut || '—' },
-                { label: 'System Load', value: 'Steady' }
-              ].map(i => (
-                <div key={i.label} style={{ padding: 24, background: 'rgba(255,255,255,0.02)' }}>
-                  <div style={{ fontSize: 10, color: '#94A3B8', fontWeight: 800, textTransform: 'uppercase', marginBottom: 4 }}>{i.label}</div>
-                  <div style={{ fontSize: 18, fontWeight: 800 }}>{i.value}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
           <TacticalCard title="Recent Presence Signals">
             <div style={{ display: 'grid', gap: 12 }}>
               {attendance.slice(0, 5).map(log => (

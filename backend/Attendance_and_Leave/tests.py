@@ -352,42 +352,50 @@ class LeaveRequestApiTests(TestCase):
 
 # ── Absence detection + deduction ────────────────────────────────────────────
 
-class AbsenceServiceTests(TestCase):
+class WorkdayStatusResolverTests(TestCase):
     def setUp(self):
         self.emp = _emp(employeeID='EMP-ABS', monthlyIncome=21000,
                         hiring_date=date(2020, 1, 1), employmentStatus='Active')
 
-    def test_detects_noshow_excluding_weekend_holiday_present_and_leave(self):
-        # Window Jun 15 (Mon) .. Jun 21 (Sun) 2026. Working days: 15,16,17,21
+    def test_classifies_present_paid_leave_and_noshow(self):
+        from django.utils import timezone
+        # Window Jun 15 (Mon) .. Jun 21 (Sun) 2026. Working days: 15, 16, 17, 21
         # (Jun 18 Thu is a holiday; Fri 19 / Sat 20 weekend).
-        AttendanceRecord.objects.create(employee=self.emp, date=date(2026, 6, 15))  # present
-        annual = LeaveType.objects.get(name='Annual')
+        AttendanceRecord.objects.create(
+            employee=self.emp, date=date(2026, 6, 15), clockIn=timezone.now())
+        annual = LeaveType.objects.get(name='Annual')  # paid type
         LeaveRequest.objects.create(
             employee=self.emp, leaveType=annual, startDate=date(2026, 6, 16),
             endDate=date(2026, 6, 16), daysRequested=1, reason='x',
             status=LeaveRequest.STATUS_APPROVED)
 
-        summary = ab.detect_and_deduct(self.emp, date(2026, 6, 15), date(2026, 6, 21), created_by='hr')
-        # Absences = Jun 17 and Jun 21 (15 present, 16 on leave).
-        self.assertEqual(summary['absenceDayCount'], 2)
-        self.assertEqual(summary['deductionsCreated'], 2)
-        # Day pay = 21000 / working_days_in_month(2026,6)=21 -> 1000.
-        self.assertEqual(Deduction.objects.filter(employee=self.emp).count(), 2)
-        self.assertEqual(Deduction.objects.first().amount, Decimal('1000.00'))
+        statuses = ab.resolve_workday_statuses(self.emp, date(2026, 6, 15), date(2026, 6, 21))
+        self.assertEqual(statuses[date(2026, 6, 15)], ab.PRESENT)
+        self.assertEqual(statuses[date(2026, 6, 16)], ab.PAID_LEAVE)
+        self.assertEqual(statuses[date(2026, 6, 17)], ab.UNPAID_ABSENCE)
+        self.assertEqual(statuses[date(2026, 6, 21)], ab.UNPAID_ABSENCE)
+        # Weekend / holiday never appear in the result.
+        self.assertNotIn(date(2026, 6, 18), statuses)
+        self.assertNotIn(date(2026, 6, 20), statuses)
+        # 2 deductible no-show days (Jun 17, 21).
+        self.assertEqual(
+            ab.count_deductible_days(self.emp, date(2026, 6, 15), date(2026, 6, 21)), 2)
 
-    def test_idempotent_rerun(self):
-        first = ab.detect_and_deduct(self.emp, date(2026, 6, 15), date(2026, 6, 21))
-        second = ab.detect_and_deduct(self.emp, date(2026, 6, 15), date(2026, 6, 21))
-        self.assertEqual(first['deductionsCreated'], 4)  # 15,16,17,21 all no-show
-        self.assertEqual(second['deductionsCreated'], 0)
-        self.assertEqual(second['deductionsSkipped'], 4)
-        self.assertEqual(Deduction.objects.filter(employee=self.emp).count(), 4)
+    def test_approved_unpaid_type_leave_is_deductible(self):
+        unpaid = LeaveType.objects.get(name='Unpaid')
+        LeaveRequest.objects.create(
+            employee=self.emp, leaveType=unpaid, startDate=date(2026, 6, 17),
+            endDate=date(2026, 6, 17), daysRequested=1, reason='x',
+            status=LeaveRequest.STATUS_APPROVED)
+        statuses = ab.resolve_workday_statuses(self.emp, date(2026, 6, 17), date(2026, 6, 17))
+        self.assertEqual(statuses[date(2026, 6, 17)], ab.UNPAID_LEAVE)
+        self.assertEqual(
+            ab.count_deductible_days(self.emp, date(2026, 6, 17), date(2026, 6, 17)), 1)
 
-    def test_zero_income_creates_zero_deduction(self):
-        self.emp.monthlyIncome = None
-        self.emp.save()
-        ab.detect_and_deduct(self.emp, date(2026, 3, 9), date(2026, 3, 9))
-        self.assertEqual(Deduction.objects.get(employee=self.emp).amount, Decimal('0.00'))
+    def test_all_noshow_counts_every_working_day(self):
+        # No attendance and no leave -> all 4 working days are deductible.
+        self.assertEqual(
+            ab.count_deductible_days(self.emp, date(2026, 6, 15), date(2026, 6, 21)), 4)
 
 
 # ── Weekly capacity (utilization denominator) ────────────────────────────────
@@ -472,13 +480,3 @@ class HRApiTests(TestCase):
         res = self.client.get(reverse('hr-holiday-calendar'), {'year': 2026})
         dates = {item['date'] for item in res.data}
         self.assertNotIn('2026-01-07', dates)
-
-    def test_absence_run_endpoint_idempotent(self):
-        self.client.force_authenticate(user=self.hr)
-        payload = {'startDate': '2026-06-15', 'endDate': '2026-06-21', 'employeeID': self.member.employee_id}
-        first = self.client.post(reverse('hr-absence-run'), payload, format='json')
-        self.assertEqual(first.status_code, 200)
-        self.assertEqual(first.data['deductionsCreated'], 4)
-        second = self.client.post(reverse('hr-absence-run'), payload, format='json')
-        self.assertEqual(second.data['deductionsCreated'], 0)
-        self.assertEqual(second.data['deductionsSkipped'], 4)

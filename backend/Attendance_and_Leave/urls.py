@@ -33,6 +33,7 @@ urlpatterns = [
 
     # ─── Team utilization capacity (holiday/leave-aware) ─────────────────────
     path('team/weekly-capacity/', views.TeamWeeklyCapacityView.as_view(), name='team-weekly-capacity'),
+    path('team/presence/', views.TeamPresenceTodayView.as_view(), name='team-presence-today'),
 
     # ─── Public holidays (read-only, any internal employee) ──────────────────
     path('holidays/', views.PublicHolidayListView.as_view(), name='public-holidays'),
@@ -51,7 +52,4 @@ urlpatterns = [
     path('hr/holidays/', views.HRHolidayCalendarView.as_view(), name='hr-holiday-calendar'),
     path('hr/holiday-overrides/', views.HRHolidayOverrideListCreateView.as_view(), name='hr-holiday-override-list-create'),
     path('hr/holiday-overrides/<str:override_id>/', views.HRHolidayOverrideDetailView.as_view(), name='hr-holiday-override-detail'),
-
-    # ─── Absence detection + deduction (HR-triggered) ────────────────────────
-    path('hr/absence-run/', views.HRAbsenceRunView.as_view(), name='hr-absence-run'),
 ]

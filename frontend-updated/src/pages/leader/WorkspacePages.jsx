@@ -493,7 +493,7 @@ export function LeaderBenefitsPage() {
 }
 
 export function LeaderExpensesPage() {
-  return <LeaderOwnedShell titleKey="nav.expenses" variant="profile"><EmployeeExpensesPage /></LeaderOwnedShell>;
+  return <EmployeeExpensesPage />;
 }
 
 export function LeaderDocumentsPage() {

@@ -140,8 +140,8 @@ const NAV_GROUPS = {
         { path: '/hr/team', labelKey: 'nav.teamHub', icon: 'Users' },
         { path: '/hr/attendance', labelKey: 'nav.attendance', icon: 'Activity' },
         { path: '/hr/leave-management', labelKey: 'Leave Management', icon: 'Plane' },
-        { path: '/hr/training', labelKey: 'nav.training', icon: 'Database' },
         { path: '/hr/shifts', labelKey: 'nav.shifts', icon: 'Activity' },
+        { path: '/hr/reviews', labelKey: 'nav.reviews', icon: 'Bell' },
       ],
     },
     {
@@ -151,7 +151,6 @@ const NAV_GROUPS = {
         { path: '/hr/adjustments', labelKey: 'Commissions & Deductions', icon: 'DollarSign' },
         { path: '/hr/expenses', labelKey: 'nav.expenses', icon: 'Activity' },
         { path: '/hr/benchmarking', labelKey: 'nav.salaryBenchmarking', icon: 'Activity' },
-        { path: '/hr/policies', labelKey: 'nav.policies', icon: 'Shield' },
       ],
     },
     {
@@ -171,18 +170,22 @@ const NAV_GROUPS = {
       ],
     },
     {
+      titleKey: 'Support',
+      items: [
+        { path: '/hr/tickets', labelKey: 'nav.supportTickets', icon: 'Activity' },
+      ],
+    },
+    {
       titleKey: 'Miscellaneous',
       items: [
         { path: '/hr/dashboard', labelKey: 'nav.dashboard', icon: 'Layout' },
         { path: '/hr/org-map', labelKey: 'nav.orgMap', icon: 'Zap' },
         { path: '/hr/approvals', labelKey: 'nav.approvals', icon: 'ShieldCheck' },
-        { path: '/hr/reviews', labelKey: 'nav.reviews', icon: 'Bell' },
         { path: '/hr/planning', labelKey: 'nav.workforcePlanning', icon: 'Zap' },
         { path: '/hr/talent-matrix', labelKey: 'nav.talentMatrix', icon: 'Layout' },
         { path: '/hr/onboarding', labelKey: 'nav.onboarding', icon: 'Users' },
         { path: '/hr/benefits', labelKey: 'nav.benefits', icon: 'Shield' },
         { path: '/hr/documents', labelKey: 'nav.documents', icon: 'Copy' },
-        { path: '/hr/tickets', labelKey: 'nav.supportTickets', icon: 'Activity' },
         { path: '/hr/recognition', labelKey: 'nav.recognition', icon: 'Bell' },
       ],
     },
@@ -198,14 +201,10 @@ const NAV_GROUPS = {
       titleKey: 'nav.administration',
       items: [
         { path: '/employee/attendance', labelKey: 'nav.attendance', icon: 'Activity' },
-        { path: '/employee/shifts', labelKey: 'nav.shifts', icon: 'Calendar' },
         { path: '/employee/leave-requests', labelKey: 'Leave Requests', icon: 'Calendar' },
         { path: '/employee/payroll', labelKey: 'nav.payroll', icon: 'Activity' },
-        { path: '/employee/benefits', labelKey: 'nav.benefits', icon: 'Shield' },
         { path: '/employee/expenses', labelKey: 'nav.expenses', icon: 'Activity' },
-        { path: '/employee/documents', labelKey: 'nav.documents', icon: 'Copy' },
         { path: '/employee/tickets', labelKey: 'nav.supportTickets', icon: 'Activity' },
-        { path: '/employee/policies', labelKey: 'nav.policies', icon: 'Shield' },
         { path: '/employee/feedback', labelKey: 'nav.feedback', icon: 'Bell' },
         { path: '/employee/sheet', labelKey: 'Employee Sheet', icon: 'Copy' },
       ],
@@ -215,9 +214,7 @@ const NAV_GROUPS = {
       items: [
         { path: '/employee/tasks', labelKey: 'nav.tasks', icon: 'Activity' },
         { path: '/employee/goals', labelKey: 'nav.goals', icon: 'Activity' },
-        { path: '/employee/training', labelKey: 'nav.training', icon: 'Activity' },
         { path: '/employee/reviews', labelKey: 'nav.reviews', icon: 'Activity' },
-        { path: '/employee/career-path', labelKey: 'Career Path', icon: 'Activity' },
       ],
     },
   ],
@@ -235,7 +232,6 @@ const NAV_GROUPS = {
         { path: '/leader/dashboard', labelKey: 'nav.tacticalDashboard', icon: 'Layout' },
         { path: '/leader/my-leave-requests', labelKey: 'My Leave Requests', icon: 'Plane' },
         { path: '/leader/tickets', labelKey: 'nav.supportTickets', icon: 'Activity' },
-        { path: '', labelKey: 'My Tasks & Goals', icon: 'Target', placeholder: true },
         { path: '/leader/payroll', labelKey: 'Payroll', icon: 'Activity' },
         { path: '/leader/expenses', labelKey: 'Expense Request', icon: 'DollarSign' },
       ],
@@ -243,7 +239,7 @@ const NAV_GROUPS = {
     {
       titleKey: 'Reviews and Approvals',
       items: [
-        { path: '', labelKey: 'Overtime Reviews', icon: 'Clock', placeholder: true },
+        { path: '/leader/overtime-reviews', labelKey: 'Overtime Reviews', icon: 'Clock' },
         { path: '/leader/leave-requests', labelKey: 'Team Leave Requests', icon: 'Plane' },
         { path: '/leader/team-reviews', labelKey: 'Performance Reviews', icon: 'Star' },
         { path: '/leader/attendance-corrections', labelKey: 'Attendance Correction Requests', icon: 'Calendar' },

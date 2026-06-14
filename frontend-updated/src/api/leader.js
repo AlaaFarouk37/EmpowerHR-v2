@@ -44,6 +44,9 @@ export const getTeamRecognition = async (filters = {}) => {
 };
 export const createTeamRecognition = (data) => api.post('/employee_management/team/recognition/', data);
 
+// Today's team presence snapshot (present / on leave / absent) for the TL's team.
+export const getTeamPresenceToday = async () => api.get('/attendance_leave/team/presence/');
+
 export const getTeamPendingOvertime = async () => toList(await api.get('/attendance_leave/team/overtime/'));
 export const reviewTeamOvertime = (attendanceID, data) => api.post(`/attendance_leave/team/overtime/${attendanceID}/review/`, data);
 

@@ -5,6 +5,7 @@ from accounts.models import User
 
 
 class PayrollRecordSerializer(serializers.ModelSerializer):
+    employeeID = serializers.CharField(source='employee.employeeID', read_only=True)
     employeeName = serializers.CharField(source='employee.fullName', read_only=True)
 
     class Meta:

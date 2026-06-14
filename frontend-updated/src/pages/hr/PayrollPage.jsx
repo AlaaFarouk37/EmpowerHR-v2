@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hrGetPayroll, hrMarkPayrollPaid, hrCreatePayroll, hrRunPayrollCycle, hrEditPayroll, hrGetPayrollSignals } from '../../api/index.js';
+import { hrGetPayroll, hrMarkPayrollPaid, hrCreatePayroll, hrRunPayrollCycle, hrEditPayroll, hrRecalculatePayroll, hrGetPayrollSignals, hrGetCommissions, hrGetDeductions } from '../../api/index.js';
 import { Badge, Btn, Spinner, useToast, Input, Modal, Textarea, EmployeeSelect } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -24,7 +24,8 @@ import {
   Target,
   Activity,
   Edit3,
-  ClipboardCheck
+  ClipboardCheck,
+  RefreshCw
 } from 'lucide-react';
 
 const defaultPeriod = () => {
@@ -55,6 +56,9 @@ export function HRPayrollPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailLines, setDetailLines] = useState({ commissions: [], deductions: [] });
 
   const loadSignals = async (period = viewPeriod) => {
     try {
@@ -93,6 +97,20 @@ export function HRPayrollPage() {
       await loadPayroll();
     } catch (err) {
       toast(err?.message || 'Failed to mark payroll as paid', 'error');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const handleRecalculate = async (record) => {
+    if (!record?.payrollID || savingId === record.payrollID) return;
+    setSavingId(record.payrollID);
+    try {
+      await hrRecalculatePayroll(record.payrollID);
+      toast(`${record.employeeName}: ${t('payroll recalculated from latest adjustments')}`, 'success');
+      await loadPayroll();
+    } catch (err) {
+      toast(err?.message || t('Failed to recalculate payroll'), 'error');
     } finally {
       setSavingId(null);
     }
@@ -148,6 +166,25 @@ export function HRPayrollPage() {
       toast(err?.message || t('Failed to generate payroll'), 'error');
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const toggleDetail = async (record) => {
+    if (expandedId === record.payrollID) { setExpandedId(null); return; }
+    setExpandedId(record.payrollID);
+    setDetailLines({ commissions: [], deductions: [] });
+    setDetailLoading(true);
+    try {
+      const [commissions, deductions] = await Promise.all([
+        hrGetCommissions({ employee_id: record.employeeID, pay_period: record.payPeriod }).catch(() => []),
+        hrGetDeductions({ employee_id: record.employeeID, pay_period: record.payPeriod }).catch(() => []),
+      ]);
+      setDetailLines({
+        commissions: Array.isArray(commissions) ? commissions : [],
+        deductions: Array.isArray(deductions) ? deductions : [],
+      });
+    } finally {
+      setDetailLoading(false);
     }
   };
 
@@ -309,6 +346,52 @@ export function HRPayrollPage() {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EGP' }).format(Number(val || 0));
   };
 
+  const renderDetail = (record) => {
+    const num = (v) => Number(v || 0);
+    const moneyRow = (key, label, sub, value, tone) => (
+      <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, padding: '9px 0', borderBottom: '1px solid #EEF1F6' }}>
+        <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1E293B' }}>{label}</div>
+          {sub ? <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, marginTop: 1 }}>{sub}</div> : null}
+        </div>
+        <div style={{ fontSize: 14, fontWeight: 900, whiteSpace: 'nowrap', color: tone === 'sub' ? 'var(--red-600)' : tone === 'add' ? '#16A34A' : '#1E293B' }}>
+          {tone === 'sub' ? '−' : tone === 'add' ? '+' : ''}{formatMoney(Math.abs(num(value)))}
+        </div>
+      </div>
+    );
+    const prorated = num(record.proratedBaseSalary);
+    const base = num(record.baseSalary);
+    const isProrated = prorated > 0 && Math.abs(prorated - base) > 0.005;
+    const colTitle = { fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 };
+    return (
+      <div style={{ padding: '20px 40px 24px 32px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 32 }}>
+        <div>
+          <div style={colTitle}>{t('Earnings')}</div>
+          {moneyRow('base', t('Base salary'), isProrated ? `${t('Prorated')} · ${record.weekdaysEmployed}/${record.workingDays} ${t('days')}` : t('Full month'), prorated > 0 ? prorated : base, null)}
+          {num(record.overtimePay) > 0 && moneyRow('ot', t('Overtime'), `${num(record.overtimeHours)}h × ${formatMoney(num(record.hourlyRate))} × 1.5`, record.overtimePay, 'add')}
+          {num(record.expenseReimbursements) > 0 && moneyRow('exp', t('Approved expenses'), null, record.expenseReimbursements, 'add')}
+          {detailLines.commissions.length > 0
+            ? detailLines.commissions.map((c) => moneyRow(`c-${c.commissionID}`, t('Bonus'), c.description || c.createdBy, c.amount, 'add'))
+            : num(record.commissions) > 0 && moneyRow('comm', t('Bonuses'), null, record.commissions, 'add')}
+        </div>
+        <div>
+          <div style={colTitle}>{t('Deductions')}</div>
+          {num(record.unpaidLeaveDeduction) > 0
+            ? moneyRow('unpaid', t('Unpaid leave / absence'), `${record.unpaidLeaveDays} ${t('day(s)')} × ${formatMoney(num(record.dailyRate))}`, record.unpaidLeaveDeduction, 'sub')
+            : <div style={{ fontSize: 12, color: '#94A3B8', padding: '9px 0' }}>{t('No unpaid days.')}</div>}
+          {detailLines.deductions.length > 0
+            ? detailLines.deductions.map((d) => moneyRow(`d-${d.deductionID}`, t('Deduction'), d.description || d.createdBy, d.amount, 'sub'))
+            : num(record.deductions) > 0 && moneyRow('ded', t('Manual deductions'), null, record.deductions, 'sub')}
+          {detailLoading && <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 8 }}>{t('Loading line items…')}</div>}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, paddingTop: 12, borderTop: '2px solid #E2E8F0' }}>
+            <div style={{ fontSize: 12, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase' }}>{t('Net Pay')}</div>
+            <div style={{ fontSize: 20, fontWeight: 900, color: '#1E293B' }}>{formatMoney(record.netPay)}</div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const departments = useMemo(() => {
     const deps = new Set(records.map(r => r.department).filter(Boolean));
     return ['All Departments', ...Array.from(deps)];
@@ -331,7 +414,7 @@ export function HRPayrollPage() {
   );
 
   return (
-    <div className="page-content animate-in" style={{ background: '#F8FAFC', minHeight: '100vh', padding: '40px 60px' }}>
+    <div className="page-content animate-in" style={{ background: '#F8FAFC', minHeight: '100vh', padding: '40px 24px' }}>
       {/* Strategic Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 48 }}>
         <div>
@@ -450,7 +533,7 @@ export function HRPayrollPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#F8FAFC', borderBottom: '1.5px solid #F1F5F9' }}>
-              {['Workforce Node', 'Department', 'Financial Metrics', 'Net Distribution', 'Cycle Progress', 'Actions'].map(h => (
+              {['Workforce Node', 'Department', 'Base Salary', 'Net Distribution', 'Cycle Progress', 'Actions'].map(h => (
                 <th key={h} style={{ padding: '20px 32px', textAlign: 'left', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t(h)}</th>
               ))}
             </tr>
@@ -461,11 +544,13 @@ export function HRPayrollPage() {
               const progress = isPaid ? 100 : 40;
               
               return (
-                <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9', transition: 'background 0.2s' }} className="payroll-row">
+                <Fragment key={item.payrollID || idx}>
+                <tr onClick={() => toggleDetail(item)} style={{ borderBottom: '1px solid #F1F5F9', transition: 'background 0.2s', cursor: 'pointer' }} className="payroll-row">
                   <td style={{ padding: '24px 32px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                      <div style={{ 
-                        width: 44, height: 44, borderRadius: 14, background: isPaid ? 'var(--red-50)' : 'var(--red-50)', 
+                      <ChevronDown size={16} style={{ color: '#CBD5E1', flexShrink: 0, transition: 'transform .2s', transform: expandedId === item.payrollID ? 'rotate(180deg)' : 'none' }} />
+                      <div style={{
+                        width: 44, height: 44, borderRadius: 14, background: isPaid ? 'var(--red-50)' : 'var(--red-50)',
                         display: 'grid', placeItems: 'center', color: 'var(--red-600)', border: '1px solid var(--red-100)',
                         fontSize: 16, fontWeight: 900
                       }}>
@@ -484,39 +569,17 @@ export function HRPayrollPage() {
                      </div>
                   </td>
                   <td style={{ padding: '24px 32px' }}>
-                     <div style={{ display: 'grid', gap: 3 }}>
-                        {(() => {
-                          const num = (v) => Number(v || 0);
-                          const prorated = num(item.proratedBaseSalary);
-                          const base = num(item.baseSalary);
-                          const isProrated = prorated > 0 && Math.abs(prorated - base) > 0.005;
-                          const add = { fontSize: 11, fontWeight: 800, color: '#16A34A' };
-                          const sub = { fontSize: 11, fontWeight: 800, color: 'var(--red-600)' };
-                          const muted = { fontSize: 9, opacity: 0.6 };
-                          return (
-                            <>
-                              <div style={{ fontSize: 13, fontWeight: 800, color: '#1E293B' }}>
-                                {formatMoney(isProrated ? prorated : base)} <span style={{ fontSize: 10, color: '#94A3B8' }}>{isProrated ? `(Prorated · ${item.weekdaysEmployed}/${item.workingDays}d)` : '(Base)'}</span>
-                              </div>
-                              {num(item.commissions) > 0 && (
-                                <div style={add}>+{formatMoney(item.commissions)} <span style={muted}>(Commissions)</span></div>
-                              )}
-                              {num(item.unpaidLeaveDeduction) > 0 && (
-                                <div style={sub}>-{formatMoney(item.unpaidLeaveDeduction)} <span style={muted}>(Unpaid leave · {item.unpaidLeaveDays}d)</span></div>
-                              )}
-                              {num(item.deductions) > 0 && (
-                                <div style={sub}>-{formatMoney(item.deductions)} <span style={muted}>(Deductions)</span></div>
-                              )}
-                              {num(item.expenseReimbursements) > 0 && (
-                                <div style={add}>+{formatMoney(item.expenseReimbursements)} <span style={muted}>(Approved Expenses)</span></div>
-                              )}
-                              {num(item.overtimePay) > 0 && (
-                                <div style={add}>+{formatMoney(item.overtimePay)} <span style={muted}>(Overtime · {item.overtimeHours}h)</span></div>
-                              )}
-                            </>
-                          );
-                        })()}
-                     </div>
+                     {(() => {
+                        const num = (v) => Number(v || 0);
+                        const prorated = num(item.proratedBaseSalary);
+                        const base = num(item.baseSalary);
+                        const isProrated = prorated > 0 && Math.abs(prorated - base) > 0.005;
+                        return (
+                          <div style={{ fontSize: 13, fontWeight: 800, color: '#1E293B' }}>
+                            {formatMoney(isProrated ? prorated : base)} <span style={{ fontSize: 10, color: '#94A3B8' }}>{isProrated ? `(Prorated · ${item.weekdaysEmployed}/${item.workingDays}d)` : '(Base)'}</span>
+                          </div>
+                        );
+                     })()}
                   </td>
                   <td style={{ padding: '24px 32px' }}>
                      <div style={{ fontSize: 16, fontWeight: 900, color: '#1E293B' }}>{formatMoney(item.netPay)}</div>
@@ -530,7 +593,7 @@ export function HRPayrollPage() {
                         <span style={{ fontSize: 13, fontWeight: 900, color: '#1E293B' }}>{progress}%</span>
                      </div>
                   </td>
-                  <td style={{ padding: '24px 32px' }}>
+                  <td style={{ padding: '24px 32px' }} onClick={(e) => e.stopPropagation()}>
                     <div style={{ display: 'flex', gap: 10 }}>
                        {!isPaid ? (
                          <Btn
@@ -544,6 +607,9 @@ export function HRPayrollPage() {
                        ) : (
                          <Badge label="Distributed" color="green" />
                        )}
+                       {!isPaid && (
+                         <button className="action-btn" title={t('Recalculate from latest commissions, deductions, leave & overtime')} disabled={savingId === item.payrollID} onClick={() => handleRecalculate(item)}><RefreshCw size={16} /></button>
+                       )}
                        <button className="action-btn" title={t('Edit payroll record')} onClick={() => openEdit(item)}><Edit3 size={16} /></button>
                        {item.editedBy ? (
                          <button className="action-btn" title={`${t('Edited by')} ${item.editedBy}${item.editReason ? ` — ${item.editReason}` : ''}`}><Clock size={16} /></button>
@@ -551,6 +617,14 @@ export function HRPayrollPage() {
                     </div>
                   </td>
                 </tr>
+                {expandedId === item.payrollID && (
+                  <tr className="payroll-detail-row">
+                    <td colSpan={6} style={{ padding: 0, background: '#FBFBFF', borderBottom: '1px solid #F1F5F9' }}>
+                      {renderDetail(item)}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>

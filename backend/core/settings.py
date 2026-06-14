@@ -201,6 +201,11 @@ LANGUAGE_CODE = "en-us"
 TIME_ZONE     = "UTC"
 USE_TZ        = True
 
+# Payroll daily-rate basis: how a monthly salary is converted to a per-day rate
+# for proration and unpaid-day deductions. One of: 'calendar_days' (salary ÷ days
+# in the month), 'working_days' (÷ Sun–Thu workdays, holiday-aware), 'fixed_30'.
+PAYROLL_DAILY_RATE_BASIS = os.getenv("PAYROLL_DAILY_RATE_BASIS", "calendar_days")
+
 from datetime import timedelta
 
 # --- Custom user model ---

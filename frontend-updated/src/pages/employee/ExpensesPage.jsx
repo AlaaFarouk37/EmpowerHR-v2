@@ -4,14 +4,12 @@ import { Badge, Btn, Input, Spinner, Textarea, useToast, Modal } from '../../com
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { 
-  CreditCard, 
-  Receipt, 
+  Receipt,
   Wallet, 
   TrendingUp, 
   CheckCircle, 
   AlertCircle,
   Plus,
-  ArrowRight,
   Filter,
   Search,
   ChevronRight,
@@ -68,6 +66,13 @@ export function EmployeeExpensesPage() {
   };
 
   const totalPending = claims.filter(c => c.status === 'Submitted').reduce((sum, c) => sum + Number(c.amount), 0);
+
+  const now = new Date();
+  const processedThisMonth = claims.filter(c => {
+    if (!c.reviewedAt || !['Approved', 'Rejected', 'Reimbursed'].includes(c.status)) return false;
+    const reviewed = new Date(c.reviewedAt);
+    return reviewed.getFullYear() === now.getFullYear() && reviewed.getMonth() === now.getMonth();
+  }).length;
 
   if (loading) return <div style={{ height: '70vh', display: 'grid', placeItems: 'center' }}><Spinner size="lg" color="#DC2626" /></div>;
 
@@ -156,7 +161,7 @@ export function EmployeeExpensesPage() {
                     <TrendingUp size={20} />
                   </div>
                   <div>
-                    <div style={{ fontSize: 18, fontWeight: 900, color: '#1E293B' }}>8 Claims</div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: '#1E293B' }}>{processedThisMonth} {processedThisMonth === 1 ? 'Claim' : 'Claims'}</div>
                     <div style={{ fontSize: 12, color: '#94A3B8', fontWeight: 700 }}>Processed this month</div>
                   </div>
                 </div>
@@ -180,18 +185,6 @@ export function EmployeeExpensesPage() {
                   </div>
                 ))}
               </div>
-            </div>
-
-            <div className="glass-card-employee" style={{ padding: '32px', background: '#1E293B', color: '#fff' }}>
-              <CreditCard size={32} style={{ marginBottom: 20 }} />
-              <h3 style={{ fontSize: 18, fontWeight: 900, marginBottom: 12 }}>Corporate Card</h3>
-              <p style={{ fontSize: 14, opacity: 0.8, lineHeight: 1.6, marginBottom: 24 }}>You are eligible for a corporate expense card for frequent business travel.</p>
-              <button style={{ 
-                width: '100%', padding: '14px', borderRadius: 12, background: '#DC2626', border: 'none',
-                color: '#fff', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
-              }}>
-                Apply Now <ArrowRight size={18} />
-              </button>
             </div>
           </aside>
         </div>

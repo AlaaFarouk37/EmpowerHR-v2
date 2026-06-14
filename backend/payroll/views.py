@@ -41,6 +41,70 @@ def _resolve_employee(employee_id, request_user=None):
     return None
 
 
+PAYROLL_BREAKDOWN_FIELDS = (
+    'baseSalary', 'deductions', 'proratedBaseSalary', 'dailyRate', 'commissions',
+    'unpaidLeaveDeduction', 'expenseReimbursements', 'hourlyRate', 'overtimeHours',
+    'overtimePay', 'workingDays', 'weekdaysEmployed', 'unpaidLeaveDays', 'netPay',
+)
+
+
+def _recompute_base_salary(payroll):
+    """Base salary used when recomputing a draft: the employee's *current* profile
+    salary (``monthlyIncome``), so salary edits flow into draft payslips. Falls
+    back to the stored base if the profile has no salary set."""
+    income = payroll.employee.monthlyIncome
+    if income is None:
+        return payroll.baseSalary
+    return Decimal(str(income)).quantize(Decimal('0.01'))
+
+
+def _recalc_payroll_record(payroll):
+    """Re-pull every component (current base salary, commissions, manual
+    deductions, unpaid leave, approved overtime, approved expenses) for an
+    existing record and persist."""
+    breakdown = compute_payroll(
+        employee=payroll.employee,
+        pay_period=payroll.payPeriod,
+        base_salary=_recompute_base_salary(payroll),
+    )
+    for field in PAYROLL_BREAKDOWN_FIELDS:
+        setattr(payroll, field, breakdown[field])
+    payroll.save()
+    return payroll
+
+
+def _recalc_if_changed(payroll):
+    """Recompute the breakdown from current source data and persist only if a
+    value actually changed. Returns True when the record was updated."""
+    breakdown = compute_payroll(
+        employee=payroll.employee,
+        pay_period=payroll.payPeriod,
+        base_salary=_recompute_base_salary(payroll),
+    )
+    changed = False
+    for field in PAYROLL_BREAKDOWN_FIELDS:
+        if getattr(payroll, field) != breakdown[field]:
+            setattr(payroll, field, breakdown[field])
+            changed = True
+    if changed:
+        payroll.save()
+    return changed
+
+
+def _auto_recalc_after_adjustment(employee, pay_period):
+    """After a commission/deduction changes, refresh the matching payslip so it
+    reflects the new total. Skips paid records (frozen) and manually-edited ones
+    (HR recalculates those explicitly so deliberate overrides aren't clobbered)."""
+    record = (
+        PayrollRecord.objects
+        .filter(employee=employee, payPeriod=pay_period)
+        .exclude(status=PayrollRecord.STATUS_PAID)
+        .first()
+    )
+    if record and not record.editedAt:
+        _recalc_payroll_record(record)
+
+
 class PayrollRecordListCreateView(generics.ListCreateAPIView):
     serializer_class = PayrollRecordSerializer
     permission_classes = [IsHRManager | IsAdmin]
@@ -196,7 +260,18 @@ class HRPayrollListCreateView(APIView):
         if status_filter:
             records = records.filter(status=status_filter)
 
-        return Response(PayrollRecordSerializer(records.order_by('-payPeriod', '-createdAt'), many=True).data)
+        records = list(records.order_by('-payPeriod', '-createdAt'))
+
+        # Recompute draft payslips from the latest source data on every load, so
+        # newly approved overtime, no-show/unpaid-leave deductions, commissions
+        # and approved expenses are always reflected. Each record is saved only if
+        # a value actually changed. Only finalized (Paid) payslips are frozen.
+        for record in records:
+            if record.status == PayrollRecord.STATUS_PAID:
+                continue
+            _recalc_if_changed(record)
+
+        return Response(PayrollRecordSerializer(records, many=True).data)
 
     def post(self, request):
         serializer = PayrollRecordCreateSerializer(data=request.data)
@@ -317,6 +392,27 @@ class HRPayrollEditView(APIView):
         update_fields += ['netPay', 'editReason', 'editedBy', 'editedAt']
 
         payroll.save(update_fields=update_fields)
+        return Response(PayrollRecordSerializer(payroll).data)
+
+
+class HRPayrollRecalculateView(APIView):
+    """Re-pull every payroll component for an existing record and overwrite its
+    stored breakdown. Use after adding/removing an adjustment (commission,
+    deduction) or approving leave/overtime/expenses so the payslip reflects it.
+    Paid records are frozen and cannot be recalculated."""
+    permission_classes = [IsAuthenticated, IsHRManager | IsAdmin]
+
+    def post(self, request, payroll_id):
+        try:
+            payroll = PayrollRecord.objects.select_related('employee').get(pk=payroll_id)
+        except PayrollRecord.DoesNotExist:
+            return Response({'error': 'Payroll record not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if payroll.status == PayrollRecord.STATUS_PAID:
+            return Response({'error': 'A paid payroll record cannot be recalculated.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        _recalc_payroll_record(payroll)
         return Response(PayrollRecordSerializer(payroll).data)
 
 
@@ -481,6 +577,7 @@ class HRCommissionListCreateView(APIView):
             description=serializer.validated_data.get('description', ''),
             createdBy=getattr(request.user, 'full_name', '') or request.user.email,
         )
+        _auto_recalc_after_adjustment(employee, commission.payPeriod)
         return Response(CommissionSerializer(commission).data, status=status.HTTP_201_CREATED)
 
 
@@ -492,7 +589,9 @@ class HRCommissionDetailView(APIView):
             commission = Commission.objects.get(pk=commission_id)
         except Commission.DoesNotExist:
             return Response({'error': 'Commission not found.'}, status=status.HTTP_404_NOT_FOUND)
+        employee, pay_period = commission.employee, commission.payPeriod
         commission.delete()
+        _auto_recalc_after_adjustment(employee, pay_period)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -532,6 +631,7 @@ class HRDeductionListCreateView(APIView):
             description=serializer.validated_data.get('description', ''),
             createdBy=getattr(request.user, 'full_name', '') or request.user.email,
         )
+        _auto_recalc_after_adjustment(employee, deduction.payPeriod)
         return Response(DeductionSerializer(deduction).data, status=status.HTTP_201_CREATED)
 
 
@@ -543,5 +643,7 @@ class HRDeductionDetailView(APIView):
             deduction = Deduction.objects.get(pk=deduction_id)
         except Deduction.DoesNotExist:
             return Response({'error': 'Deduction not found.'}, status=status.HTTP_404_NOT_FOUND)
+        employee, pay_period = deduction.employee, deduction.payPeriod
         deduction.delete()
+        _auto_recalc_after_adjustment(employee, pay_period)
         return Response(status=status.HTTP_204_NO_CONTENT)

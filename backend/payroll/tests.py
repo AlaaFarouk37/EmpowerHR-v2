@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from payroll import calculations as calc
 
@@ -76,7 +76,7 @@ class ComputeBreakdownTests(SimpleTestCase):
         params = dict(
             base_salary=23000, pay_period=JULY_2024,
             hiring_date=None, leaving_date=None,
-            unpaid_leave_intervals=[], manual_deductions=0,
+            unpaid_days=0, manual_deductions=0,
             commissions=0, expense_reimbursements=0,
         )
         params.update(overrides)
@@ -100,8 +100,7 @@ class ComputeBreakdownTests(SimpleTestCase):
         self.assertEqual(r['proratedBaseSalary'], Decimal('11000.00'))
 
     def test_unpaid_leave_deduction(self):
-        r = self._compute(unpaid_leave_intervals=[(date(2024, 7, 8), date(2024, 7, 12))])
-        # Mon 8 .. Fri 12 -> 4 working days (Fri is weekend).
+        r = self._compute(unpaid_days=4)
         self.assertEqual(r['unpaidLeaveDays'], 4)
         self.assertEqual(r['unpaidLeaveDeduction'], Decimal('4000.00'))
         self.assertEqual(r['netPay'], Decimal('19000.00'))
@@ -109,7 +108,7 @@ class ComputeBreakdownTests(SimpleTestCase):
     def test_full_formula(self):
         r = self._compute(
             manual_deductions=1000, commissions=2000, expense_reimbursements=500,
-            unpaid_leave_intervals=[(date(2024, 7, 8), date(2024, 7, 12))])
+            unpaid_days=4)
         # 23000 - 4000 + 2000 - 1000 + 500
         self.assertEqual(r['netPay'], Decimal('20500.00'))
 
@@ -119,11 +118,9 @@ class ComputeBreakdownTests(SimpleTestCase):
         self.assertEqual(r['proratedBaseSalary'], Decimal('0.00'))
         self.assertEqual(r['netPay'], Decimal('0.00'))
 
-    def test_unpaid_leave_clipped_to_window(self):
-        # Joined Jul 16 and on unpaid leave the entire month -> only 12 weekdays
-        r = self._compute(
-            hiring_date=date(2024, 7, 16),
-            unpaid_leave_intervals=[(date(2024, 7, 1), date(2024, 7, 31))])
+    def test_unpaid_days_can_zero_out_pay(self):
+        # Joined Jul 16 (12 working days) and absent all 12 -> net 0.
+        r = self._compute(hiring_date=date(2024, 7, 16), unpaid_days=12)
         self.assertEqual(r['unpaidLeaveDays'], 12)
         self.assertEqual(r['proratedBaseSalary'], Decimal('12000.00'))
         self.assertEqual(r['unpaidLeaveDeduction'], Decimal('12000.00'))
@@ -154,44 +151,54 @@ class ComputeBreakdownTests(SimpleTestCase):
         self.assertEqual(r['netPay'], Decimal('23000.00'))
 
 
+@override_settings(PAYROLL_DAILY_RATE_BASIS='working_days')
 class ComputePayrollDBTests(TestCase):
-    """Integration test: compute_payroll pulls approved unpaid leave, approved
-    expenses (by approvedAmount) and commissions from the database."""
+    """compute_payroll resolves deductible (no-show + unpaid-leave) days and pulls
+    approved expenses, commissions, manual deductions and approved overtime.
+
+    Pinned to the 'working_days' basis for clean numbers: July 2024 has 21 working
+    days after the Jul 11 & 25 holidays, so a 21000 salary gives a 1000 daily rate."""
 
     def setUp(self):
+        from datetime import datetime
+        from django.utils import timezone
         from employee_management.models import Employee, LeaveType
-        from Attendance_and_Leave.models import LeaveRequest
+        from Attendance_and_Leave.models import LeaveRequest, AttendanceRecord
         from payroll.models import Commission, Deduction
 
         unpaid = LeaveType.objects.get(name='Unpaid')
         annual = LeaveType.objects.get(name='Annual')
 
+        # Hired Jul 22 -> window Jul 22..31; working days are 22, 23, 24, 28, 29,
+        # 30, 31 (Jul 25 holiday; Fri/Sat weekend) = 7 days.
         self.employee = Employee.objects.create(
             employeeID='EMP-TEST-1', fullName='Test Worker',
-            employmentStatus='Active')
+            hiring_date=date(2024, 7, 22), employmentStatus='Active')
 
-        # Approved unpaid leave: Mon Jul 8 .. Fri Jul 12 (4 working days; Fri weekend)
+        def present(day):
+            AttendanceRecord.objects.create(
+                employee=self.employee, date=day,
+                clockIn=timezone.make_aware(datetime(day.year, day.month, day.day, 9, 0)))
+
+        present(date(2024, 7, 22))
+        present(date(2024, 7, 23))
+        # Jul 24 approved UNPAID leave -> deductible.
         LeaveRequest.objects.create(
             employee=self.employee, leaveType=unpaid,
-            startDate=date(2024, 7, 8), endDate=date(2024, 7, 12),
+            startDate=date(2024, 7, 24), endDate=date(2024, 7, 24),
             reason='x', status=LeaveRequest.STATUS_APPROVED)
-        # Paid (Annual) leave should be ignored even though approved
+        # Jul 28 approved PAID (annual) leave -> NOT deductible.
         LeaveRequest.objects.create(
             employee=self.employee, leaveType=annual,
-            startDate=date(2024, 7, 15), endDate=date(2024, 7, 16),
+            startDate=date(2024, 7, 28), endDate=date(2024, 7, 28),
             reason='x', status=LeaveRequest.STATUS_APPROVED)
-        # Pending unpaid leave should be ignored
-        LeaveRequest.objects.create(
-            employee=self.employee, leaveType=unpaid,
-            startDate=date(2024, 7, 22), endDate=date(2024, 7, 23),
-            reason='x', status=LeaveRequest.STATUS_PENDING)
+        # Jul 29/30/31 have no record and no leave -> no-show absences.
+        # Deductible working days = Jul 24 + Jul 29/30/31 = 4.
 
         Commission.objects.create(
             employee=self.employee, payPeriod=JULY_2024, amount=Decimal('2000'))
         Commission.objects.create(
             employee=self.employee, payPeriod=JULY_2024, amount=Decimal('500'))
-
-        # Two manual deduction line items -> summed to 1000
         Deduction.objects.create(
             employee=self.employee, payPeriod=JULY_2024, amount=Decimal('600'),
             description='Equipment damage')
@@ -199,7 +206,7 @@ class ComputePayrollDBTests(TestCase):
             employee=self.employee, payPeriod=JULY_2024, amount=Decimal('400'),
             description='Late penalty')
 
-    def _make_expense(self, status, amount, approved_amount, day=10):
+    def _make_expense(self, status, amount, approved_amount, day=22):
         from employee_management.models import ExpenseClaim
         return ExpenseClaim.objects.create(
             employee=self.employee, title='t', amount=Decimal(amount),
@@ -207,56 +214,83 @@ class ComputePayrollDBTests(TestCase):
             expenseDate=date(2024, 7, day), status=status)
 
     def test_full_compute(self):
-        # Approved claim: claimed 1000, approved 800 -> uses 800
         self._make_expense('Approved', '1000', '800')
-        # Rejected claim ignored
-        self._make_expense('Rejected', '300', '300', day=11)
+        self._make_expense('Rejected', '300', '300', day=23)
 
-        r = calc.compute_payroll(self.employee, JULY_2024, base_salary=23000)
+        r = calc.compute_payroll(self.employee, JULY_2024, base_salary=21000)
 
-        # July 2024 has weekday holidays Jul 11 & Jul 25; the Jul 8-12 unpaid
-        # leave now counts only Mon 8, Tue 9, Wed 10 (Jul 11 holiday, Jul 12 weekend).
-        # Working days in month = 21 -> daily rate 23000/21.
-        self.assertEqual(r['unpaidLeaveDays'], 3)
-        self.assertEqual(r['unpaidLeaveDeduction'], Decimal('3285.71'))
+        # daily rate = 21000 / 21 working days = 1000; 7 employed working days
+        # -> prorated 7000; 4 deductible days -> 4000.
+        self.assertEqual(r['unpaidLeaveDays'], 4)
+        self.assertEqual(r['proratedBaseSalary'], Decimal('7000.00'))
+        self.assertEqual(r['unpaidLeaveDeduction'], Decimal('4000.00'))
         self.assertEqual(r['commissions'], Decimal('2500.00'))
         self.assertEqual(r['deductions'], Decimal('1000.00'))
         self.assertEqual(r['expenseReimbursements'], Decimal('800.00'))
-        # 23000 - 3285.71 + 2500 - 1000 + 800
-        self.assertEqual(r['netPay'], Decimal('22014.29'))
+        # 7000 - 4000 + 2500 - 1000 + 800
+        self.assertEqual(r['netPay'], Decimal('5300.00'))
 
     def test_approved_without_approved_amount_contributes_zero(self):
         self._make_expense('Approved', '1000', None)
-        r = calc.compute_payroll(self.employee, JULY_2024, base_salary=23000)
+        r = calc.compute_payroll(self.employee, JULY_2024, base_salary=21000)
         self.assertEqual(r['expenseReimbursements'], Decimal('0.00'))
 
     def test_approved_overtime_adds_pay_pending_ignored(self):
         from Attendance_and_Leave.models import AttendanceRecord
-        AttendanceRecord.objects.create(
-            employee=self.employee, date=date(2024, 7, 9),
+        AttendanceRecord.objects.filter(
+            employee=self.employee, date=date(2024, 7, 22)).update(
             overtimeHours=Decimal('6'), overtimeStatus=AttendanceRecord.OT_AUTO_APPROVED)
-        AttendanceRecord.objects.create(
-            employee=self.employee, date=date(2024, 7, 10),
+        AttendanceRecord.objects.filter(
+            employee=self.employee, date=date(2024, 7, 23)).update(
             overtimeHours=Decimal('3'), overtimeStatus=AttendanceRecord.OT_PENDING_REVIEW)
 
-        r = calc.compute_payroll(self.employee, JULY_2024, base_salary=23000)
-        # 21 working days (2 holidays) -> daily 23000/21, hourly = daily/8 = 136.9048.
-        self.assertEqual(r['hourlyRate'], Decimal('136.9048'))
+        r = calc.compute_payroll(self.employee, JULY_2024, base_salary=21000)
+        # daily 1000, hourly = 1000/8 = 125. OT 6h -> 125 * 6 * 1.5 = 1125.
+        self.assertEqual(r['hourlyRate'], Decimal('125.0000'))
         self.assertEqual(r['overtimeHours'], Decimal('6.00'))
-        self.assertEqual(r['overtimePay'], Decimal('1232.14'))  # 136.9048 * 6 * 1.5
-        # 23000 - 3285.71 + 2500 - 1000 + 0 + 1232.14
-        self.assertEqual(r['netPay'], Decimal('22446.43'))
+        self.assertEqual(r['overtimePay'], Decimal('1125.00'))
+        # 7000 - 4000 + 2500 - 1000 + 0 + 1125
+        self.assertEqual(r['netPay'], Decimal('5625.00'))
+
+
+@override_settings(PAYROLL_DAILY_RATE_BASIS='working_days')
+class UnpaidDaysCappedAtTodayTests(TestCase):
+    def test_only_elapsed_days_count_as_unpaid(self):
+        from django.utils import timezone
+        from employee_management.models import Employee
+        from Attendance_and_Leave.holiday_service import working_dates_in_range
+
+        today = timezone.localdate()
+        period = f'{today.year:04d}-{today.month:02d}'
+        emp = Employee.objects.create(
+            employeeID='EMP-TODAY', fullName='Today Worker', employmentStatus='Active')
+
+        # No attendance this month -> every *elapsed* working day is an unpaid
+        # absence, but future working days in the month must not be counted yet.
+        r = calc.compute_payroll(emp, period, base_salary=21000)
+        elapsed = len(working_dates_in_range(date(today.year, today.month, 1), today))
+        self.assertEqual(r['unpaidLeaveDays'], elapsed)
 
 
 class RunCycleTests(TestCase):
     """Bulk payroll cycle: per-employee generation helper and eligibility."""
 
     def test_generate_for_employee_uses_breakdown(self):
+        from datetime import datetime
+        from django.utils import timezone
         from employee_management.models import Employee
+        from Attendance_and_Leave.models import AttendanceRecord
+        from Attendance_and_Leave.holiday_service import working_dates_in_range
         from payroll.views import _generate_payroll_for_employee
 
         emp = Employee.objects.create(
             employeeID='EMP-RC1', fullName='Cycle One', monthlyIncome=23000)
+        # Present every working day -> no absence deduction, full pay.
+        for d in working_dates_in_range(date(2024, 7, 1), date(2024, 7, 31)):
+            AttendanceRecord.objects.create(
+                employee=emp, date=d,
+                clockIn=timezone.make_aware(datetime(d.year, d.month, d.day, 9, 0)))
+
         record, reason = _generate_payroll_for_employee(emp, JULY_2024)
         self.assertIsNone(reason)
         self.assertEqual(record.netPay, Decimal('23000.00'))

@@ -110,6 +110,7 @@ export const hrCreatePayroll = (data) => api.post('/payroll/hr/payroll/', data);
 export const hrMarkPayrollPaid = (id, data = {}) => api.post(`/payroll/hr/payroll/${id}/mark-paid/`, data);
 export const hrRunPayrollCycle = (data) => api.post('/payroll/hr/payroll/run-cycle/', data);
 export const hrEditPayroll = (id, data) => api.post(`/payroll/hr/payroll/${id}/edit/`, data);
+export const hrRecalculatePayroll = (id) => api.post(`/payroll/hr/payroll/${id}/recalculate/`, {});
 export const hrGetPayrollSignals = (payPeriod) => api.get(`/payroll/hr/payroll/signals/${payPeriod ? `?pay_period=${encodeURIComponent(payPeriod)}` : ''}`);
 
 // Commissions (manual HR pay adjustments)

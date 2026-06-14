@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { hrGetReviews } from '../../api/index.js';
+import { hrGetReviews, hrGetEmployees, hrGetTeamOptions } from '../../api/index.js';
 import { Badge, Spinner, useToast } from '../../components/shared/index.jsx';
 import { useLanguage } from '../../context/LanguageContext';
 import {
@@ -19,14 +19,22 @@ export function HRReviewsPage() {
   const { t } = useLanguage();
 
   const [reviews, setReviews] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [teamOptions, setTeamOptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
   const loadReviews = async () => {
     setLoading(true);
     try {
-      const data = await hrGetReviews();
-      setReviews(Array.isArray(data) ? data : []);
+      const [reviewData, employeeData, teamData] = await Promise.all([
+        hrGetReviews(),
+        hrGetEmployees().catch(() => []),
+        hrGetTeamOptions().catch(() => []),
+      ]);
+      setReviews(Array.isArray(reviewData) ? reviewData : []);
+      setEmployees(Array.isArray(employeeData) ? employeeData : []);
+      setTeamOptions(Array.isArray(teamData) ? teamData : []);
     } catch (error) {
       toast('Failed to load performance reviews', 'error');
     } finally {
@@ -56,21 +64,55 @@ export function HRReviewsPage() {
     ];
   }, [reviews]);
 
-  const teamInsights = useMemo(() => {
-    const map = new Map();
+  const teamCards = useMemo(() => {
+    // Latest review per employee (by review date, falling back to created date).
+    const reviewByEmployee = new Map();
     reviews.forEach((r) => {
-      const key = r.team || 'Unassigned';
-      const entry = map.get(key) || { team: key, count: 0, ratingSum: 0, pending: 0, acknowledged: 0, high: 0 };
-      entry.count += 1;
-      entry.ratingSum += Number(r.overallRating || 0);
-      if (r.status === 'Acknowledged') entry.acknowledged += 1; else entry.pending += 1;
-      if (Number(r.overallRating) >= 4) entry.high += 1;
-      map.set(key, entry);
+      const ts = new Date(r.reviewDate || r.createdAt || 0).getTime();
+      const prev = reviewByEmployee.get(r.employeeID);
+      if (!prev || ts >= prev._ts) reviewByEmployee.set(r.employeeID, { ...r, _ts: ts });
     });
+
+    // employee.team is a FK id; resolve it to the team name from the options list.
+    const teamIdToName = new Map(teamOptions.map((tm) => [String(tm.team_id), tm.name]));
+    const resolveTeamName = (value) => {
+      if (value === null || value === undefined || value === '') return 'Unassigned';
+      return teamIdToName.get(String(value)) || String(value);
+    };
+
+    // Only individual contributors are reviewed; leaders/managers/admins are not.
+    const NON_REVIEWED_ROLES = ['TeamLeader', 'HRManager', 'Admin'];
+    const map = new Map();
+    employees.filter((e) => !e.isDeleted && !NON_REVIEWED_ROLES.includes(e.role)).forEach((e) => {
+      const teamName = resolveTeamName(e.team);
+      const entry = map.get(teamName) || { team: teamName, members: [] };
+      const review = reviewByEmployee.get(e.employeeID);
+      entry.members.push({
+        employeeID: e.employeeID,
+        name: e.fullName || e.employeeID,
+        reviewed: Boolean(review),
+        rating: review ? Number(review.overallRating || 0) : null,
+        status: review ? review.status : null,
+      });
+      map.set(teamName, entry);
+    });
+
     return Array.from(map.values())
-      .map((e) => ({ ...e, avg: e.count ? e.ratingSum / e.count : 0 }))
+      .map((entry) => {
+        const reviewed = entry.members.filter((m) => m.reviewed);
+        const ratingSum = reviewed.reduce((acc, m) => acc + (m.rating || 0), 0);
+        return {
+          ...entry,
+          members: entry.members.sort((a, b) => (b.rating || 0) - (a.rating || 0)),
+          count: entry.members.length,
+          reviewedCount: reviewed.length,
+          notReviewedCount: entry.members.length - reviewed.length,
+          high: reviewed.filter((m) => (m.rating || 0) >= 4).length,
+          avg: reviewed.length ? ratingSum / reviewed.length : 0,
+        };
+      })
       .sort((a, b) => b.avg - a.avg);
-  }, [reviews]);
+  }, [reviews, employees, teamOptions]);
 
   const getScoreColor = (score) => {
     if (score >= 4.5) return 'var(--red-800)';
@@ -123,20 +165,43 @@ export function HRReviewsPage() {
           <Users size={18} style={{ color: 'var(--red-600)' }} />
           <h2 style={{ fontSize: 16, fontWeight: 900, color: '#1E293B', margin: 0 }}>{t('How each team is doing')}</h2>
         </div>
-        {teamInsights.length === 0 ? (
-          <div style={{ padding: '20px', textAlign: 'center', color: '#94A3B8', fontWeight: 600 }}>{t('No review data yet.')}</div>
+        {teamCards.length === 0 ? (
+          <div style={{ padding: '20px', textAlign: 'center', color: '#94A3B8', fontWeight: 600 }}>{t('No teams yet.')}</div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
-            {teamInsights.map((team) => (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+            {teamCards.map((team) => (
               <div key={team.team} style={{ border: '1.5px solid #F1F5F9', borderRadius: 18, padding: '18px 20px', background: '#F8FAFC' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                   <div style={{ fontSize: 14, fontWeight: 900, color: '#1E293B' }}>{team.team}</div>
-                  <div style={{ fontSize: 22, fontWeight: 900, color: getScoreColor(team.avg) }}>{team.avg.toFixed(1)}</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: getScoreColor(team.avg) }}>{team.avg ? team.avg.toFixed(1) : '—'}</div>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <Badge label={`${team.count} ${t('reviews')}`} color="gray" />
-                  <Badge label={`${team.high} ${t('high performers')}`} color="green" />
-                  <Badge label={`${team.pending} ${t('pending')}`} color={team.pending ? 'orange' : 'green'} />
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+                  <Badge label={`${team.count} ${t('members')}`} color="gray" />
+                  <Badge label={`${team.reviewedCount} ${t('reviewed')}`} color="green" />
+                  <Badge label={`${team.notReviewedCount} ${t('not reviewed')}`} color={team.notReviewedCount ? 'orange' : 'green'} />
+                </div>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {team.members.map((m) => (
+                    <div key={m.employeeID} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #F1F5F9', borderRadius: 12, padding: '10px 12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                        <div style={{ width: 30, height: 30, borderRadius: 9, background: 'var(--red-50)', color: 'var(--red-600)', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 900, flexShrink: 0 }}>
+                          {(m.name || 'U').charAt(0)}
+                        </div>
+                        <div style={{ fontSize: 12.5, fontWeight: 800, color: '#1E293B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</div>
+                      </div>
+                      {m.reviewed ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 12.5, fontWeight: 900, color: getScoreColor(m.rating) }}>
+                            <Star size={12} fill={getScoreColor(m.rating)} color={getScoreColor(m.rating)} />
+                            {m.rating.toFixed(1)}
+                          </div>
+                          <Badge label={t(m.status)} color={STATUS_COLORS[m.status] || 'gray'} />
+                        </div>
+                      ) : (
+                        <Badge label={t('Not reviewed')} color="gray" />
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}

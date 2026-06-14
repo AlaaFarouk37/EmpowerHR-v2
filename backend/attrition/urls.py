@@ -6,6 +6,7 @@ from .views import (
     AttritionPredictionLatestView,
     AttritionGovernanceSummaryView,
     NotifyTeamLeaderOfRiskView,
+    TeamAttritionLatestView,
 )
 
 urlpatterns = [
@@ -17,6 +18,9 @@ urlpatterns = [
 
     # GET  /api/attrition/predictions/latest/   latest prediction per employee
     path('predictions/latest/', AttritionPredictionLatestView.as_view(), name='attrition-latest'),
+
+    # GET  /api/attrition/team/latest/          latest prediction per team member (TL-scoped)
+    path('team/latest/', TeamAttritionLatestView.as_view(), name='attrition-team-latest'),
 
     # POST /api/attrition/predictions/<id>/notify-tl/   HR notifies the at-risk employee's team leader
     path('predictions/<str:predictionID>/notify-tl/', NotifyTeamLeaderOfRiskView.as_view(), name='attrition-notify-tl'),

@@ -6,7 +6,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { getTeamReviews, createTeamReview } from '../../api/index.js';
 import { Star, Plus, Briefcase, Calendar } from 'lucide-react';
 
-const EMPTY = { employeeID: '', reviewPeriod: '', reviewType: 'Quarterly', overallRating: 4, strengths: '', improvementAreas: '', goalsSummary: '', reviewDate: '' };
+const EMPTY = { employeeID: '', reviewType: 'Quarterly', overallRating: 4, strengths: '', improvementAreas: '', goalsSummary: '', reviewDate: '' };
 
 const STATUS_COLORS = { Acknowledged: 'green', Submitted: 'blue', Draft: 'gray' };
 
@@ -35,11 +35,16 @@ export function TeamReviewsPage() {
 
   const handleCreate = async () => {
     if (!form.employeeID) { toast(t('Please select a team member'), 'error'); return; }
-    if (!form.reviewPeriod.trim()) { toast(t('Review period is required'), 'error'); return; }
     const rating = Number(form.overallRating);
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) { toast(t('Rating must be 1-5'), 'error'); return; }
 
-    const payload = { ...form, overallRating: rating };
+    // Review period is derived from the review type + date (no manual input).
+    const base = form.reviewDate ? new Date(form.reviewDate) : new Date();
+    const reviewPeriod = form.reviewType === 'Annual'
+      ? `${base.getFullYear()}`
+      : `Q${Math.floor(base.getMonth() / 3) + 1} ${base.getFullYear()}`;
+
+    const payload = { ...form, overallRating: rating, reviewPeriod };
     if (!payload.reviewDate) delete payload.reviewDate;
     setSaving(true);
     try {
@@ -153,17 +158,14 @@ export function TeamReviewsPage() {
           value={form.employeeID}
           onChange={(val) => setForm((f) => ({ ...f, employeeID: val }))}
         />
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          <Input label={t('Review Period')} value={form.reviewPeriod} placeholder="Q2 2026" onChange={(e) => setForm((f) => ({ ...f, reviewPeriod: e.target.value }))} />
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>{t('Review Type')}</label>
-            <select value={form.reviewType} onChange={(e) => setForm((f) => ({ ...f, reviewType: e.target.value }))} className="inp">
-              <option value="Quarterly">{t('Quarterly')}</option>
-              <option value="Annual">{t('Annual')}</option>
-              <option value="Probation">{t('Probation')}</option>
-              <option value="Spot">{t('Spot')}</option>
-            </select>
-          </div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>{t('Review Type')}</label>
+          <select value={form.reviewType} onChange={(e) => setForm((f) => ({ ...f, reviewType: e.target.value }))} className="inp">
+            <option value="Quarterly">{t('Quarterly')}</option>
+            <option value="Annual">{t('Annual')}</option>
+            <option value="Probation">{t('Probation')}</option>
+            <option value="Spot">{t('Spot')}</option>
+          </select>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <Input label={t('Overall Rating (1-5)')} type="number" min={1} max={5} value={form.overallRating} onChange={(e) => setForm((f) => ({ ...f, overallRating: e.target.value }))} />

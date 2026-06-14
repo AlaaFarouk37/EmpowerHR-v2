@@ -258,10 +258,24 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
     // and shouldn't see their own card). Also drop the logged-in user's own card.
     const leaderIds = new Set((employees || []).filter(e => e?.role === 'TeamLeader').map(e => String(e.employeeID)));
     const selfId = String(user?.employee_id || '');
+    // Utilization is week-scoped: only tasks whose due date falls inside the
+    // selected week — the same range the capacity denominator is fetched for —
+    // count toward a member's used hours. Tasks without a due date, or due
+    // outside the week, are ignored. Falls back to all tasks until the week
+    // range is known (capacity still loading / unavailable).
+    const weekStart = capacityMeta?.weekStart;
+    const weekEnd = capacityMeta?.weekEnd;
+    const inSelectedWeek = (due) => {
+      if (!weekStart || !weekEnd) return true;
+      if (!due) return false;
+      const key = String(due).slice(0, 10);
+      return key >= weekStart && key <= weekEnd;
+    };
+    const today = new Date().toISOString().slice(0, 10);
     const byEmp = {};
     scopedTasks.forEach(task => {
       const id = task?.employeeID;
-      if (!id) return;
+      if (!id || !inSelectedWeek(task.dueDate)) return;
       if (!byEmp[id]) {
         byEmp[id] = {
           employeeID: id,
@@ -278,7 +292,6 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
       if (task.status === 'Done') byEmp[id].completedTasks += 1;
       else {
         byEmp[id].openTasks += 1;
-        const today = new Date().toISOString().slice(0, 10);
         if (task.dueDate && task.dueDate < today) byEmp[id].overdueTasks += 1;
       }
     });
@@ -318,7 +331,7 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
       return !leaderIds.has(id) && id !== selfId;
     })
     .sort((a, b) => b.utilizationRate - a.utilizationRate);
-  }, [scopedTasks, memberOptions, capacityByEmp, employees, user]);
+  }, [scopedTasks, memberOptions, capacityByEmp, capacityMeta, employees, user]);
 
   // Calendar — month grid with task counts per day
   const monthGrid = useMemo(() => {

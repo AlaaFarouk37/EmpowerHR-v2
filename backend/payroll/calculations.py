@@ -109,41 +109,64 @@ def unpaid_leave_weekdays(intervals, window_start: date, window_end: date, holid
     return len(counted)
 
 
+DAILY_RATE_BASIS_WORKING = 'working_days'
+DAILY_RATE_BASIS_CALENDAR = 'calendar_days'
+DAILY_RATE_BASIS_FIXED_30 = 'fixed_30'
+
+
+def _rate_divisor(basis, year, month, holidays=None):
+    """Days the full monthly salary is spread across, per the configured basis."""
+    if basis == DAILY_RATE_BASIS_CALENDAR:
+        return calendar.monthrange(year, month)[1]
+    if basis == DAILY_RATE_BASIS_FIXED_30:
+        return 30
+    return weekdays_in_month(year, month, holidays)
+
+
+def _employed_days(basis, window_start, window_end, holidays=None):
+    """Days inside the employment window, counted on the same basis as the divisor."""
+    if basis in (DAILY_RATE_BASIS_CALENDAR, DAILY_RATE_BASIS_FIXED_30):
+        return (window_end - window_start).days + 1
+    return weekdays_between(window_start, window_end, holidays)
+
+
 def compute_breakdown(base_salary, pay_period, hiring_date, leaving_date,
-                      unpaid_leave_intervals, manual_deductions,
-                      commissions, expense_reimbursements,
-                      overtime_hours=0, hours_per_day=None, holidays=None):
+                      unpaid_days, manual_deductions, commissions,
+                      expense_reimbursements, overtime_hours=0, hours_per_day=None,
+                      holidays=None, daily_rate_basis=DAILY_RATE_BASIS_WORKING):
     """Pure computation of the full payroll breakdown.
 
-    ``holidays`` is an optional set of public-holiday dates in the pay-period
-    month; when supplied they are excluded (like weekends) from the daily-rate
-    divisor, the proration multiplier and the unpaid-leave day count, so a
-    public holiday is never deducted and never reduces a full month's pay.
+    ``unpaid_days`` is the count of deductible no-show / unpaid-leave WORKING days
+    in the period, already clipped to the employment window by the caller.
+
+    ``daily_rate_basis`` controls the daily-rate divisor and the proration
+    day-count: 'working_days' (Sun–Thu, holiday-aware), 'calendar_days' (all days
+    in the month) or 'fixed_30'. The unpaid-day count is always working-day based
+    regardless of basis — weekends and holidays are never absences.
 
     All monetary inputs may be int/float/Decimal/str; outputs are Decimal
-    quantized to cents (except the day counts, which are ints, and dailyRate,
-    which keeps 4 dp for transparency).
+    quantized to cents (except day counts, ints, and the rates kept at 4 dp).
     """
     base_salary = Decimal(str(base_salary or 0))
     manual_deductions = _money(manual_deductions or 0)
     commissions = _money(commissions or 0)
     expense_reimbursements = _money(expense_reimbursements or 0)
+    unpaid_days = int(unpaid_days or 0)
 
     period_start, period_end = parse_pay_period(pay_period)
-    working_days = weekdays_in_month(period_start.year, period_start.month, holidays)
+    divisor = _rate_divisor(daily_rate_basis, period_start.year, period_start.month, holidays)
 
-    daily_rate = (base_salary / Decimal(working_days)) if working_days else Decimal('0')
+    daily_rate = (base_salary / Decimal(divisor)) if divisor else Decimal('0')
     daily_rate_q = daily_rate.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
 
     window = employment_window(period_start, period_end, hiring_date, leaving_date)
     if window is None:
-        weekdays_employed = 0
+        employed_days = 0
         unpaid_days = 0
     else:
-        weekdays_employed = weekdays_between(window[0], window[1], holidays)
-        unpaid_days = unpaid_leave_weekdays(unpaid_leave_intervals, window[0], window[1], holidays)
+        employed_days = _employed_days(daily_rate_basis, window[0], window[1], holidays)
 
-    prorated_base = _money(daily_rate * Decimal(weekdays_employed))
+    prorated_base = _money(daily_rate * Decimal(employed_days))
     unpaid_leave_deduction = _money(daily_rate * Decimal(unpaid_days))
 
     hpd = Decimal(str(hours_per_day)) if hours_per_day else Decimal('0')
@@ -165,8 +188,8 @@ def compute_breakdown(base_salary, pay_period, hiring_date, leaving_date,
 
     return {
         'baseSalary': _money(base_salary),
-        'workingDays': working_days,
-        'weekdaysEmployed': weekdays_employed,
+        'workingDays': divisor,
+        'weekdaysEmployed': employed_days,
         'unpaidLeaveDays': unpaid_days,
         'dailyRate': daily_rate_q,
         'proratedBaseSalary': prorated_base,
@@ -182,22 +205,6 @@ def compute_breakdown(base_salary, pay_period, hiring_date, leaving_date,
 
 
 # ── DB-aware entry point ──────────────────────────────────────────────────
-
-def gather_unpaid_leave_intervals(employee, period_start, period_end):
-    """Return (start, end) pairs for the employee's APPROVED unpaid leave that
-    overlaps the pay-period month. Any leave type flagged is_paid=False counts
-    toward the deduction; paid leave types are ignored."""
-    from Attendance_and_Leave.models import LeaveRequest
-
-    leaves = LeaveRequest.objects.filter(
-        employee=employee,
-        leaveType__is_paid=False,
-        status=LeaveRequest.STATUS_APPROVED,
-        startDate__lte=period_end,
-        endDate__gte=period_start,
-    ).values_list('startDate', 'endDate')
-    return list(leaves)
-
 
 def gather_approved_expense_total(employee, period_start, period_end):
     """Sum approvedAmount for HR-approved expense claims whose expenseDate falls
@@ -263,31 +270,41 @@ def gather_approved_overtime_hours(employee, period_start, period_end):
 
 
 def compute_payroll(employee, pay_period, base_salary):
-    """DB-aware orchestration: pulls unpaid leave, approved expenses,
-    commissions, manual deductions and approved overtime, then returns the full
-    breakdown dict (see compute_breakdown). Public holidays for the month are
-    excluded from the day-count math via the combined weekend+holiday helper."""
+    """DB-aware orchestration: resolves deductible (no-show + unpaid-leave) days
+    and pulls approved expenses, commissions, manual deductions and approved
+    overtime, then returns the full breakdown dict (see compute_breakdown). The
+    daily-rate basis comes from settings.PAYROLL_DAILY_RATE_BASIS."""
+    from django.conf import settings
+    from django.utils import timezone
     from Attendance_and_Leave.holiday_service import holiday_dates_in_range
+    from Attendance_and_Leave import absence_service
 
     period_start, period_end = parse_pay_period(pay_period)
     holidays = holiday_dates_in_range(period_start, period_end)
+    basis = getattr(settings, 'PAYROLL_DAILY_RATE_BASIS', DAILY_RATE_BASIS_WORKING)
 
-    unpaid_intervals = gather_unpaid_leave_intervals(employee, period_start, period_end)
-    expense_total = gather_approved_expense_total(employee, period_start, period_end)
-    commission_total = gather_commission_total(employee, pay_period)
-    deduction_total = gather_deduction_total(employee, pay_period)
-    overtime_hours = gather_approved_overtime_hours(employee, period_start, period_end)
+    # Only days that have actually elapsed (today or earlier) can be unpaid —
+    # future working days in the current month aren't deductions yet, so the
+    # absence count is capped at today even though proration covers the period.
+    window = employment_window(period_start, period_end,
+                               employee.hiring_date, employee.leaving_date)
+    unpaid_days = 0
+    if window:
+        absence_end = min(window[1], timezone.localdate())
+        if absence_end >= window[0]:
+            unpaid_days = absence_service.count_deductible_days(employee, window[0], absence_end)
 
     return compute_breakdown(
         base_salary=base_salary,
         pay_period=pay_period,
         hiring_date=employee.hiring_date,
         leaving_date=employee.leaving_date,
-        unpaid_leave_intervals=unpaid_intervals,
-        manual_deductions=deduction_total,
-        commissions=commission_total,
-        expense_reimbursements=expense_total,
-        overtime_hours=overtime_hours,
+        unpaid_days=unpaid_days,
+        manual_deductions=gather_deduction_total(employee, pay_period),
+        commissions=gather_commission_total(employee, pay_period),
+        expense_reimbursements=gather_approved_expense_total(employee, period_start, period_end),
+        overtime_hours=gather_approved_overtime_hours(employee, period_start, period_end),
         hours_per_day=employee.contracted_hours_day,
         holidays=holidays,
+        daily_rate_basis=basis,
     )

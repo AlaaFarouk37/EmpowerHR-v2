@@ -9,7 +9,9 @@ holidays and approved leave that fall in the current Egyptian work week
     lost_hours         = (holiday work-days + approved-leave work-days) * hours_per_day
     available_hours    = max(0, contracted_week - lost_hours)
 """
-from datetime import date, timedelta
+from datetime import timedelta
+
+from django.utils import timezone
 
 from . import holiday_service
 from .models import LeaveRequest
@@ -20,7 +22,7 @@ DEFAULT_HOURS_PER_DAY = 8.0
 
 def current_work_week(reference=None):
     """(week_start, work_end) for the Sun–Thu work week containing ``reference``."""
-    ref = reference or date.today()
+    ref = reference or timezone.localdate()
     week_start = ref - timedelta(days=(ref.weekday() + 1) % 7)  # Sunday on/before ref
     return week_start, week_start + timedelta(days=4)           # Thursday
 
