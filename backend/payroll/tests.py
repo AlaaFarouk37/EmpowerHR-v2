@@ -166,7 +166,7 @@ class ComputePayrollDBTests(TestCase):
         from Attendance_and_Leave.models import LeaveRequest, AttendanceRecord
         from payroll.models import Commission, Deduction
 
-        unpaid = LeaveType.objects.get(name='Unpaid')
+        unpaid = LeaveType.objects.get(name='Casual')  # Casual is the unpaid type
         annual = LeaveType.objects.get(name='Annual')
 
         # Hired Jul 22 -> window Jul 22..31; working days are 22, 23, 24, 28, 29,

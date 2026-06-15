@@ -54,6 +54,9 @@ export const submitLeaveRequest = (data) => {
 
 export const getMyPayroll = async (employeeID) => toList(await api.get(`/payroll/employee/payroll/${employeeID ? `?employee_id=${employeeID}` : ''}`));
 
+// The requesting user's own employee record (real profile data, any internal role).
+export const getMyProfile = async () => api.get('/employee_management/employee/profile/');
+
 export const getMyReviews = async (employeeID) => toList(await api.get(`/employee_management/employee/reviews/${employeeID ? `?employee_id=${employeeID}` : ''}`));
 export const acknowledgeMyReview = (id, data = {}) => api.post(`/employee_management/employee/reviews/${id}/acknowledge/`, data);
 

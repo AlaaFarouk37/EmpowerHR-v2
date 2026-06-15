@@ -51,7 +51,7 @@ export function HRPayrollPage() {
   const [cycleOpen, setCycleOpen] = useState(false);
   const [cycleRunning, setCycleRunning] = useState(false);
   const [cyclePeriod, setCyclePeriod] = useState(defaultPeriod());
-  const [viewPeriod, setViewPeriod] = useState('');
+  const [viewPeriod, setViewPeriod] = useState(defaultPeriod()); // default to current month; "All months" clears it
   const [signals, setSignals] = useState({ pendingOvertimeCount: 0, pendingExpenseCount: 0 });
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -216,7 +216,6 @@ export function HRPayrollPage() {
     if (!editForm.editReason.trim()) { toast(t('Please add a note explaining the edit'), 'error'); return; }
     const payload = {
       editReason: editForm.editReason.trim(),
-      proratedBaseSalary: Number(editForm.proratedBaseSalary || 0),
       commissions: Number(editForm.commissions || 0),
       unpaidLeaveDeduction: Number(editForm.unpaidLeaveDeduction || 0),
       deductions: Number(editForm.deductions || 0),
@@ -690,7 +689,7 @@ export function HRPayrollPage() {
         {editForm && (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-              <Input label={t('Base (Prorated)')} type="number" step="0.01" value={editForm.proratedBaseSalary} onChange={(e) => setEditForm((f) => ({ ...f, proratedBaseSalary: e.target.value }))} />
+              <Input label={t('Base (Prorated)')} type="number" value={editForm.proratedBaseSalary} readOnly title={t('Base salary comes from the employee profile and cannot be edited here.')} style={{ background: '#F1F5F9', color: '#64748B', cursor: 'not-allowed' }} />
               <Input label={t('Commissions')} type="number" step="0.01" value={editForm.commissions} onChange={(e) => setEditForm((f) => ({ ...f, commissions: e.target.value }))} />
               <Input label={t('Unpaid Leave Deduction')} type="number" step="0.01" value={editForm.unpaidLeaveDeduction} onChange={(e) => setEditForm((f) => ({ ...f, unpaidLeaveDeduction: e.target.value }))} />
               <Input label={t('Deductions')} type="number" step="0.01" value={editForm.deductions} onChange={(e) => setEditForm((f) => ({ ...f, deductions: e.target.value }))} />

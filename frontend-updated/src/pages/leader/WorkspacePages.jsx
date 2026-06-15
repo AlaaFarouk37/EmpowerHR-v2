@@ -11,7 +11,6 @@ import { EmployeeDashboardPage } from '../employee/DashboardPage';
 import { EmployeeDocumentsPage } from '../employee/DocumentsPage';
 import { EmployeeExpensesPage } from '../employee/ExpensesPage';
 import { EmployeeFeedbackPage } from '../employee/FeedbackPage';
-import { EmployeeGoalsPage } from '../employee/GoalsPage';
 import { EmployeeOnboardingPage } from '../employee/OnboardingPage';
 import { EmployeePayrollPage } from '../employee/PayrollPage';
 import { EmployeeProfilePage } from '../employee/EmployeeProfilePage';
@@ -140,7 +139,6 @@ function LeaderOwnedShell({ titleKey, variant = 'overview', children }) {
       overview: [
         { label: t('nav.teamHub'), path: resolvePath('/leader/team') },
         { label: t('nav.tasks'), path: resolvePath('/employee/tasks') },
-        { label: t('nav.goals'), path: resolvePath('/employee/goals') },
       ],
       team: [
         { label: t('nav.teamHub'), path: resolvePath('/leader/team') },
@@ -466,10 +464,6 @@ export function LeaderOnboardingPage() {
 
 export function LeaderShiftsPage() {
   return <LeaderOwnedShell titleKey="nav.shifts" variant="overview"><EmployeeShiftsPage /></LeaderOwnedShell>;
-}
-
-export function LeaderGoalsPage() {
-  return <LeaderOwnedShell titleKey="nav.goals" variant="team"><EmployeeGoalsPage /></LeaderOwnedShell>;
 }
 
 export function LeaderTasksPage() {

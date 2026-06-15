@@ -260,7 +260,8 @@ class Command(BaseCommand):
         annual_type, _ = LeaveType.objects.get_or_create(
             name=LeaveRequest.TYPE_ANNUAL, defaults={'max_days_per_year': 21})
         casual_type, _ = LeaveType.objects.get_or_create(
-            name=LeaveRequest.TYPE_CASUAL, defaults={'max_days_per_year': 7})
+            name=LeaveRequest.TYPE_CASUAL,
+            defaults={'max_days_per_year': 7, 'deducts_from_annual': True})
 
         LeaveRequest.objects.update_or_create(
             employee=team_member,

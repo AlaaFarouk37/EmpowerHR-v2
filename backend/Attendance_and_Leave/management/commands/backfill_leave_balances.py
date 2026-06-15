@@ -25,22 +25,19 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         year = options['year']
 
-        # Annual (entitlement-driven) plus every configured leave type, de-duplicated.
-        names, seen = [], set()
-        for name in [LeaveRequest.TYPE_ANNUAL, *LeaveType.objects.values_list('name', flat=True)]:
-            key = (name or '').strip().lower()
-            if key and key not in seen:
-                seen.add(key)
-                names.append(name)
-
+        leave_types = list(LeaveType.objects.all())
         employees = Employee.objects.filter(isDeleted=False)
         before = LeaveBalance.objects.filter(year=year).count()
         for emp in employees:
-            for name in names:
-                leave_services.get_or_create_balance(emp, name, year)
+            # Annual (entitlement-driven) is always materialized; the rest are
+            # filtered by should_have_balance (skips Casual/gender/once-used).
+            leave_services.get_or_create_balance(emp, LeaveRequest.TYPE_ANNUAL, year)
+            for lt in leave_types:
+                if leave_services.should_have_balance(emp, lt):
+                    leave_services.get_or_create_balance(emp, lt.name, year)
         after = LeaveBalance.objects.filter(year=year).count()
 
         self.stdout.write(self.style.SUCCESS(
-            f"Year {year}: {employees.count()} employee(s) x {len(names)} type(s) "
-            f"({', '.join(names)}). Balance rows: {before} -> {after} (+{after - before})."
+            f"Year {year}: {employees.count()} employee(s) x {len(leave_types)} configured "
+            f"type(s). Balance rows: {before} -> {after} (+{after - before})."
         ))

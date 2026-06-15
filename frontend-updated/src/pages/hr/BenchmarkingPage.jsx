@@ -4,6 +4,9 @@ import { hrGetEmployees, hrFetchExternalSalaryBenchmark, hrGetDepartmentOptions 
 import { useLanguage } from '../../context/LanguageContext';
 import { FileText } from 'lucide-react';
 
+// Only individual contributors and their leaders are benchmarked — HR/Admin are excluded.
+const BENCHMARK_ROLES = ['TeamMember', 'TeamLeader'];
+
 const benchmarkKey = (title, level) =>
   `${(title || '').trim().toLowerCase()}|${(level || '').trim().toLowerCase()}`;
 
@@ -39,7 +42,8 @@ export function BenchmarkingPage() {
           hrGetDepartmentOptions().catch(() => []),
         ]);
         if (cancelled) return;
-        setEmployees(Array.isArray(data) ? data : []);
+        const eligible = (Array.isArray(data) ? data : []).filter((e) => BENCHMARK_ROLES.includes(e.role));
+        setEmployees(eligible);
         const map = {};
         (Array.isArray(depts) ? depts : []).forEach(d => {
           const id = d?.department_id ?? d?.id;

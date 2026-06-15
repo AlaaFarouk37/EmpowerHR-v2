@@ -8,7 +8,7 @@ const ROLE_HOME = {
   TeamMember: "/employee/dashboard",
   TeamLeader: "/leader/dashboard",
   HRManager: "/hr/dashboard",
-  Admin: "/admin/dashboard",
+  Admin: "/admin/organization",
 };
 
 const ROLE_PATH_ALIASES = {
@@ -20,7 +20,6 @@ const ROLE_PATH_ALIASES = {
     '/employee/career-path': '/leader/career-path',
     '/employee/onboarding': '/leader/onboarding',
     '/employee/shifts': '/leader/shifts',
-    '/employee/goals': '/leader/goals',
     '/employee/tasks': '/leader/tasks',
     '/employee/training': '/leader/training',
     '/employee/policies': '/leader/policies',
@@ -146,7 +145,6 @@ const PATH_PERMISSION_MAP = {
   '/employee/career-path': 'employee.career.view',
   '/employee/onboarding': 'employee.onboarding.view',
   '/employee/shifts': 'employee.shifts.view',
-  '/employee/goals': 'employee.goals.manage',
   '/employee/tasks': 'employee.tasks.manage',
   '/employee/training': 'employee.training.view',
   '/employee/policies': 'employee.policies.view',

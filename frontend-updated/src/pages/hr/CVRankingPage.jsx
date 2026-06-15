@@ -584,7 +584,7 @@ export function HRCVRankingPage() {
   if (loading) return <div style={{ height: '100vh', display: 'grid', placeItems: 'center' }}><Spinner /></div>;
 
   return (
-    <div className="page-content animate-in" style={{ background: '#F8FAFC', minHeight: '100vh', padding: '40px 60px', paddingBottom: selectedKeys.length > 0 ? 140 : 40 }}>
+    <div className="page-content animate-in" style={{ background: '#F8FAFC', minHeight: '100vh', padding: '40px 60px' }}>
       
       {/* Strategic Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 48 }}>
@@ -595,82 +595,16 @@ export function HRCVRankingPage() {
            </div>
            <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>Analyzing pool for: <span style={{ color: 'var(--red-600)' }}>{jobs.find(j => j.id === activeJobId)?.title}</span></p>
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-           <Btn onClick={() => setIsJDInsightsOpen(true)} variant="secondary" style={{ height: 48, borderRadius: 14, background: '#FFFBEB', color: '#D97706' }}><Lightbulb size={18} style={{ marginRight: 8 }} /> JD Insights</Btn>
-              {benchmarkPersona ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 12px', borderRadius: 12, background: '#F5F3FF', border: '1.5px solid #7C3AED' }}>
-                  <Brain size={14} color="#7C3AED" />
-                  <div style={{ fontSize: 11, fontWeight: 900, color: '#7C3AED' }}>Cloning: {benchmarkPersona.name}</div>
-                  <button onClick={() => { setBenchmarkPersona(null); setPersonaMatches({}); }} style={{ border: 'none', background: 'none', color: '#7C3AED', cursor: 'pointer', padding: 4 }}><X size={14} /></button>
-                </div>
-              ) : (
-                <Btn variant="secondary" onClick={() => setIsBenchmarkOpen(true)} style={{ borderRadius: 14 }}>
-                  <Star size={16} style={{ marginRight: 8 }} /> Clone Star Talent
-                </Btn>
-              )}
-           <Btn onClick={() => loadRankings(activeJobId)} style={{ height: 48, borderRadius: 14, background: '#fff', border: '1.5px solid #F1F5F9', color: '#1E293B' }}><RefreshCw size={18} /></Btn>
-        </div>
       </div>
 
-      {/* Stats Dashboard */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, marginBottom: 48 }}>
-        {[
-          { label: 'Total Applicants', value: rankings.length, icon: FileText, color: '#1E293B' },
-          { label: 'Avg Match Score', value: rankings.length ? `${Math.round(rankings.reduce((a,b) => a + (b.final_score||0), 0) / rankings.length)}%` : '0%', icon: Activity, color: 'var(--red-600)' },
-          { label: 'Potential Elite', value: rankings.filter(r => r.final_score > 85).length, icon: Star, color: 'var(--red-800)' },
-          { label: 'Reliability', value: '38%', icon: ShieldCheck, color: '#1E293B' },
-        ].map(stat => (
-          <div key={stat.label} style={{ padding: '24px', borderRadius: 28, background: '#fff', border: '1.5px solid #F1F5F9', display: 'flex', alignItems: 'center', gap: 20 }}>
-            <div style={{ width: 48, height: 48, borderRadius: 14, background: '#F8FAFC', color: stat.color, display: 'grid', placeItems: 'center' }}><stat.icon size={22} /></div>
-            <div><div style={{ fontSize: 11, fontWeight: 950, color: '#94A3B8', textTransform: 'uppercase' }}>{stat.label}</div><div style={{ fontSize: 24, fontWeight: 900, color: '#1E293B' }}>{stat.value}</div></div>
-          </div>
-        ))}
-      </div>
-
-      {/* INTEGRATED FILTER TOOLBAR (Within Page Flow) */}
+      {/* Active Job Hub */}
       <div style={{ background: '#fff', padding: '24px', borderRadius: 28, border: '1.5px solid #F1F5F9', marginBottom: 32 }}>
-         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr', gap: 16, alignItems: 'end' }}>
-            <div>
-               <label style={{ display: 'block', fontSize: 10, fontWeight: 950, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>Active Job Hub</label>
-               <select value={activeJobId} onChange={e => { setActiveJobId(e.target.value); loadRankings(e.target.value); }} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px', fontSize: 13, fontWeight: 800 }}>
-                  {jobs.map(j => <option key={j.id} value={j.id}>{j.title}</option>)}
-               </select>
-            </div>
-            <div>
-               <label style={{ display: 'block', fontSize: 10, fontWeight: 950, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>Seniority Tier</label>
-               <select value={filterSeniority} onChange={e => setFilterSeniority(e.target.value)} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px', fontSize: 13, fontWeight: 800 }}>
-                  <option value="All">All Tiers</option>
-                  <option value="Expert / Lead">Expert / Lead</option>
-                  <option value="Senior">Senior</option>
-                  <option value="Mid-Level">Mid-Level</option>
-               </select>
-            </div>
-            <div>
-               <label style={{ display: 'block', fontSize: 10, fontWeight: 950, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>Industry DNA</label>
-               <select value={filterIndustry} onChange={e => setFilterIndustry(e.target.value)} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px', fontSize: 13, fontWeight: 800 }}>
-                  <option value="All">All Industries</option>
-                  <option value="FinTech">FinTech</option>
-                  <option value="Cloud/SaaS">Cloud/SaaS</option>
-               </select>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, height: 44 }}>
-               <input type="checkbox" checked={hideRisk} onChange={e => setHideRisk(e.target.checked)} style={{ width: 18, height: 18 }} />
-               <span style={{ fontSize: 13, fontWeight: 800, color: hideRisk ? 'var(--red-600)' : '#64748B' }}>Hide Risk</span>
-            </div>
+         <div style={{ maxWidth: 360 }}>
+            <label style={{ display: 'block', fontSize: 10, fontWeight: 950, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>Active Job Hub</label>
+            <select value={activeJobId} onChange={e => { setActiveJobId(e.target.value); loadRankings(e.target.value); }} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px', fontSize: 13, fontWeight: 800 }}>
+               {jobs.map(j => <option key={j.id} value={j.id}>{j.title}</option>)}
+            </select>
          </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 12, marginBottom: 24, alignItems: 'center' }}>
-         <Btn onClick={scanPool} variant="secondary" size="sm" style={{ borderRadius: 12 }}><Radar size={14} style={{ marginRight: 6 }} /> Neural Scan</Btn>
-         {benchmarkPersona ? (
-           <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 16px', borderRadius: 12, background: '#F5F3FF', border: '1.5px solid #7C3AED' }}>
-             <Brain size={14} color="#7C3AED" />
-             <div style={{ fontSize: 11, fontWeight: 900, color: '#7C3AED' }}>Target Persona: {benchmarkPersona.name}</div>
-             <button onClick={() => { setBenchmarkPersona(null); setPersonaMatches({}); }} style={{ border: 'none', background: 'none', color: '#7C3AED', cursor: 'pointer', padding: 2, display: 'grid', placeItems: 'center' }}><X size={14} /></button>
-           </div>
-         ) : (
-           <Btn onClick={() => setIsBenchmarkOpen(true)} variant="secondary" size="sm" style={{ borderRadius: 12 }}><Brain size={14} style={{ marginRight: 6 }} /> Clone Star Talent</Btn>
-         )}
       </div>
 
       {/* Main Ledger */}
@@ -678,7 +612,6 @@ export function HRCVRankingPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#F9FAFB' }}>
-              <th style={{ padding: '20px 24px', width: 40 }}><input type="checkbox" checked={selectedKeys.length === filteredRankings.length && filteredRankings.length > 0} onChange={() => setSelectedKeys(selectedKeys.length === filteredRankings.length ? [] : filteredRankings.map((r,i) => `${r.submission_id}-${i}`))} /></th>
               {['Applicant', 'Scoring Metrics', 'Reliability', 'Actions'].map(h => <th key={h} style={{ padding: '20px 24px', textAlign: 'left', fontSize: 11, fontWeight: 950, color: '#64748B', textTransform: 'uppercase' }}>{h}</th>)}
             </tr>
           </thead>
@@ -687,8 +620,7 @@ export function HRCVRankingPage() {
               const k = `${r.submission_id}-${i}`;
               const isRisk = r.profile_meta?.fraud_detection?.is_padding_risk;
               return (
-                <tr key={k} style={{ borderBottom: '1px solid #F1F5F9', background: selectedKeys.includes(k) ? '#FFF1F2' : 'transparent' }}>
-                  <td style={{ padding: '20px 24px' }}><input type="checkbox" checked={selectedKeys.includes(k)} onChange={() => setSelectedKeys(prev => prev.includes(k) ? prev.filter(x => x !== k) : [...prev, k])} /></td>
+                <tr key={k} style={{ borderBottom: '1px solid #F1F5F9' }}>
                   <td style={{ padding: '20px 24px' }}>
                      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                         <div style={{ width: 36, height: 36, borderRadius: 10, background: isRisk ? '#FEF2F2' : '#F1F5F9', display: 'grid', placeItems: 'center', fontWeight: 900, color: isRisk ? '#DC2626' : '#64748B' }}>{r.candidate_name[0]}</div>
@@ -726,22 +658,7 @@ export function HRCVRankingPage() {
                      )}
                   </td>
                   <td style={{ padding: '20px 24px' }}>
-                     <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => { setActiveCandidate(r); setIsDetailOpen(true); }} style={{ padding: '8px 16px', borderRadius: 8, border: '1.5px solid #F1F5F9', background: '#fff', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Details</button>
-                        <button 
-                           onClick={() => handleFindSimilar(r.submission_id)} 
-                           disabled={!r.submission_id}
-                           style={{ 
-                             padding: '8px 12px', borderRadius: 8, border: '1.5px solid var(--red-100)', 
-                             background: r.submission_id ? 'var(--red-50)' : '#F1F5F9', 
-                             color: r.submission_id ? 'var(--red-600)' : '#94A3B8', 
-                             fontSize: 11, fontWeight: 900, cursor: r.submission_id ? 'pointer' : 'not-allowed', 
-                             display: 'flex', alignItems: 'center', gap: 6 
-                           }}
-                        >
-                           <Sparkles size={14} /> Similar
-                        </button>
-                     </div>
+                     <button onClick={() => { setActiveCandidate(r); setIsDetailOpen(true); }} style={{ padding: '8px 16px', borderRadius: 8, border: '1.5px solid #F1F5F9', background: '#fff', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Details</button>
                   </td>
                 </tr>
               );
@@ -750,48 +667,7 @@ export function HRCVRankingPage() {
         </table>
       </div>
 
-      {discoveredCandidates.length > 0 && (
-        <div style={{ marginTop: 40 }}><h2 style={{ fontSize: 20, fontWeight: 900 }}>AI Discovery Pool</h2>
-           {discoveredCandidates.map(c => <div key={c.name} style={{ background: '#fff', padding: 24, borderRadius: 24, border: '1.5px solid #DCFCE7', display: 'flex', justifyContent: 'space-between', marginTop: 16 }}><div>{c.name} • {c.match}% Fit</div><Btn size="sm">Import</Btn></div>)}
-        </div>
-      )}
-
-      {selectedKeys.length > 0 && (
-        <div className="animate-in" style={{ position: 'fixed', bottom: 32, left: '50%', transform: 'translateX(-50%)', background: '#0F172A', padding: '16px 32px', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 32, boxShadow: '0 30px 60px rgba(0,0,0,0.5)', zIndex: 1500 }}>
-          <div style={{ color: '#fff', fontSize: 18, fontWeight: 950 }}>{selectedKeys.length} Selected</div>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <button style={{ height: 44, padding: '0 20px', borderRadius: 10, background: '#fff', fontWeight: 900, cursor: 'pointer' }}>Schedule Interview</button>
-            <button style={{ height: 44, padding: '0 20px', borderRadius: 10, background: 'var(--red-600)', color: '#fff', fontWeight: 900, cursor: 'pointer' }}>Add to Shortlist</button>
-            <button style={{ height: 44, padding: '0 20px', borderRadius: 10, background: 'transparent', color: '#F87171', border: '1.5px solid rgba(248,113,113,0.3)', fontWeight: 900, cursor: 'pointer' }}>Reject Applicants</button>
-          </div>
-        </div>
-      )}
-
       <DetailDrawer isOpen={isDetailOpen} onClose={() => setIsDetailOpen(false)} candidate={activeCandidate} />
-      <AutomationModal 
-        isOpen={isAutomationOpen} 
-        onClose={() => setIsAutomationOpen(false)} 
-        onDeploy={handleAutomate} 
-        currentRules={automationRules} 
-      />
-      <BenchmarkModal 
-        isOpen={isBenchmarkOpen} 
-        onClose={() => setIsBenchmarkOpen(false)} 
-        onApplyProtocol={handleApplyCloneProtocol} 
-      />
-      <JDHealthModal 
-        isOpen={isJDInsightsOpen} 
-        onClose={() => setIsJDInsightsOpen(false)} 
-        insights={jobInsights}
-        isLoading={isInsightsLoading}
-        onOptimize={handleOptimizeJob}
-      />
-      <SimilarTalentDrawer 
-         isOpen={isSimilarOpen} 
-         onClose={() => setIsSimilarOpen(false)} 
-         results={similarResults} 
-         isLoading={isSimilarLoading} 
-      />
     </div>
   );
 }

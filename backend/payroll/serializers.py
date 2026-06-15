@@ -33,7 +33,8 @@ class PayrollMarkPaidSerializer(serializers.Serializer):
 
 class PayrollRecordEditSerializer(serializers.Serializer):
     editReason = serializers.CharField()
-    proratedBaseSalary = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    # Base salary is sourced from the employee profile and is intentionally not
+    # editable here (prevents manual corruption of the prorated base).
     commissions = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
     unpaidLeaveDeduction = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
     deductions = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)

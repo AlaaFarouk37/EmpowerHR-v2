@@ -75,8 +75,15 @@ export const hrSimulatePromotion = (data) => api.post('/feedback/hr/simulate-pro
 
 // Position Catalog (admin-managed) — used by recruitment to validate (title, level)
 export const hrGetPositionCatalog = async () => toList(await api.get('/employee_management/jobs/'));
+// Create a catalog entry. { title, level?, base_salary? } — Admin only.
+export const hrCreatePosition = (data) => api.post('/employee_management/jobs/', data);
 export const hrGetDepartmentOptions = async () => toList(await api.get('/employee_management/departments/'));
+export const hrCreateDepartment = (data) => api.post('/employee_management/departments/', data);
+export const hrDeleteDepartment = (id) => api.delete(`/employee_management/departments/${id}/`);
 export const hrGetTeamOptions       = async () => toList(await api.get('/employee_management/teams/'));
+export const hrCreateTeam = (data) => api.post('/employee_management/teams/', data);
+export const hrUpdateTeam = (id, data) => api.put(`/employee_management/teams/${id}/`, data);
+export const hrDeleteTeam = (id) => api.delete(`/employee_management/teams/${id}/`);
 
 // Attendance & Leave
 export const hrGetAttendanceRecords = async () => toList(await api.get('/attendance_leave/hr/attendance/'));

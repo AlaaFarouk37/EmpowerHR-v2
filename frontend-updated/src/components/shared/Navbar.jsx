@@ -35,7 +35,6 @@ import {
   getForms,
   getJobs,
   getMyDocuments,
-  getMyGoals,
   getMyOnboarding,
   getMyShifts,
   getMyTasks,
@@ -88,41 +87,12 @@ const SidebarIcon = ({ name, active }) => {
 const NAV_GROUPS = {
   Admin: [
     {
-      titleKey: 'nav.overview',
-      items: [
-        { path: '/admin/dashboard', labelKey: 'nav.dashboard', icon: 'Layout' },
-        { path: '/admin/analytics', labelKey: 'nav.analytics', icon: 'BarChart' },
-      ],
-    },
-    {
       titleKey: 'nav.administration',
       items: [
         { path: '/admin/users', labelKey: 'nav.users', icon: 'Users' },
         { path: '/admin/organization', labelKey: 'nav.orgConfig', icon: 'Globe' },
-        { path: '/admin/permissions', labelKey: 'nav.permissions', icon: 'Shield' },
-        { path: '/admin/data-hub', labelKey: 'nav.dataHub', icon: 'Database' },
-        { path: '/admin/broadcast', labelKey: 'nav.broadcast', icon: 'Bell' },
-        { path: '/hr/approvals', labelKey: 'nav.approvals', icon: 'ShieldCheck' },
-        { path: '/hr/payroll', labelKey: 'nav.payroll', icon: 'Activity' },
-        { path: '/hr/adjustments', labelKey: 'Commissions & Deductions', icon: 'DollarSign' },
-        { path: '/hr/benefits', labelKey: 'nav.benefits', icon: 'Shield' },
-        { path: '/hr/expenses', labelKey: 'nav.expenses', icon: 'Activity' },
-        { path: '/hr/documents', labelKey: 'nav.documents', icon: 'Copy' },
         { path: '/hr/tickets', labelKey: 'nav.supportTickets', icon: 'Activity' },
-      ],
-    },
-    {
-      titleKey: 'nav.leadership',
-      items: [
-        { path: '/leader/team', labelKey: 'nav.teamHub', icon: 'Users' },
-        { path: '/leader/recognition', labelKey: 'nav.recognition', icon: 'Bell' },
-      ],
-    },
-    {
-      titleKey: 'nav.governanceAndStability',
-      items: [
         { path: '/admin/activity-logs', labelKey: 'nav.activityLogs', icon: 'Database' },
-        { path: '/admin/intelligence', labelKey: 'nav.neuralIntelligence', icon: 'Zap' },
       ],
     },
     {
@@ -140,7 +110,6 @@ const NAV_GROUPS = {
         { path: '/hr/team', labelKey: 'nav.teamHub', icon: 'Users' },
         { path: '/hr/attendance', labelKey: 'nav.attendance', icon: 'Activity' },
         { path: '/hr/leave-management', labelKey: 'Leave Management', icon: 'Plane' },
-        { path: '/hr/shifts', labelKey: 'nav.shifts', icon: 'Activity' },
         { path: '/hr/reviews', labelKey: 'nav.reviews', icon: 'Bell' },
       ],
     },
@@ -175,46 +144,31 @@ const NAV_GROUPS = {
         { path: '/hr/tickets', labelKey: 'nav.supportTickets', icon: 'Activity' },
       ],
     },
-    {
-      titleKey: 'Miscellaneous',
-      items: [
-        { path: '/hr/dashboard', labelKey: 'nav.dashboard', icon: 'Layout' },
-        { path: '/hr/org-map', labelKey: 'nav.orgMap', icon: 'Zap' },
-        { path: '/hr/approvals', labelKey: 'nav.approvals', icon: 'ShieldCheck' },
-        { path: '/hr/planning', labelKey: 'nav.workforcePlanning', icon: 'Zap' },
-        { path: '/hr/talent-matrix', labelKey: 'nav.talentMatrix', icon: 'Layout' },
-        { path: '/hr/onboarding', labelKey: 'nav.onboarding', icon: 'Users' },
-        { path: '/hr/benefits', labelKey: 'nav.benefits', icon: 'Shield' },
-        { path: '/hr/documents', labelKey: 'nav.documents', icon: 'Copy' },
-        { path: '/hr/recognition', labelKey: 'nav.recognition', icon: 'Bell' },
-      ],
-    },
   ],
   TeamMember: [
     {
-      titleKey: 'nav.overview',
+      titleKey: 'Overview',
       items: [
         { path: '/employee/dashboard', labelKey: 'nav.dashboard', icon: 'Layout' },
-      ],
-    },
-    {
-      titleKey: 'nav.administration',
-      items: [
-        { path: '/employee/attendance', labelKey: 'nav.attendance', icon: 'Activity' },
-        { path: '/employee/leave-requests', labelKey: 'Leave Requests', icon: 'Calendar' },
         { path: '/employee/payroll', labelKey: 'nav.payroll', icon: 'Activity' },
-        { path: '/employee/expenses', labelKey: 'nav.expenses', icon: 'Activity' },
-        { path: '/employee/tickets', labelKey: 'nav.supportTickets', icon: 'Activity' },
-        { path: '/employee/feedback', labelKey: 'nav.feedback', icon: 'Bell' },
+        { path: '/employee/tasks', labelKey: 'nav.tasks', icon: 'Activity' },
+        { path: '/employee/attendance', labelKey: 'nav.attendance', icon: 'Activity' },
         { path: '/employee/sheet', labelKey: 'Employee Sheet', icon: 'Copy' },
       ],
     },
     {
-      titleKey: 'nav.growth',
+      titleKey: 'My Requests',
       items: [
-        { path: '/employee/tasks', labelKey: 'nav.tasks', icon: 'Activity' },
-        { path: '/employee/goals', labelKey: 'nav.goals', icon: 'Activity' },
-        { path: '/employee/reviews', labelKey: 'nav.reviews', icon: 'Activity' },
+        { path: '/employee/leave-requests', labelKey: 'Leave Requests', icon: 'Calendar' },
+        { path: '/employee/expenses', labelKey: 'nav.expenses', icon: 'Activity' },
+        { path: '/employee/tickets', labelKey: 'nav.supportTickets', icon: 'Activity' },
+      ],
+    },
+    {
+      titleKey: 'Feedback And Reviews',
+      items: [
+        { path: '/employee/feedback', labelKey: 'nav.feedback', icon: 'Bell' },
+        { path: '/employee/reviews', labelKey: 'Performance Reviews', icon: 'Star' },
       ],
     },
   ],
@@ -243,20 +197,6 @@ const NAV_GROUPS = {
         { path: '/leader/leave-requests', labelKey: 'Team Leave Requests', icon: 'Plane' },
         { path: '/leader/team-reviews', labelKey: 'Performance Reviews', icon: 'Star' },
         { path: '/leader/attendance-corrections', labelKey: 'Attendance Correction Requests', icon: 'Calendar' },
-      ],
-    },
-    {
-      titleKey: 'Miscellaneous',
-      items: [
-        { path: '/leader/team-calendar', labelKey: 'nav.operationsSchedule', icon: 'Calendar' },
-        { path: '/leader/team-analytics', labelKey: 'nav.performanceIntel', icon: 'BarChart' },
-        { path: '/leader/team-requests', labelKey: 'nav.strategicRequests', icon: 'FileText' },
-        { path: '/leader/team-support', labelKey: 'nav.supportRadar', icon: 'Activity' },
-        { path: '/leader/team-feedback', labelKey: 'nav.pulseSignals', icon: 'Bell' },
-        { path: '/leader/recognition', labelKey: 'nav.rewardsMerit', icon: 'Zap' },
-        { path: '/employee/profile', labelKey: 'nav.profile', icon: 'User' },
-        { path: '/leader/attendance', labelKey: 'nav.attendanceTrack', icon: 'Activity' },
-        { path: '/leader/documents', labelKey: 'nav.vault', icon: 'Copy' },
       ],
     },
   ],
@@ -643,7 +583,7 @@ function normalizePlannerItems(items, t) {
     .slice(0, 6);
 }
 
-function buildEmployeePlanner({ shifts = [], tasks = [], goals = [], training = [], onboarding = [], tickets = [], documents = [] }, t) {
+function buildEmployeePlanner({ shifts = [], tasks = [], training = [], onboarding = [], tickets = [], documents = [] }, t) {
   const items = [
     ...shifts
       .filter((shift) => ['Planned', 'Confirmed'].includes(shift?.status))
@@ -664,16 +604,6 @@ function buildEmployeePlanner({ shifts = [], tasks = [], goals = [], training = 
         date: task.dueDate || task.updatedAt,
         path: '/employee/tasks',
         tone: 'orange',
-      })),
-    ...goals
-      .filter((goal) => goal?.status !== 'Completed')
-      .map((goal) => ({
-        id: `goal-${goal.goalID}`,
-        title: goal.title,
-        subtitle: `${t('nav.goals')} • ${t(goal.status || 'In Progress')}`,
-        date: goal.dueDate || goal.updatedAt,
-        path: '/employee/goals',
-        tone: 'green',
       })),
     ...training
       .filter((course) => course?.status !== 'Completed')
@@ -720,8 +650,8 @@ function buildEmployeePlanner({ shifts = [], tasks = [], goals = [], training = 
   return normalizePlannerItems(items, t);
 }
 
-function buildLeaderPlanner({ shifts = [], tasks = [], goals = [], training = [], onboarding = [], tickets = [], documents = [], teamGoals = [], teamTasks = [] }, t) {
-  const personalItems = buildEmployeePlanner({ shifts, tasks, goals, training, onboarding, tickets, documents }, t);
+function buildLeaderPlanner({ shifts = [], tasks = [], training = [], onboarding = [], tickets = [], documents = [], teamGoals = [], teamTasks = [] }, t) {
+  const personalItems = buildEmployeePlanner({ shifts, tasks, training, onboarding, tickets, documents }, t);
   const teamItems = normalizePlannerItems([
     ...teamGoals
       .filter((goal) => goal?.status !== 'Completed')
@@ -966,10 +896,9 @@ export function Navbar({ isCollapsed, onToggle }) {
         ]);
         items = buildHrPlanner({ leaveRequests, expenses, documents, tickets }, t);
       } else if (user.role === 'TeamLeader') {
-        const [shifts, tasks, goals, training, onboarding, tickets, documents, teamGoals, teamTasks] = await Promise.all([
+        const [shifts, tasks, training, onboarding, tickets, documents, teamGoals, teamTasks] = await Promise.all([
           getMyShifts(user.employee_id),
           getMyTasks(user.employee_id),
-          getMyGoals(user.employee_id),
           getMyTraining(user.employee_id),
           getMyOnboarding(user.employee_id),
           getMyTickets(user.employee_id),
@@ -977,18 +906,17 @@ export function Navbar({ isCollapsed, onToggle }) {
           getTeamGoals(),
           getTeamTasks(),
         ]);
-        items = buildLeaderPlanner({ shifts, tasks, goals, training, onboarding, tickets, documents, teamGoals, teamTasks }, t);
+        items = buildLeaderPlanner({ shifts, tasks, training, onboarding, tickets, documents, teamGoals, teamTasks }, t);
       } else {
-        const [shifts, tasks, goals, training, onboarding, tickets, documents] = await Promise.all([
+        const [shifts, tasks, training, onboarding, tickets, documents] = await Promise.all([
           getMyShifts(user.employee_id),
           getMyTasks(user.employee_id),
-          getMyGoals(user.employee_id),
           getMyTraining(user.employee_id),
           getMyOnboarding(user.employee_id),
           getMyTickets(user.employee_id),
           getMyDocuments(user.employee_id),
         ]);
-        items = buildEmployeePlanner({ shifts, tasks, goals, training, onboarding, tickets, documents }, t);
+        items = buildEmployeePlanner({ shifts, tasks, training, onboarding, tickets, documents }, t);
       }
 
       setPlannerItems(items.map((item) => ({ ...item, path: resolvePath(item.path) })));
@@ -1364,7 +1292,10 @@ export function Navbar({ isCollapsed, onToggle }) {
           <div 
             className="app-sidebar-user-mini" 
             onClick={() => {
-              const profilePath = user.role === 'HRManager' ? '/hr/profile' : (user.role === 'Admin' ? '/admin/profile' : '/employee/profile');
+              const profilePath = user.role === 'HRManager' ? '/hr/profile'
+                : user.role === 'Admin' ? '/admin/profile'
+                : user.role === 'TeamLeader' ? '/leader/profile'
+                : '/employee/profile';
               navigate(profilePath);
             }} 
             title={isCollapsed ? user.full_name : ''}

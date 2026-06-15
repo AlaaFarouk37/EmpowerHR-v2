@@ -50,8 +50,8 @@ export default function App() {
             </Route>
 
             {/* Module Redirects */}
-            <Route path="/hr" element={<Navigate to="/hr/dashboard" replace />} />
-            <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
+            <Route path="/hr" element={<Navigate to="/hr/attendance" replace />} />
+            <Route path="/admin" element={<Navigate to="/admin/organization" replace />} />
             <Route path="/employee" element={<Navigate to="/employee/dashboard" replace />} />
             <Route path="/leader" element={<Navigate to="/leader/dashboard" replace />} />
             <Route path="/candidate" element={<Navigate to="/candidate/dashboard" replace />} />

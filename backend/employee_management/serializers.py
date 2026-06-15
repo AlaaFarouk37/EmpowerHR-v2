@@ -15,10 +15,13 @@ class DepartmentSerializer(serializers.ModelSerializer):
 
 
 class TeamSerializer(serializers.ModelSerializer):
+    leaderName = serializers.CharField(source='leader.fullName', read_only=True)
+
     class Meta:
         model = Team
-        fields = ['team_id', 'name']
+        fields = ['team_id', 'name', 'leader', 'leaderName']
         read_only_fields = ['team_id']
+        extra_kwargs = {'leader': {'required': False, 'allow_null': True}}
 
 
 class JobSerializer(serializers.ModelSerializer):
@@ -26,6 +29,12 @@ class JobSerializer(serializers.ModelSerializer):
         model = Job
         fields = ['job_id', 'title', 'level', 'base_salary', 'benchmark_salary']
         read_only_fields = ['job_id']
+        # Title-only entries (blank level) and level-only entries (blank title)
+        # are both valid catalog rows; base_salary defaults to 0 when omitted.
+        extra_kwargs = {
+            'title': {'required': False, 'allow_blank': True},
+            'base_salary': {'required': False, 'default': 0},
+        }
 
 
 class LeaveTypeSerializer(serializers.ModelSerializer):

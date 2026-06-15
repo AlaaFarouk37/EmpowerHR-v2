@@ -1,13 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getLatestAttritionPredictions, notifyTLOfAttritionRisk } from '../../api/index.js';
+import { getLatestAttritionPredictions, notifyTLOfAttritionRisk, runAttritionPrediction } from '../../api/index.js';
 import { Badge, Btn, Modal, Spinner, useToast } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { 
-  Search, 
-  Filter, 
-  Shield, 
+import {
+  Filter,
+  Shield,
   Users, 
   TrendingDown, 
   AlertCircle, 
@@ -16,7 +15,6 @@ import {
   Zap,
   Globe,
   Layers,
-  ChevronDown,
   Sparkles,
   ShieldAlert,
   SearchCode,
@@ -31,10 +29,9 @@ export function AttritionPage() {
   const navigate = useNavigate();
   const [predictions, setPredictions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeCluster, setActiveCluster] = useState('All Intelligence Clusters');
   const [selectedPrediction, setSelectedPrediction] = useState(null);
   const [notifyingId, setNotifyingId] = useState(null);
+  const [running, setRunning] = useState(false);
 
   const handleNotifyTL = async (emp) => {
     const predId = emp?.predictionID || emp?.id;
@@ -68,13 +65,26 @@ export function AttritionPage() {
 
   useEffect(() => { loadData(); }, []);
 
-  const filteredPredictions = useMemo(() => {
-    return predictions.filter(p => {
-      const matchesSearch = p.employeeName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          (p.jobTitle || p.employeeRole || '').toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesSearch;
-    });
-  }, [predictions, searchQuery]);
+  // Run the attrition model over the active form's completed submissions, then refresh.
+  const runPredictions = async () => {
+    setRunning(true);
+    try {
+      const res = await runAttritionPrediction();
+      const processed = res?.totalProcessed ?? 0;
+      const errs = res?.totalErrors ?? 0;
+      toast(
+        `Predictions run on "${res?.formTitle || 'active form'}": ${processed} employee(s) scored${errs ? `, ${errs} error(s)` : ''}.`,
+        'success',
+      );
+      await loadData();
+    } catch (e) {
+      toast(e?.data?.error || e?.response?.data?.error || e?.message || t('Failed to run predictions'), 'error');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const filteredPredictions = predictions;
 
   const riskStats = useMemo(() => {
     const lvl = (p) => p.riskLevel || p.attritionRisk;
@@ -212,13 +222,23 @@ export function AttritionPage() {
            <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>Audit predictive stability vectors, monitor risk corridors, and manage tactical retention protocols.</p>
         </div>
 
-        <Btn
-          onClick={handleGenerateReport}
-          variant="primary"
-          style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
-        >
-           <Zap size={18} style={{ marginRight: 8 }} /> {t('Report')}
-        </Btn>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <Btn
+            onClick={runPredictions}
+            disabled={running}
+            variant="primary"
+            style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
+          >
+             <Activity size={18} style={{ marginRight: 8 }} /> {running ? t('Running Predictions...') : t('Run Predictions')}
+          </Btn>
+          <Btn
+            onClick={handleGenerateReport}
+            variant="outline"
+            style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900 }}
+          >
+             <Zap size={18} style={{ marginRight: 8 }} /> {t('Report')}
+          </Btn>
+        </div>
       </div>
 
       {/* Intelligence Telemetry Strip */}
@@ -234,36 +254,6 @@ export function AttritionPage() {
             </div>
           </div>
         ))}
-      </div>
-
-      {/* Control Bar */}
-      <div style={{ background: '#fff', padding: '16px 24px', borderRadius: 24, border: '1.5px solid #F1F5F9', marginBottom: 32, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-           <div style={{ position: 'relative' }}>
-              <select 
-                value={activeCluster}
-                onChange={(e) => setActiveCluster(e.target.value)}
-                style={{ height: 44, padding: '0 40px 0 16px', borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', fontSize: 13, fontWeight: 800, color: '#1E293B', outline: 'none', appearance: 'none', minWidth: 200 }}
-              >
-                 <option value="All Intelligence Clusters">{t('All Intelligence Clusters')}</option>
-                 <option value="High Risk">{t('Critical Risk Nodes')}</option>
-                 <option value="Medium Risk">{t('Elevated Risk Nodes')}</option>
-              </select>
-              <ChevronDown size={14} style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', pointerEvents: 'none' }} />
-           </div>
-           
-           <div style={{ position: 'relative' }}>
-              <Search size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
-              <input 
-                type="text" 
-                placeholder={t('Search workforce nodes or roles...')}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{ height: 44, padding: '0 16px 0 48px', borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', fontSize: 13, fontWeight: 600, width: 320, outline: 'none' }} 
-              />
-           </div>
-        </div>
-        
       </div>
 
       {/* Neural Risk Ledger */}

@@ -11,6 +11,8 @@ from .views import (
     HRRosterHealthView, HREmployeeSnapshotView, HREmployeeRoleChangeView,
     # HR — Cross-cutting dashboards
     HRApprovalSnapshotView, HRWorkforceInsightsView,
+    # Self profile
+    EmployeeProfileView,
     # Goals
     EmployeeGoalListView, EmployeeGoalProgressView, TeamGoalListCreateView, TeamGoalDetailView,
     # Tasks
@@ -78,6 +80,7 @@ urlpatterns = [
     path('hr/insights/', HRWorkforceInsightsView.as_view(), name='hr-workforce-insights'),
 
     # ─── Goals ───────────────────────────────────────────────────────────────
+    path('employee/profile/', EmployeeProfileView.as_view(), name='employee-profile'),
     path('employee/goals/', EmployeeGoalListView.as_view(), name='employee-goal-list'),
     path('employee/goals/<str:goal_id>/progress/', EmployeeGoalProgressView.as_view(), name='employee-goal-progress'),
     path('team/goals/', TeamGoalListCreateView.as_view(), name='team-goal-list-create'),

@@ -91,20 +91,6 @@ def _recalc_if_changed(payroll):
     return changed
 
 
-def _auto_recalc_after_adjustment(employee, pay_period):
-    """After a commission/deduction changes, refresh the matching payslip so it
-    reflects the new total. Skips paid records (frozen) and manually-edited ones
-    (HR recalculates those explicitly so deliberate overrides aren't clobbered)."""
-    record = (
-        PayrollRecord.objects
-        .filter(employee=employee, payPeriod=pay_period)
-        .exclude(status=PayrollRecord.STATUS_PAID)
-        .first()
-    )
-    if record and not record.editedAt:
-        _recalc_payroll_record(record)
-
-
 class PayrollRecordListCreateView(generics.ListCreateAPIView):
     serializer_class = PayrollRecordSerializer
     permission_classes = [IsHRManager | IsAdmin]
@@ -356,8 +342,10 @@ class HRPayrollEditView(APIView):
     the resulting components and the edit is stamped with who/when/why."""
     permission_classes = [IsAuthenticated, IsHRManager | IsAdmin]
 
+    # Base salary (proratedBaseSalary) is deliberately excluded — it derives from
+    # the employee profile and must not be hand-edited here.
     EDITABLE_FIELDS = (
-        'proratedBaseSalary', 'commissions', 'unpaidLeaveDeduction',
+        'commissions', 'unpaidLeaveDeduction',
         'deductions', 'expenseReimbursements', 'overtimePay', 'notes',
     )
 
@@ -577,7 +565,7 @@ class HRCommissionListCreateView(APIView):
             description=serializer.validated_data.get('description', ''),
             createdBy=getattr(request.user, 'full_name', '') or request.user.email,
         )
-        _auto_recalc_after_adjustment(employee, commission.payPeriod)
+        # Draft payslip recompute is handled automatically by payroll signals.
         return Response(CommissionSerializer(commission).data, status=status.HTTP_201_CREATED)
 
 
@@ -589,9 +577,7 @@ class HRCommissionDetailView(APIView):
             commission = Commission.objects.get(pk=commission_id)
         except Commission.DoesNotExist:
             return Response({'error': 'Commission not found.'}, status=status.HTTP_404_NOT_FOUND)
-        employee, pay_period = commission.employee, commission.payPeriod
-        commission.delete()
-        _auto_recalc_after_adjustment(employee, pay_period)
+        commission.delete()  # payroll signals recompute the affected draft payslip
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -631,7 +617,7 @@ class HRDeductionListCreateView(APIView):
             description=serializer.validated_data.get('description', ''),
             createdBy=getattr(request.user, 'full_name', '') or request.user.email,
         )
-        _auto_recalc_after_adjustment(employee, deduction.payPeriod)
+        # Draft payslip recompute is handled automatically by payroll signals.
         return Response(DeductionSerializer(deduction).data, status=status.HTTP_201_CREATED)
 
 
@@ -643,7 +629,5 @@ class HRDeductionDetailView(APIView):
             deduction = Deduction.objects.get(pk=deduction_id)
         except Deduction.DoesNotExist:
             return Response({'error': 'Deduction not found.'}, status=status.HTTP_404_NOT_FOUND)
-        employee, pay_period = deduction.employee, deduction.payPeriod
-        deduction.delete()
-        _auto_recalc_after_adjustment(employee, pay_period)
+        deduction.delete()  # payroll signals recompute the affected draft payslip
         return Response(status=status.HTTP_204_NO_CONTENT)

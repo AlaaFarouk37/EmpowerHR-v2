@@ -57,13 +57,17 @@ class AttendanceRecord(models.Model):
 class LeaveRequest(models.Model):
     TYPE_ANNUAL = 'Annual'
     TYPE_SICK = 'Sick'
-    TYPE_UNPAID = 'Unpaid'
-    TYPE_CASUAL = 'Casual'
+    TYPE_CASUAL = 'Casual'      # the unpaid leave: draws from Annual, no pay
+    TYPE_MATERNITY = 'Maternity'
+    TYPE_PATERNITY = 'Paternity'
+    TYPE_HAJJ = 'Hajj'
     LEAVE_TYPES = [
         (TYPE_ANNUAL, 'Annual'),
         (TYPE_SICK, 'Sick'),
-        (TYPE_UNPAID, 'Unpaid'),
         (TYPE_CASUAL, 'Casual'),
+        (TYPE_MATERNITY, 'Maternity'),
+        (TYPE_PATERNITY, 'Paternity'),
+        (TYPE_HAJJ, 'Hajj'),
     ]
 
     STATUS_PENDING = 'Pending'

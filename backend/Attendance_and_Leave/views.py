@@ -815,6 +815,11 @@ class EmployeeLeaveRequestListCreateView(APIView):
             return Response({'error': f"Leave type '{leave_type}' is not configured."},
                             status=status.HTTP_400_BAD_REQUEST)
 
+        # Gender restriction (Maternity/Paternity) and once-per-employment (Hajj).
+        eligible, eligibility_error = leave_services.check_eligibility(employee, leave_type_obj)
+        if not eligible:
+            return Response({'error': eligibility_error}, status=status.HTTP_400_BAD_REQUEST)
+
         overlap_exists = LeaveRequest.objects.filter(
             employee=employee,
             status__in=[LeaveRequest.STATUS_PENDING, LeaveRequest.STATUS_APPROVED],
@@ -853,10 +858,46 @@ class EmployeeLeaveRequestListCreateView(APIView):
 
 def _ensure_balances(employee, year):
     """Auto-create the employee's balances for the year: annual (computed
-    entitlement) plus every configured LeaveType."""
+    entitlement) plus every configured LeaveType the employee can hold a balance
+    for (skips Casual, which draws from Annual, gender-ineligible types, and
+    once-used Hajj)."""
     leave_services.get_or_create_balance(employee, LeaveRequest.TYPE_ANNUAL, year)
     for leave_type in LeaveType.objects.all():
-        leave_services.get_or_create_balance(employee, leave_type.name, year)
+        if leave_services.should_have_balance(employee, leave_type):
+            leave_services.get_or_create_balance(employee, leave_type.name, year)
+
+
+def _balances_payload(employee, year):
+    """Serialized balances for one employee + year, plus synthetic read-only rows
+    for the types that draw from Annual (e.g. Casual): these stay selectable as
+    leave types and report the shared Annual balance, but aren't stored separately."""
+    _ensure_balances(employee, year)
+    balances = list(LeaveBalance.objects.filter(employee=employee, year=year))
+    data = LeaveBalanceSerializer(balances, many=True).data
+
+    annual_data = next(
+        (d for d in data if d['leaveTypeName'] == LeaveRequest.TYPE_ANNUAL), None)
+    if annual_data is not None:
+        # No-shows (no clock-in, no approved leave) are unpaid and also consumed
+        # from the Annual pool, so they reduce the Annual + Casual remaining shown.
+        no_show = leave_services.annual_extra_consumed(employee, year)
+        annual_data['noShowDays'] = no_show
+        if annual_data['entitledDays'] is not None:
+            annual_data['remainingDays'] = (
+                annual_data['entitledDays'] - annual_data['usedDays'] - no_show)
+        for lt in LeaveType.objects.filter(deducts_from_annual=True):
+            gender = (lt.restricted_to_gender or '').strip()
+            if gender and (employee.gender or '') != gender:
+                continue
+            synthetic = dict(annual_data)
+            synthetic.update({
+                'balanceID': f'annual-{lt.name.lower()}-{year}',
+                'leaveTypeName': lt.name,
+                'leaveType': lt.leave_type_id,
+                'drawsFromAnnual': True,
+            })
+            data.append(synthetic)
+    return data
 
 
 class EmployeeLeaveBalanceView(APIView):
@@ -872,9 +913,7 @@ class EmployeeLeaveBalanceView(APIView):
             return Response({'error': 'Employee not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         year = int(request.query_params.get('year') or timezone.localdate().year)
-        _ensure_balances(employee, year)
-        balances = LeaveBalance.objects.filter(employee=employee, year=year)
-        return Response(LeaveBalanceSerializer(balances, many=True).data)
+        return Response(_balances_payload(employee, year))
 
 
 class HRLeaveBalanceView(APIView):
@@ -889,11 +928,10 @@ class HRLeaveBalanceView(APIView):
             employee = Employee.objects.filter(pk=employee_id, isDeleted=False).first()
             if not employee:
                 return Response({'error': 'Employee not found.'}, status=status.HTTP_404_NOT_FOUND)
-            _ensure_balances(employee, year)
-            balances = LeaveBalance.objects.filter(employee=employee, year=year)
-        else:
-            balances = LeaveBalance.objects.select_related('employee').filter(
-                year=year, employee__isDeleted=False)
+            return Response(_balances_payload(employee, year))
+
+        balances = LeaveBalance.objects.select_related('employee').filter(
+            year=year, employee__isDeleted=False)
         return Response(LeaveBalanceSerializer(balances, many=True).data)
 
 

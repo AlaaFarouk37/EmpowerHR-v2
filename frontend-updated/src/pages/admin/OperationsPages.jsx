@@ -372,7 +372,8 @@ export function AdminDocumentsPage() {
 }
 
 export function AdminTicketsPage() {
-  return <AdminOwnedShell titleKey="nav.supportTickets" subtitleKey="System Activity" variant="services"><AdminTicketsManagementPage /></AdminOwnedShell>;
+  // No AdminOwnedShell chrome here — page starts directly at the ticket status cards + table.
+  return <div className="page-content animate-in"><AdminTicketsManagementPage /></div>;
 }
 
 export function AdminTrainingPage() {

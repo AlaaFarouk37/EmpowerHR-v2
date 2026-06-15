@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   hrGetForms,
@@ -14,20 +14,10 @@ import {
 import { Spinner, Badge, Btn, useToast, Input, Modal, Textarea } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { 
-  Search, 
-  Filter, 
-  Plus, 
-  Eye, 
-  MessageSquare, 
-  Activity, 
-  BarChart3, 
-  Smile,
-  ChevronRight,
+import {
+  Plus,
+  MessageSquare,
   Zap,
-  Globe,
-  Layers,
-  ChevronDown,
   Sparkles,
   SearchCode,
   MoreVertical,
@@ -45,8 +35,6 @@ export function HRFormsPage() {
   
   const [forms, setForms] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('All Intelligence Forms');
 
   const [selectedForm, setSelectedForm] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -204,23 +192,6 @@ export function HRFormsPage() {
     }
   };
 
-  const filteredForms = useMemo(() => {
-    return forms.filter(f => {
-      const matchesSearch = f.title?.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesSearch;
-    });
-  }, [forms, searchQuery]);
-
-  const formStats = useMemo(() => {
-    const totalSubs = forms.reduce((acc, f) => acc + (f.submissionCount || 0), 0);
-    return [
-      { label: 'Active Intelligence Nodes', value: forms.filter(f => f.isActive).length, icon: MessageSquare, color: '#1E293B', bg: '#F8FAFC' },
-      { label: 'Total Data Payloads', value: totalSubs, icon: BarChart3, color: 'var(--red-600)', bg: 'var(--red-50)' },
-      { label: 'Network Participation', value: '74.2%', icon: Activity, color: 'var(--red-800)', bg: 'var(--red-50)' },
-      { label: 'Global Sentiment Index', value: '4.2/5', icon: Smile, color: '#10B981', bg: '#ECFDF5' },
-    ];
-  }, [forms]);
-
   if (loading) return (
     <div style={{ height: '80vh', display: 'grid', placeItems: 'center' }}>
        <div style={{ textAlign: 'center' }}>
@@ -253,59 +224,6 @@ export function HRFormsPage() {
         </Btn>
       </div>
 
-      {/* Intelligence Telemetry Strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, marginBottom: 48 }}>
-        {formStats.map(s => (
-          <div key={s.label} style={{ padding: '24px', borderRadius: 28, background: '#fff', border: '1.5px solid #F1F5F9', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 20 }}>
-            <div style={{ width: 48, height: 48, borderRadius: 14, background: s.bg, color: s.color, display: 'grid', placeItems: 'center' }}>
-              <s.icon size={22} />
-            </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t(s.label)}</div>
-              <div style={{ fontSize: 24, fontWeight: 900, color: '#1E293B' }}>{s.value}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Control Bar */}
-      <div style={{ background: '#fff', padding: '16px 24px', borderRadius: 24, border: '1.5px solid #F1F5F9', marginBottom: 32, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-           <div style={{ position: 'relative' }}>
-              <select 
-                value={activeTab}
-                onChange={(e) => setActiveTab(e.target.value)}
-                style={{ height: 44, padding: '0 40px 0 16px', borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', fontSize: 13, fontWeight: 800, color: '#1E293B', outline: 'none', appearance: 'none', minWidth: 200 }}
-              >
-                 <option value="All Intelligence Forms">{t('All Intelligence Forms')}</option>
-                 <option value="Performance">{t('Performance Nodes')}</option>
-                 <option value="Sentiment">{t('Sentiment Analysis')}</option>
-              </select>
-              <ChevronDown size={14} style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', pointerEvents: 'none' }} />
-           </div>
-           
-           <div style={{ position: 'relative' }}>
-              <Search size={18} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
-              <input 
-                type="text" 
-                placeholder={t('Search feedback nodes...')}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{ height: 44, padding: '0 16px 0 48px', borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', fontSize: 13, fontWeight: 600, width: 320, outline: 'none' }} 
-              />
-           </div>
-        </div>
-        
-        <div style={{ display: 'flex', gap: 12 }}>
-           <Btn variant="secondary" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
-              <Filter size={16} style={{ marginRight: 8 }} /> {t('Neural Filters')}
-           </Btn>
-           <Btn variant="outline" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
-              <BarChart3 size={16} style={{ marginRight: 8 }} /> {t('Global Analytics')}
-           </Btn>
-        </div>
-      </div>
-
       {/* Split layout: forms list (left) + selected form's questions (right) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 480px', gap: 24, alignItems: 'flex-start' }}>
         {/* Left pane: Neural Feedback Ledger */}
@@ -319,7 +237,7 @@ export function HRFormsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredForms.map((form, idx) => {
+              {forms.map((form, idx) => {
                 const isActive = form.isActive;
                 const isSelected = selectedForm?.formID === form.formID;
 

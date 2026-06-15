@@ -67,3 +67,13 @@ def count_deductible_days(employee, start, end):
         1 for status in resolve_workday_statuses(employee, start, end).values()
         if status in DEDUCTIBLE_STATUSES
     )
+
+
+def count_no_show_days(employee, start, end):
+    """True no-shows only (no clock-in, no approved leave). These are unpaid AND
+    burn the employee's Annual balance — an unsubmitted absence is treated like an
+    involuntary casual day."""
+    return sum(
+        1 for status in resolve_workday_statuses(employee, start, end).values()
+        if status == UNPAID_ABSENCE
+    )

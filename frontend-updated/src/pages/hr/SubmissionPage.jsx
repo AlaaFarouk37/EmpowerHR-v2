@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hrGetSubmissions, hrGetForms } from '../../api/index.js';
+import { hrGetSubmissions } from '../../api/index.js';
 import { Spinner, Badge, Btn, useToast, Input } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -32,7 +32,6 @@ export function HRSubmissionPage() {
   const navigate = useNavigate();
   
   const [submissions, setSubmissions] = useState([]);
-  const [forms, setForms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeSentiment, setActiveSentiment] = useState('All Sentiments');
@@ -40,50 +39,58 @@ export function HRSubmissionPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const formsData = await hrGetForms();
-      const firstFormId = formsData?.[0]?.formID;
-      if (firstFormId) {
-        const subsData = await hrGetSubmissions(firstFormId);
-        setSubmissions(Array.isArray(subsData) ? subsData : []);
-      }
-      setForms(formsData || []);
+      const subsData = await hrGetSubmissions(); // all submissions, every form
+      setSubmissions(Array.isArray(subsData) ? subsData : []);
     } catch { toast('Failed to load submissions', 'error'); }
     finally { setLoading(false); }
   };
 
   useEffect(() => { loadData(); }, []);
 
-  const getSentimentScore = (sub, idx) => {
-    // Deterministic pseudo-random sentiment for demo based on index
-    const pseudoScore = ((idx * 7) % 5) + 1;
-    return pseudoScore;
+  // Real sentiment from a submission's answers, on a 1-4 scale (yes/no maps to 4/1).
+  // Returns null when there's nothing scoreable.
+  const getSentimentScore = (sub) => {
+    const answers = Array.isArray(sub?.answers) ? sub.answers : [];
+    const values = [];
+    for (const a of answers) {
+      if (a.scoreValue !== null && a.scoreValue !== undefined) values.push(Number(a.scoreValue));
+      else if (a.booleanValue !== null && a.booleanValue !== undefined) values.push(a.booleanValue ? 4 : 1);
+    }
+    if (!values.length) return null;
+    return values.reduce((sum, v) => sum + v, 0) / values.length;
+  };
+
+  const sentimentLabel = (score) =>
+    score === null ? 'Neutral' : score >= 3 ? 'Positive' : score >= 2 ? 'Neutral' : 'Negative';
+
+  const getSentimentColor = (score) => {
+    if (score === null) return '#94A3B8';
+    if (score >= 3) return 'var(--red-600)';
+    if (score >= 2) return '#F59E0B';
+    return 'var(--pink-600)';
   };
 
   const filteredSubmissions = useMemo(() => {
-    return submissions.filter((sub, idx) => {
+    return submissions.filter((sub) => {
       const matchesSearch = sub.employeeName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                             sub.employeeID?.toString().includes(searchQuery);
-      
-      const score = getSentimentScore(sub, idx);
-      const sentimentLabel = score >= 3.5 ? 'Positive' : score >= 2.5 ? 'Neutral' : 'Negative';
-      const matchesSentiment = activeSentiment === 'All Sentiments' || sentimentLabel === activeSentiment;
-      
+      const matchesSentiment = activeSentiment === 'All Sentiments'
+        || sentimentLabel(getSentimentScore(sub)) === activeSentiment;
       return matchesSearch && matchesSentiment;
     });
   }, [submissions, searchQuery, activeSentiment]);
 
-  const getSentimentColor = (score) => {
-    if (score >= 3.5) return 'var(--red-600)';
-    if (score >= 2.5) return '#F59E0B';
-    return 'var(--pink-600)';
-  };
-
   const submissionStats = useMemo(() => {
+    const total = submissions.length;
+    const completed = submissions.filter((s) => s.status === 'Completed').length;
+    const pending = Math.max(total - completed, 0);
+    const scores = submissions.map(getSentimentScore).filter((v) => v !== null);
+    const avg = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
     return [
-      { label: 'Total Payloads', value: submissions.length || 0, icon: MessageSquare, color: '#1E293B', bg: '#F8FAFC' },
-      { label: 'Global Sentiment', value: '4.2/5', icon: Smile, color: 'var(--red-600)', bg: 'var(--red-50)' },
-      { label: 'Critical Feedback', value: '14', icon: AlertCircle, color: 'var(--pink-600)', bg: 'var(--pink-50)' },
-      { label: 'Resolved Vectors', value: '840', icon: CheckCircle, color: '#10B981', bg: '#ECFDF5' },
+      { label: 'Total Submissions', value: total, icon: MessageSquare, color: '#1E293B', bg: '#F8FAFC' },
+      { label: 'Avg Sentiment', value: avg ? `${avg.toFixed(1)}/4` : '—', icon: Smile, color: 'var(--red-600)', bg: 'var(--red-50)' },
+      { label: 'Completed', value: completed, icon: CheckCircle, color: '#10B981', bg: '#ECFDF5' },
+      { label: 'Pending', value: pending, icon: AlertCircle, color: 'var(--pink-600)', bg: 'var(--pink-50)' },
     ];
   }, [submissions]);
 
@@ -110,9 +117,9 @@ export function HRSubmissionPage() {
            <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>Audit raw form payloads, map organizational sentiment vectors, and resolve critical feedback.</p>
         </div>
 
-        <Btn 
+        <Btn
           onClick={() => toast(t('Initializing Intelligence Export...'), 'info')}
-          variant="primary" 
+          variant="primary"
           style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
         >
            <Zap size={18} style={{ marginRight: 8 }} /> {t('Export Payloads')}
@@ -185,12 +192,14 @@ export function HRSubmissionPage() {
           </thead>
           <tbody>
             {filteredSubmissions.map((sub, idx) => {
-              const score = getSentimentScore(sub, idx);
-              const isNegative = score < 2.5;
-              const isPositive = score >= 3.5;
-              
+              const score = getSentimentScore(sub);
+              const label = sentimentLabel(score);
+              const isNegative = label === 'Negative';
+              const isPositive = label === 'Positive';
+              const barPct = score === null ? 0 : (score / 4) * 100;
+
               return (
-                <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9', transition: 'background 0.2s', background: isNegative ? 'rgba(219, 39, 119, 0.02)' : 'transparent' }} className="sub-row">
+                <tr key={sub.submissionID || idx} style={{ borderBottom: '1px solid #F1F5F9', transition: 'background 0.2s', background: isNegative ? 'rgba(219, 39, 119, 0.02)' : 'transparent' }} className="sub-row">
                   <td style={{ padding: '24px 32px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <div style={{ 
@@ -207,22 +216,23 @@ export function HRSubmissionPage() {
                     </div>
                   </td>
                   <td style={{ padding: '24px 32px' }}>
-                     <div style={{ fontSize: 14, fontWeight: 900, color: '#1E293B' }}>Performance Calibration</div>
-                     <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 800 }}>STRATEGIC FORM</div>
+                     <div style={{ fontSize: 14, fontWeight: 900, color: '#1E293B' }}>{sub.formTitle || '—'}</div>
+                     <Badge label={sub.status} color={sub.status === 'Completed' ? 'green' : 'gray'} />
                   </td>
                   <td style={{ padding: '24px 32px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#475569', fontWeight: 700 }}>
                        <Calendar size={14} style={{ color: 'var(--red-600)' }} />
-                       {sub.submittedAt ? new Date(sub.submittedAt).toLocaleDateString() : '2025-03-12'}
+                       {sub.submittedAt ? new Date(sub.submittedAt).toLocaleDateString() : '—'}
                     </div>
                   </td>
                   <td style={{ padding: '24px 32px', minWidth: 200 }}>
                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                         <div style={{ flex: 1, height: 8, background: '#F1F5F9', borderRadius: 4, overflow: 'hidden' }}>
-                           <div style={{ width: `${(score / 5) * 100}%`, height: '100%', background: getSentimentColor(score), borderRadius: 4 }} />
+                           <div style={{ width: `${barPct}%`, height: '100%', background: getSentimentColor(score), borderRadius: 4 }} />
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 44, color: getSentimentColor(score) }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: getSentimentColor(score), fontWeight: 800, fontSize: 12 }}>
                            {isPositive ? <Smile size={16} /> : isNegative ? <Frown size={16} /> : <Meh size={16} />}
+                           {score === null ? '—' : `${score.toFixed(1)}/4`}
                         </div>
                      </div>
                   </td>

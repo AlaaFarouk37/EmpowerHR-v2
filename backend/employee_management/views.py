@@ -3908,3 +3908,21 @@ class AdminTicketStatusView(APIView):
         return Response(SupportTicketDetailSerializer(ticket).data)
 
 
+
+
+class EmployeeProfileView(APIView):
+    """GET /employee_management/employee/profile/ — the requesting user's own
+    employee record (read-only). Available to any internal employee, so the
+    profile pages can show real data without HR-level permissions."""
+    permission_classes = [IsAuthenticated, IsInternalEmployee]
+
+    def get(self, request):
+        employee_id = getattr(request.user, 'employee_id', None)
+        if not employee_id:
+            return Response({'error': 'No employee linked to this account.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        employee = Employee.objects.filter(employeeID=employee_id, isDeleted=False).first()
+        if not employee:
+            return Response({'error': 'Employee record not found.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        return Response(EmployeeSerializer(employee).data)

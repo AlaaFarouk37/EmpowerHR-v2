@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { getMyLeaveRequests, submitLeaveRequest, getMyLeaveBalances } from '../../api/index.js';
+import { getMyLeaveRequests, submitLeaveRequest, getMyLeaveBalances, getPublicHolidays } from '../../api/index.js';
 import { Badge, Btn, Modal, Input, Textarea, useToast, Spinner } from '../../components/shared/index.jsx';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -23,6 +23,7 @@ export function EmployeeLeaveManagementPage() {
 
   const [leaves, setLeaves] = useState([]);
   const [balanceRows, setBalanceRows] = useState([]);
+  const [holidays, setHolidays] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -53,6 +54,29 @@ export function EmployeeLeaveManagementPage() {
   };
 
   useEffect(() => { loadData(); }, [employeeID]);
+
+  // Public holidays for this year + next, so there's always something upcoming.
+  useEffect(() => {
+    const year = new Date().getFullYear();
+    Promise.all([getPublicHolidays(year), getPublicHolidays(year + 1)])
+      .then(([a, b]) => setHolidays([...(a || []), ...(b || [])]))
+      .catch(() => setHolidays([]));
+  }, []);
+
+  // Only holidays dated after today, soonest first.
+  const upcomingHolidays = useMemo(() => {
+    const now = new Date();
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    return holidays
+      .filter((h) => h.date > todayKey)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(0, 6);
+  }, [holidays]);
+
+  const formatHolidayDate = (s) => {
+    const [y, m, d] = String(s).split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
 
   const PALETTE = ['#DC2626', '#EA580C', '#2563EB', '#7C3AED', '#0891B2'];
 
@@ -213,29 +237,19 @@ export function EmployeeLeaveManagementPage() {
                 <h3 style={{ fontSize: 16, fontWeight: 900, color: '#1E293B', margin: 0 }}>Upcoming Holidays</h3>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {[
-                  { name: 'Eid Al-Fitr', date: '31 Mar', days: 3 },
-                  { name: 'Sham El-Nessim', date: '20 Apr', days: 1 },
-                  { name: 'Labour Day', date: '01 May', days: 1 },
-                ].map(h => (
-                  <div key={h.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', borderRadius: 16, background: '#F8FAFC', border: '1px solid #F1F5F9' }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 900, color: '#1E293B' }}>{h.name}</div>
-                      <div style={{ fontSize: 12, color: '#94A3B8', fontWeight: 700 }}>{h.date} 2026</div>
-                    </div>
-                    <div style={{ fontSize: 12, fontWeight: 800, color: '#DC2626', background: '#FEF2F2', padding: '4px 8px', borderRadius: 8 }}>
-                      {h.days}d
+                {upcomingHolidays.length > 0 ? upcomingHolidays.map(h => (
+                  <div key={h.date} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '16px', borderRadius: 16, background: '#F8FAFC', border: '1px solid #F1F5F9' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 900, color: '#1E293B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</div>
+                      <div style={{ fontSize: 12, color: '#94A3B8', fontWeight: 700 }}>{formatHolidayDate(h.date)}</div>
                     </div>
                   </div>
-                ))}
+                )) : (
+                  <div style={{ textAlign: 'center', padding: '24px 0', fontSize: 13, fontWeight: 700, color: '#94A3B8' }}>
+                    No upcoming holidays.
+                  </div>
+                )}
               </div>
-            </div>
-
-            <div className="glass-card-employee" style={{ padding: '32px', background: '#DC2626', color: '#fff' }}>
-               <h3 style={{ fontSize: 16, fontWeight: 900, margin: '0 0 12px 0' }}>Policy Update</h3>
-               <p style={{ fontSize: 13, fontWeight: 600, opacity: 0.9, lineHeight: 1.6 }}>
-                 Starting next month, all leave requests must be submitted at least 72 hours before the start date.
-               </p>
             </div>
           </div>
         </div>

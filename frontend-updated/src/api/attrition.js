@@ -4,6 +4,11 @@ import { api, toList } from './base';
  * Workforce Command Center - Attrition & Calibration APIs
  */
 
+// Run the attrition model over the active form's completed submissions (HR Manager).
+// Omit formId to use the latest active form.
+export const runAttritionPrediction = (formId) =>
+  api.post('/attrition/run/', formId ? { form_id: formId } : {});
+
 export const getLatestAttritionPredictions = async () =>
   toList(await api.get('/attrition/predictions/latest/'));
 

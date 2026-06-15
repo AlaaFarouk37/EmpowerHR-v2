@@ -54,6 +54,11 @@ class Department(models.Model):
 class Team(models.Model):
     team_id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=100)
+    leader = models.ForeignKey(
+        'Employee', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='led_teams',
+        help_text="The team's leader (an employee with the TeamLeader role).",
+    )
 
     def __str__(self):
         return self.name
@@ -269,6 +274,16 @@ class LeaveType(models.Model):
     is_paid = models.BooleanField(default=True,
         help_text="Paid leave is capped (by entitlement / max days); unpaid leave "
                   "is uncapped and drives the unpaid-salary deduction.")
+    restricted_to_gender = models.CharField(max_length=10, blank=True,
+        choices=[('Male', 'Male'), ('Female', 'Female')],
+        help_text="If set, only employees of this gender may take the leave "
+                  "(e.g. Maternity -> Female, Paternity -> Male). Blank = anyone.")
+    deducts_from_annual = models.BooleanField(default=False,
+        help_text="When true, requests draw down the employee's Annual balance "
+                  "instead of having a separate balance (e.g. Casual leave).")
+    once_per_employment = models.BooleanField(default=False,
+        help_text="When true, the leave may be taken only once during the "
+                  "employee's time at the company (e.g. Hajj).")
 
     def __str__(self):
         return self.name

@@ -49,7 +49,6 @@ import { EmployeeReviewsPage } from "../pages/employee/ReviewsPage";
 import { EmployeeCareerPathPage } from "../pages/employee/CareerPathPage";
 import { EmployeeOnboardingPage } from "../pages/employee/OnboardingPage";
 import { EmployeeShiftsPage } from "../pages/employee/ShiftsPage";
-import { EmployeeGoalsPage } from "../pages/employee/GoalsPage";
 import { EmployeeTasksPage } from "../pages/employee/TasksPage";
 import { EmployeeTrainingPage } from "../pages/employee/TrainingPage";
 import { EmployeePoliciesPage } from "../pages/employee/PoliciesPage";
@@ -77,7 +76,7 @@ import { LeaderTeamHubPage } from "../pages/leader/TeamHubPage";
 import { LeaderOvertimeReviewsPage } from "../pages/leader/OvertimeReviewsPage";
 import { 
   LeaderAttendancePage, LeaderBenefitsPage, LeaderCareerPathPage, LeaderDocumentsPage, 
-  LeaderExpensesPage, LeaderFeedbackPage, LeaderGoalsPage, LeaderMyRecognitionPage, 
+  LeaderExpensesPage, LeaderFeedbackPage, LeaderMyRecognitionPage,
   LeaderOnboardingPage, LeaderPayrollPage, LeaderProfilePage, LeaderReviewsPage, 
   LeaderShiftsPage, LeaderTasksPage, LeaderTicketsPage, LeaderTrainingPage, LeaderPoliciesPage 
 } from "../pages/leader/WorkspacePages";
@@ -134,7 +133,6 @@ export const PROTECTED_ROUTES = [
   { path: "/employee/career-path", element: <EmployeeCareerPathPage />, roles: ["TeamMember"], permission: "employee.workspace.access" },
   { path: "/employee/onboarding", element: <EmployeeOnboardingPage />, roles: ["TeamMember"], permission: "employee.workspace.access" },
   { path: "/employee/shifts", element: <EmployeeShiftsPage />, roles: ["TeamMember"], permission: "employee.workspace.access" },
-  { path: "/employee/goals", element: <EmployeeGoalsPage />, roles: ["TeamMember"], permission: "employee.workspace.access" },
   { path: "/employee/tasks", element: <EmployeeTasksPage />, roles: ["TeamMember"], permission: "employee.workspace.access" },
   { path: "/employee/training", element: <EmployeeTrainingPage />, roles: ["TeamMember"], permission: "employee.workspace.access" },
   { path: "/employee/policies", element: <EmployeePoliciesPage />, roles: ["TeamMember"], permission: "employee.workspace.access" },
@@ -155,7 +153,6 @@ export const PROTECTED_ROUTES = [
   { path: "/leader/career-path", element: <LeaderCareerPathPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
   { path: "/leader/onboarding", element: <LeaderOnboardingPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
   { path: "/leader/shifts", element: <LeaderShiftsPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
-  { path: "/leader/goals", element: <LeaderGoalsPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
   { path: "/leader/tasks", element: <LeaderTasksPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
   { path: "/leader/training", element: <LeaderTrainingPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },
   { path: "/leader/policies", element: <LeaderPoliciesPage />, roles: ["TeamLeader"], permission: "employee.workspace.access" },

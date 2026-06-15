@@ -139,13 +139,12 @@ class BalanceServiceTests(TestCase):
         self.assertEqual(bal.entitledDays, 21)
         self.assertEqual(bal.usedDays, 0)
 
-    def test_unpaid_is_uncapped(self):
-        bal = ls.get_or_create_balance(self.emp, 'Unpaid', 2026)
-        self.assertIsNone(bal.entitledDays)
-
-    def test_other_type_uses_leavetype_max(self):
-        bal = ls.get_or_create_balance(self.emp, 'Casual', 2026)
-        self.assertEqual(bal.entitledDays, 7)
+    def test_casual_is_unpaid_and_draws_from_annual(self):
+        casual = LeaveType.objects.get(name='Casual')
+        self.assertFalse(casual.is_paid)
+        self.assertTrue(casual.deducts_from_annual)
+        # Casual has no balance of its own — it is checked against Annual.
+        self.assertEqual(ls.effective_balance_name('Casual'), 'Annual')
 
     def test_custom_unpaid_type_is_uncapped(self):
         # Any admin-created type flagged is_paid=False is uncapped, not just 'Unpaid'.
@@ -165,15 +164,16 @@ class BalanceServiceTests(TestCase):
         self.assertFalse(exceeded)
 
     def test_evaluate_flags_cap_exceeded(self):
-        # Casual cap 7; Mar 8..19 = 10 working days.
+        # A capped paid type (cap 5); Mar 8..19 = 10 working days exceeds it.
+        LeaveType.objects.create(name='Study', max_days_per_year=5, is_paid=True)
         days, _bal, exceeded, _msg = ls.evaluate_request(
-            self.emp, 'Casual', date(2026, 3, 8), date(2026, 3, 19))
+            self.emp, 'Study', date(2026, 3, 8), date(2026, 3, 19))
         self.assertEqual(days, 10)
         self.assertTrue(exceeded)
 
-    def test_unpaid_never_exceeds(self):
+    def test_unknown_type_never_exceeds(self):
         _days, _bal, exceeded, _msg = ls.evaluate_request(
-            self.emp, 'Unpaid', date(2026, 3, 8), date(2026, 3, 31))
+            self.emp, 'Sabbatical', date(2026, 3, 8), date(2026, 3, 31))
         self.assertFalse(exceeded)
 
     def test_deduct_balance_increments_used(self):
@@ -183,10 +183,11 @@ class BalanceServiceTests(TestCase):
         self.assertEqual(bal.usedDays, 8)
 
     def test_can_fit_respects_cap(self):
-        ls.deduct_balance(self.emp, 'Casual', 5, 2026)
-        fits, _ = ls.can_fit(self.emp, 'Casual', 2, 2026)
+        LeaveType.objects.create(name='Study', max_days_per_year=7, is_paid=True)
+        ls.deduct_balance(self.emp, 'Study', 5, 2026)
+        fits, _ = ls.can_fit(self.emp, 'Study', 2, 2026)
         self.assertTrue(fits)
-        fits, _ = ls.can_fit(self.emp, 'Casual', 3, 2026)
+        fits, _ = ls.can_fit(self.emp, 'Study', 3, 2026)
         self.assertFalse(fits)
 
 
@@ -238,8 +239,10 @@ class LeaveRequestApiTests(TestCase):
         self.assertEqual(res.status_code, 400)
 
     def test_create_blocks_when_cap_exceeded(self):
-        # Casual cap 7; 10 working days requested.
-        res = self._create_request(self.member, 'Casual', date(2026, 3, 8), date(2026, 3, 19))
+        # Paternity cap is 1 day; 2 working days requested exceeds it.
+        self.member.employee.gender = 'Male'
+        self.member.employee.save(update_fields=['gender'])
+        res = self._create_request(self.member, 'Paternity', date(2026, 3, 8), date(2026, 3, 9))
         self.assertEqual(res.status_code, 400)
 
     def test_leader_approves_team_member_and_deducts(self):
@@ -305,7 +308,9 @@ class LeaveRequestApiTests(TestCase):
         res = self.client.get(reverse('employee-leave-balances'), {'year': 2026})
         self.assertEqual(res.status_code, 200)
         names = {row['leaveTypeName'] for row in res.data}
-        self.assertTrue({'Annual', 'Sick', 'Casual', 'Unpaid'}.issubset(names))
+        # Casual now appears as a synthetic row drawing from Annual; Unpaid is gone.
+        self.assertTrue({'Annual', 'Sick', 'Casual'}.issubset(names))
+        self.assertNotIn('Unpaid', names)
 
     def test_create_with_supporting_document(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
@@ -377,12 +382,15 @@ class WorkdayStatusResolverTests(TestCase):
         # Weekend / holiday never appear in the result.
         self.assertNotIn(date(2026, 6, 18), statuses)
         self.assertNotIn(date(2026, 6, 20), statuses)
-        # 2 deductible no-show days (Jun 17, 21).
+        # 2 deductible no-show days (Jun 17, 21) — also the no-show count.
         self.assertEqual(
             ab.count_deductible_days(self.emp, date(2026, 6, 15), date(2026, 6, 21)), 2)
+        self.assertEqual(
+            ab.count_no_show_days(self.emp, date(2026, 6, 15), date(2026, 6, 21)), 2)
 
     def test_approved_unpaid_type_leave_is_deductible(self):
-        unpaid = LeaveType.objects.get(name='Unpaid')
+        # Casual is the unpaid type now: an approved Casual day is unpaid_leave.
+        unpaid = LeaveType.objects.get(name='Casual')
         LeaveRequest.objects.create(
             employee=self.emp, leaveType=unpaid, startDate=date(2026, 6, 17),
             endDate=date(2026, 6, 17), daysRequested=1, reason='x',

@@ -3,7 +3,27 @@
     "allow": [
       "Bash(python manage.py check)",
       "Bash(python manage.py shell -c ' *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(xargs grep -l \"effective_holidays_for_year\\\\|weekend\\\\|WEEKEND\\\\|def .*holiday\")",
+      "Bash(python -c ' *)",
+      "Bash(npx --no-install eslint src/pages/employee/TasksPage.jsx)",
+      "Bash(npx --no-install eslint src/pages/employee/ReviewsPage.jsx src/routes/registry.js src/components/shared/Navbar.jsx)",
+      "Bash(rm \"src/pages/employee/GoalsPage.jsx\")",
+      "Bash(ls \"src/pages/employee/GoalsPage.jsx\")",
+      "Bash(npx --no-install eslint src/routes/registry.js src/pages/leader/WorkspacePages.jsx src/components/shared/Navbar.jsx src/pages/hr/SharedWorkspacePages.jsx)",
+      "Bash(npx --no-install eslint src/context/AuthContext.jsx)",
+      "Bash(python manage.py shell -c \"exec\\(open\\('seed_june_tmp.py'\\).read\\(\\)\\)\")",
+      "Bash(rm seed_june_tmp.py)",
+      "Bash(npx --no-install eslint src/pages/hr/FormPage.jsx)",
+      "Bash(npx --no-install eslint src/pages/hr/SubmissionPage.jsx src/api/attrition.js)",
+      "Bash(npx --no-install eslint src/pages/hr/AttritionPage.jsx)",
+      "Bash(npx --no-install eslint src/pages/hr/SubmissionPage.jsx)",
+      "Bash(python manage.py makemigrations --check --dry-run)",
+      "Bash(python manage.py migrate)",
+      "Bash(python manage.py test Attendance_and_Leave payroll)",
+      "Bash(npx eslint *)",
+      "Bash(python manage.py makemigrations employee_management)",
+      "Bash(python manage.py migrate employee_management)"
     ]
   }
 }

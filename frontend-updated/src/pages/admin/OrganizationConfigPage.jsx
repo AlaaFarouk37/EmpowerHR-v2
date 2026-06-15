@@ -1,50 +1,38 @@
 import { useEffect, useMemo, useState } from 'react';
-import { 
-  getJobs, hrGetEmployees, 
-  adminGetOrgConfig, adminUpdateOrgConfig, 
-  adminGetSkills, adminCreateSkill, adminDeleteSkill,
+import {
+  hrGetPositionCatalog, hrCreatePosition, hrGetEmployees,
+  hrGetDepartmentOptions, hrCreateDepartment, hrDeleteDepartment,
+  hrGetTeamOptions, hrCreateTeam, hrUpdateTeam, hrDeleteTeam,
+  adminGetOrgConfig, adminUpdateOrgConfig,
   adminGetLeaveTypes, adminCreateLeaveType, adminDeleteLeaveType,
-  adminGetPublicHolidays, adminGetHolidayOverrides, adminCreateHolidayOverride, adminDeleteHolidayOverride,
-  adminGetSystemHealth
+  adminGetPublicHolidays, adminGetHolidayOverrides, adminCreateHolidayOverride, adminDeleteHolidayOverride
 } from '../../api/index.js';
-import { 
-  Badge, 
-  Btn, 
-  EmptyState, 
-  Input, 
-  Modal, 
-  Spinner, 
-  Textarea, 
+import {
+  Badge,
+  Btn,
+  EmptyState,
+  Input,
+  Modal,
   useToast,
-  PageHeader,
   Skeleton
 } from '../../components/shared/index.jsx';
 import { useLanguage } from '../../context/LanguageContext';
 import { useSearchParams } from 'react-router-dom';
-import { 
-  Building2, 
-  Briefcase, 
-  Target, 
-  Calendar, 
-  GitBranch, 
-  ShieldCheck, 
-  Database, 
-  Settings, 
-  History,
+import {
+  Building2,
+  Briefcase,
+  Calendar,
+  Settings,
   Plus,
   Trash2,
-  ChevronRight,
+  Pencil,
   Info,
   Globe,
-  Zap,
-  Activity,
-  Layers,
-  Cpu,
-  Monitor
+  Tag,
+  Users
 } from 'lucide-react';
 
 import { OrgEntityProfile } from '../../features/core/components/OrgEntityProfile';
-import { OrgGovernanceMatrix } from '../../features/core/components/OrgGovernanceMatrix';
 import { useOrgStats } from '../../features/core/hooks/useOrgStats';
 
 export function OrganizationConfigPage() {
@@ -59,22 +47,22 @@ export function OrganizationConfigPage() {
   
   const tabs = useMemo(() => [
     { id: 'company', label: 'Company Info', icon: <Building2 size={18} /> },
+    { id: 'departments', label: 'Departments', icon: <Building2 size={18} /> },
+    { id: 'teams', label: 'Teams', icon: <Users size={18} /> },
     { id: 'jobs', label: 'Jobs', icon: <Briefcase size={18} /> },
-    { id: 'skills', label: 'Skills', icon: <Target size={18} /> },
     { id: 'leaveTypes', label: 'Leave Types', icon: <Calendar size={18} /> },
     { id: 'holidays', label: 'Public Holidays', icon: <Globe size={18} /> },
-    { id: 'hierarchy', label: 'Hierarchy', icon: <GitBranch size={18} /> },
-    { id: 'governance', label: 'Governance', icon: <ShieldCheck size={18} /> },
   ], []);
   
   const [company, setCompany] = useState({ name: '', legalName: '', address: '', phone: '', email: '', workStart: '09:00', workEnd: '17:00', workingDays: [] });
   const [security, setSecurity] = useState({ twoFactorEnabled: true, sessionTimeout: 30, notificationsEnabled: true });
-  const [skills, setSkills] = useState([]);
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [holidayYear, setHolidayYear] = useState(new Date().getFullYear());
   const [holidays, setHolidays] = useState([]);
   const [holidayOverrides, setHolidayOverrides] = useState([]);
   const [jobs, setJobs] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [teams, setTeams] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
@@ -85,16 +73,19 @@ export function OrganizationConfigPage() {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [j, e, cfg, sk, lv] = await Promise.all([
-          getJobs().catch(() => []),
+        const [j, e, cfg, lv, dept, tm] = await Promise.all([
+          hrGetPositionCatalog().catch(() => []),
           hrGetEmployees().catch(() => []),
           adminGetOrgConfig().catch(() => ({})),
-          adminGetSkills().catch(() => []),
           adminGetLeaveTypes().catch(() => []),
+          hrGetDepartmentOptions().catch(() => []),
+          hrGetTeamOptions().catch(() => []),
         ]);
-        
+
         setJobs(Array.isArray(j) ? j : []);
         setEmployees(Array.isArray(e) ? e : []);
+        setDepartments(Array.isArray(dept) ? dept : []);
+        setTeams(Array.isArray(tm) ? tm : []);
         
         if (cfg) {
           setCompany({
@@ -114,7 +105,6 @@ export function OrganizationConfigPage() {
           });
         }
         
-        setSkills(Array.isArray(sk) ? sk : []);
         setLeaveTypes(Array.isArray(lv) ? lv : []);
       } finally {
         setLoading(false);
@@ -133,26 +123,120 @@ export function OrganizationConfigPage() {
     }
   };
 
-  const addSkill = async () => {
-    if (!form.name?.trim()) return;
+  // Levels = the distinct job levels in the catalog (each once, case-insensitive),
+  // with how many catalog entries use them; Titles = the distinct title strings.
+  const jobLevels = useMemo(() => {
+    const map = {};
+    jobs.forEach(j => {
+      const level = (j.level || '').trim();
+      if (!level) return;
+      const key = level.toLowerCase();
+      if (!map[key]) map[key] = { level, positionCount: 0 };
+      map[key].positionCount += 1;
+    });
+    return Object.values(map).sort((a, b) => a.level.localeCompare(b.level));
+  }, [jobs]);
+  const jobTitles = useMemo(() => {
+    const counts = {};
+    jobs.forEach(j => {
+      const title = (j.title || '').trim();
+      if (title) counts[title] = (counts[title] || 0) + ((j.level || '').trim() ? 1 : 0);
+    });
+    return Object.entries(counts).map(([title, positionCount]) => ({ title, positionCount }))
+      .sort((a, b) => a.title.localeCompare(b.title));
+  }, [jobs]);
+
+  const addLevel = async () => {
+    const level = (form.level || '').trim();
+    if (!level) return toast(t('Level name is required'), 'error');
+    if (jobLevels.some(jl => jl.level.toLowerCase() === level.toLowerCase())) {
+      return toast(t('That job level already exists'), 'error');
+    }
     try {
-      const res = await adminCreateSkill({ name: form.name, category: form.category || 'Technical', description: form.description || '' });
-      setSkills(p => [...p, res]);
-      setModal(null);
-      setForm({});
-      toast(t('Skill added to catalog'));
+      const res = await hrCreatePosition({ title: '', level, base_salary: 0 });
+      setJobs(p => [...p, res]);
+      setModal(null); setForm({});
+      toast(t('Job level added'));
     } catch (err) {
-      toast(t('Failed to add skill'), 'error');
+      toast(err?.message || t('Failed to add job level'), 'error');
     }
   };
 
-  const deleteSkill = async (id) => {
+  const addTitle = async () => {
+    const title = (form.title || '').trim();
+    if (!title) return toast(t('Title is required'), 'error');
+    if (jobTitles.some(jt => jt.title.toLowerCase() === title.toLowerCase())) {
+      return toast(t('That job title already exists'), 'error');
+    }
     try {
-      await adminDeleteSkill(id);
-      setSkills(p => p.filter(s => s.skillID !== id));
-      toast(t('Skill removed'));
+      const res = await hrCreatePosition({ title, level: '', base_salary: 0 });
+      setJobs(p => [...p, res]);
+      setModal(null); setForm({});
+      toast(t('Job title added'));
     } catch (err) {
-      toast(t('Failed to remove skill'), 'error');
+      toast(err?.message || t('Failed to add job title'), 'error');
+    }
+  };
+
+  const addDepartment = async () => {
+    const name = (form.name || '').trim();
+    if (!name) return toast(t('Department name is required'), 'error');
+    if (departments.some(d => (d.name || '').toLowerCase() === name.toLowerCase())) {
+      return toast(t('That department already exists'), 'error');
+    }
+    try {
+      const res = await hrCreateDepartment({ name });
+      setDepartments(p => [...p, res]);
+      setModal(null); setForm({});
+      toast(t('Department added'));
+    } catch (err) {
+      toast(err?.message || t('Failed to add department'), 'error');
+    }
+  };
+
+  const deleteDepartment = async (id) => {
+    try {
+      await hrDeleteDepartment(id);
+      setDepartments(p => p.filter(d => d.department_id !== id));
+      toast(t('Department removed'));
+    } catch (err) {
+      toast(err?.message || t('Failed to remove department'), 'error');
+    }
+  };
+
+  // Team leaders available to lead a team (employees with the TeamLeader role).
+  const teamLeaders = useMemo(
+    () => employees.filter(e => e.role === 'TeamLeader' && !e.isDeleted),
+    [employees],
+  );
+
+  const saveTeam = async () => {
+    const name = (form.name || '').trim();
+    if (!name) return toast(t('Team name is required'), 'error');
+    const payload = { name, leader: form.leader || null };
+    try {
+      if (form.team_id) {
+        const res = await hrUpdateTeam(form.team_id, payload);
+        setTeams(p => p.map(tm => (tm.team_id === form.team_id ? res : tm)));
+        toast(t('Team updated'));
+      } else {
+        const res = await hrCreateTeam(payload);
+        setTeams(p => [...p, res]);
+        toast(t('Team added'));
+      }
+      setModal(null); setForm({});
+    } catch (err) {
+      toast(err?.message || t('Failed to save team'), 'error');
+    }
+  };
+
+  const deleteTeam = async (id) => {
+    try {
+      await hrDeleteTeam(id);
+      setTeams(p => p.filter(tm => tm.team_id !== id));
+      toast(t('Team removed'));
+    } catch (err) {
+      toast(err?.message || t('Failed to remove team'), 'error');
     }
   };
 
@@ -269,26 +353,6 @@ export function OrganizationConfigPage() {
               </div>
            </div>
         </div>
-        <div style={{ display: 'flex', gap: 16 }}>
-          <Btn 
-            onClick={() => toast('Exporting Config Metadata...', 'info')}
-            variant="outline" 
-            style={{ height: 52, borderRadius: 16, padding: '0 24px', fontWeight: 800, color: '#64748B', borderColor: '#E2E8F0' }}
-          >
-             <Database size={18} /> Export Index
-          </Btn>
-          <Btn 
-            onClick={handleSaveCompany}
-            variant="primary" 
-            style={{ 
-              height: 52, borderRadius: 16, padding: '0 28px', fontWeight: 900, 
-              background: 'linear-gradient(135deg, #10B981, #047857)', border: 'none', 
-              boxShadow: '0 10px 25px -5px rgba(16, 185, 129, 0.4)' 
-            }}
-          >
-             Commit Configuration
-          </Btn>
-        </div>
       </div>
 
       {/* Strategic Tabs Navigation */}
@@ -331,92 +395,160 @@ export function OrganizationConfigPage() {
 
       <div className="animate-in" key={activeTab}>
         {activeTab === 'company' && (
-          <OrgEntityProfile 
-            company={company} 
-            setCompany={setCompany} 
-            onSave={handleSaveCompany} 
-            departmentStats={departmentStats} 
-            teamStats={teamStats} 
-            employeeCount={employees.length} 
+          <OrgEntityProfile
+            company={company}
+            setCompany={setCompany}
+            onSave={handleSaveCompany}
+            departmentStats={departmentStats}
+            teamStats={teamStats}
+            employeeCount={employees.length}
           />
+        )}
+
+        {activeTab === 'departments' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32, flexWrap: 'wrap', gap: 16 }}>
+              <div>
+                <h3 style={{ fontSize: 20, fontWeight: 950, color: '#1E293B', marginBottom: 4 }}>{t('Departments')}</h3>
+                <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>{t('View, add and remove the organization’s departments.')}</p>
+              </div>
+              <Btn variant="primary" style={{ height: 48, borderRadius: 14, background: '#10B981', border: 'none', fontWeight: 900, padding: '0 24px' }} onClick={() => { setForm({}); setModal('department'); }}>
+                <Plus size={18} style={{ marginRight: 8 }} /> {t('Add Department')}
+              </Btn>
+            </div>
+
+            {departments.length === 0 ? (
+              <EmptyState icon={<Building2 size={40} />} title={t('No departments yet')} subtitle={t('Add a department to organize employees across the company.')} />
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
+                {departments.map(d => {
+                  const count = employees.filter(e => e.department === d.department_id || e.department === d.name).length;
+                  return (
+                    <div key={d.department_id} className="glass-card-employee" style={{ padding: 24, border: '1.5px solid #fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
+                        <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(16, 185, 129, 0.08)', color: '#10B981', display: 'grid', placeItems: 'center', flexShrink: 0 }}><Building2 size={22} /></div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 950, fontSize: 16, color: '#1E293B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</div>
+                          <div style={{ fontSize: 12, color: '#94A3B8', fontWeight: 700 }}>{count} {count === 1 ? t('employee') : t('employees')}</div>
+                        </div>
+                      </div>
+                      <button className="delete-btn" onClick={() => deleteDepartment(d.department_id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#CBD5E1', padding: 8 }} title={t('Remove')}>
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'teams' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32, flexWrap: 'wrap', gap: 16 }}>
+              <div>
+                <h3 style={{ fontSize: 20, fontWeight: 950, color: '#1E293B', marginBottom: 4 }}>{t('Teams')}</h3>
+                <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>{t('Create teams and assign a team leader to each.')}</p>
+              </div>
+              <Btn variant="primary" style={{ height: 48, borderRadius: 14, background: '#10B981', border: 'none', fontWeight: 900, padding: '0 24px' }} onClick={() => { setForm({}); setModal('team'); }}>
+                <Plus size={18} style={{ marginRight: 8 }} /> {t('Add Team')}
+              </Btn>
+            </div>
+
+            {teams.length === 0 ? (
+              <EmptyState icon={<Users size={40} />} title={t('No teams yet')} subtitle={t('Add a team and assign a leader to organize members.')} />
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
+                {teams.map(tm => {
+                  const memberCount = employees.filter(e => e.team === tm.team_id || e.team === tm.name).length;
+                  return (
+                    <div key={tm.team_id} className="glass-card-employee" style={{ padding: 24, border: '1.5px solid #fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
+                        <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(16, 185, 129, 0.08)', color: '#10B981', display: 'grid', placeItems: 'center', flexShrink: 0 }}><Users size={22} /></div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 950, fontSize: 16, color: '#1E293B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tm.name}</div>
+                          <div style={{ fontSize: 12, color: '#94A3B8', fontWeight: 700 }}>
+                            {tm.leaderName ? `${t('Lead')}: ${tm.leaderName}` : t('No leader assigned')} · {memberCount} {memberCount === 1 ? t('member') : t('members')}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                        <button className="delete-btn" onClick={() => { setForm({ team_id: tm.team_id, name: tm.name, leader: tm.leader || '' }); setModal('team'); }} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#CBD5E1', padding: 8 }} title={t('Edit')}>
+                          <Pencil size={17} />
+                        </button>
+                        <button className="delete-btn" onClick={() => deleteTeam(tm.team_id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#CBD5E1', padding: 8 }} title={t('Remove')}>
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
 
         {activeTab === 'jobs' && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
-              <div>
-                <h3 style={{ fontSize: 20, fontWeight: 950, color: '#1E293B', marginBottom: 4 }}>{t('Node Classifications')}</h3>
-                <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>{t('Define live job positions and fiscal benchmarks.')}</p>
-              </div>
-              <Btn 
-                variant="outline" 
-                style={{ borderRadius: 14, height: 48, fontWeight: 800, borderColor: '#E2E8F0', padding: '0 20px' }}
-                onClick={() => window.location.href='/hr/jobs'}
-              >
-                <Monitor size={18} style={{ marginRight: 10, color: '#10B981' }} /> {t('Strategic Job Board')}
-              </Btn>
-            </div>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 24 }}>
-              {jobs.map(job => (
-                <div key={job.jobID} className="glass-card-employee" style={{ padding: 28, border: '1.5px solid #fff' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-                    <div>
-                      <div style={{ fontWeight: 950, fontSize: 18, color: '#1E293B', letterSpacing: '-0.01em' }}>{job.title}</div>
-                      <div style={{ fontSize: 12, color: '#94A3B8', fontWeight: 800, textTransform: 'uppercase', marginTop: 4 }}>{job.department}</div>
-                    </div>
-                    <Badge label={job.is_active !== false ? 'Active' : 'Archived'} color={job.is_active !== false ? 'green' : 'gray'} />
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, background: '#F8FAFC', padding: 20, borderRadius: 18, border: '1.5px solid #F1F5F9' }}>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 6 }}>{t('Floor Limit')}</div>
-                      <div style={{ fontSize: 18, fontWeight: 950, color: '#1E293B' }}>${job.baseSalary || '0'}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 6 }}>{t('Ceiling Limit')}</div>
-                      <div style={{ fontSize: 18, fontWeight: 950, color: '#10B981' }}>${job.salaryCap || '0'}</div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'skills' && (
-          <div>
-             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
-              <div>
-                <h3 style={{ fontSize: 20, fontWeight: 950, color: '#1E293B', marginBottom: 4 }}>{t('Competency Index')}</h3>
-                <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>{t('Maintain high-fidelity organizational skill matrices.')}</p>
-              </div>
-              <Btn 
-                variant="primary" 
-                style={{ height: 48, borderRadius: 14, background: '#10B981', border: 'none', fontWeight: 900, padding: '0 24px' }}
-                onClick={() => setModal('skill')}
-              >
-                <Plus size={18} style={{ marginRight: 8 }} /> {t('Register Skill')}
-              </Btn>
+            <div style={{ marginBottom: 28 }}>
+              <h3 style={{ fontSize: 20, fontWeight: 950, color: '#1E293B', marginBottom: 4 }}>{t('Jobs')}</h3>
+              <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>{t('Manage the catalog of job positions (title + level) and the distinct job titles.')}</p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 24 }}>
-              {skills.map(skill => (
-                <div key={skill.skillID} className="glass-card-employee" style={{ padding: 28, border: '1.5px solid #fff' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-                    <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(16, 185, 129, 0.08)', color: '#10B981', display: 'grid', placeItems: 'center' }}>
-                       <Target size={22} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 24, alignItems: 'start' }}>
+              {/* Column 1: Job Levels (derived from the catalog — read-only) */}
+              <div className="glass-card-employee" style={{ padding: 28, border: '1.5px solid #fff' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(16, 185, 129, 0.08)', color: '#10B981', display: 'grid', placeItems: 'center' }}><Briefcase size={20} /></div>
+                    <div>
+                      <div style={{ fontWeight: 950, fontSize: 16, color: '#1E293B' }}>{t('Job Levels')}</div>
+                      <div style={{ fontSize: 12, color: '#94A3B8', fontWeight: 700 }}>{jobLevels.length} {t('levels')}</div>
                     </div>
-                    <button onClick={() => deleteSkill(skill.skillID)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94A3B8', padding: 8, transition: 'all 0.2s' }} className="delete-btn">
-                      <Trash2 size={18} />
-                    </button>
                   </div>
-                  <div>
-                    <div style={{ fontWeight: 950, fontSize: 17, color: '#1E293B' }}>{skill.name}</div>
-                    <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 800, textTransform: 'uppercase', marginTop: 4 }}>{skill.category}</div>
-                  </div>
-                  <p style={{ fontSize: 13, color: '#64748B', fontWeight: 600, lineHeight: 1.6, marginTop: 16 }}>{skill.description}</p>
+                  <Btn variant="primary" title={t('Add')} style={{ height: 40, width: 40, borderRadius: 12, background: '#EF4444', border: 'none', fontWeight: 900, padding: 0, display: 'grid', placeItems: 'center' }} onClick={() => { setForm({}); setModal('level'); }}>
+                    <Plus size={18} />
+                  </Btn>
                 </div>
-              ))}
+                {jobLevels.length === 0 ? (
+                  <div style={{ padding: '32px 16px', textAlign: 'center', color: '#94A3B8', fontSize: 13, fontWeight: 700 }}>{t('No levels yet.')}</div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    {jobLevels.map(jl => (
+                      <div key={jl.level} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '14px 16px', background: '#F8FAFC', borderRadius: 14, border: '1.5px solid #F1F5F9' }}>
+                        <div style={{ fontWeight: 900, fontSize: 14, color: '#1E293B' }}>{jl.level}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Column 2: Job Titles */}
+              <div className="glass-card-employee" style={{ padding: 28, border: '1.5px solid #fff' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(16, 185, 129, 0.08)', color: '#10B981', display: 'grid', placeItems: 'center' }}><Tag size={20} /></div>
+                    <div>
+                      <div style={{ fontWeight: 950, fontSize: 16, color: '#1E293B' }}>{t('Job Titles')}</div>
+                      <div style={{ fontSize: 12, color: '#94A3B8', fontWeight: 700 }}>{jobTitles.length} {t('titles')}</div>
+                    </div>
+                  </div>
+                  <Btn variant="primary" title={t('Add')} style={{ height: 40, width: 40, borderRadius: 12, background: '#EF4444', border: 'none', fontWeight: 900, padding: 0, display: 'grid', placeItems: 'center' }} onClick={() => { setForm({}); setModal('title'); }}>
+                    <Plus size={18} />
+                  </Btn>
+                </div>
+                {jobTitles.length === 0 ? (
+                  <div style={{ padding: '32px 16px', textAlign: 'center', color: '#94A3B8', fontSize: 13, fontWeight: 700 }}>{t('No job titles yet.')}</div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    {jobTitles.map(jt => (
+                      <div key={jt.title} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '14px 16px', background: '#F8FAFC', borderRadius: 14, border: '1.5px solid #F1F5F9' }}>
+                        <div style={{ fontWeight: 900, fontSize: 14, color: '#1E293B' }}>{jt.title}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -540,49 +672,51 @@ export function OrganizationConfigPage() {
           );
         })()}
 
-        {activeTab === 'hierarchy' && (
-          <div className="glass-card-employee" style={{ padding: 60, textAlign: 'center', border: '1.5px solid #fff' }}>
-             <div style={{ maxWidth: 640, margin: '0 auto' }}>
-                <div style={{ 
-                  width: 80, height: 80, borderRadius: 24, background: '#F8FAFC', 
-                  display: 'grid', placeItems: 'center', margin: '0 auto 32px', border: '1.5px solid #F1F5F9'
-                }}>
-                   <GitBranch size={40} style={{ color: '#10B981', opacity: 0.3 }} />
-                </div>
-                <h3 style={{ fontSize: 24, fontWeight: 950, color: '#1E293B', marginBottom: 16 }}>{t('Node Topology Explorer')}</h3>
-                <p style={{ color: '#64748B', lineHeight: 1.7, marginBottom: 40, fontSize: 15, fontWeight: 600 }}>
-                  {t('Visualize and manage strategic reporting lines and workforce cluster distribution.')}
-                </p>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, textAlign: 'left' }}>
-                   <div style={{ background: '#F8FAFC', padding: 28, borderRadius: 24, border: '1.5px solid #F1F5F9' }}>
-                      <div style={{ fontSize: 12, color: '#94A3B8', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('Operational Depts')}</div>
-                      <div style={{ fontSize: 32, fontWeight: 950, color: '#1E293B', marginTop: 8 }}>{departmentStats.length}</div>
-                      <div style={{ fontSize: 11, color: '#10B981', fontWeight: 800, marginTop: 4 }}>High Density</div>
-                   </div>
-                   <div style={{ background: '#F8FAFC', padding: 28, borderRadius: 24, border: '1.5px solid #F1F5F9' }}>
-                      <div style={{ fontSize: 12, color: '#94A3B8', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('Tactical Teams')}</div>
-                      <div style={{ fontSize: 32, fontWeight: 950, color: '#1E293B', marginTop: 8 }}>{teamStats.length}</div>
-                      <div style={{ fontSize: 11, color: '#10B981', fontWeight: 800, marginTop: 4 }}>Sync Active</div>
-                   </div>
-                </div>
-                <Btn variant="primary" style={{ marginTop: 40, height: 52, borderRadius: 16, padding: '0 32px', fontWeight: 900, background: '#10B981' }}>
-                   Launch Neural Map Explorer
-                </Btn>
-             </div>
-          </div>
-        )}
-
-        {activeTab === 'governance' && <OrgGovernanceMatrix />}
       </div>
 
       {/* Modals */}
-      <Modal open={modal === 'skill'} onClose={() => setModal(null)} title={t('Register Master Competency')}>
+      <Modal open={modal === 'level'} onClose={() => setModal(null)} title={t('Add Job Level')}>
         <div style={{ display: 'grid', gap: 24 }}>
-          <Input label={t('Competency Identifier')} value={form.name || ''} onChange={e => setForm(p => ({...p, name: e.target.value}))} />
-          <Input label={t('Index Category')} value={form.category || ''} onChange={e => setForm(p => ({...p, category: e.target.value}))} placeholder="e.g. Strategic Analysis" />
-          <Textarea label={t('Execution Definition')} value={form.description || ''} onChange={e => setForm(p => ({...p, description: e.target.value}))} />
-          <Btn onClick={addSkill} style={{ width: '100%', height: 52, borderRadius: 14, fontWeight: 900, background: '#10B981' }}>{t('Commit to Registry')}</Btn>
+          <Input label={t('Level Name')} value={form.level || ''} onChange={e => setForm(p => ({...p, level: e.target.value}))} placeholder="e.g. Junior" />
+          <Btn onClick={addLevel} style={{ width: '100%', height: 52, borderRadius: 14, fontWeight: 900, background: '#10B981' }}>{t('Add Level')}</Btn>
+        </div>
+      </Modal>
+
+      <Modal open={modal === 'department'} onClose={() => setModal(null)} title={t('Add Department')}>
+        <div style={{ display: 'grid', gap: 24 }}>
+          <Input label={t('Department Name')} value={form.name || ''} onChange={e => setForm(p => ({...p, name: e.target.value}))} placeholder="e.g. Engineering" />
+          <Btn onClick={addDepartment} style={{ width: '100%', height: 52, borderRadius: 14, fontWeight: 900, background: '#10B981' }}>{t('Add Department')}</Btn>
+        </div>
+      </Modal>
+
+      <Modal open={modal === 'team'} onClose={() => setModal(null)} title={form.team_id ? t('Edit Team') : t('Add Team')}>
+        <div style={{ display: 'grid', gap: 24 }}>
+          <Input label={t('Team Name')} value={form.name || ''} onChange={e => setForm(p => ({...p, name: e.target.value}))} placeholder="e.g. Platform Squad" />
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>{t('Team Leader')}</label>
+            <select
+              value={form.leader || ''}
+              onChange={e => setForm(p => ({ ...p, leader: e.target.value }))}
+              style={{ width: '100%', height: 48, padding: '0 14px', borderRadius: 14, border: '1.5px solid #E2E8F0', background: '#fff', fontSize: 14, fontWeight: 700, color: '#1E293B', outline: 'none' }}
+            >
+              <option value="">{t('— No leader —')}</option>
+              {teamLeaders.map(l => (
+                <option key={l.employeeID} value={l.employeeID}>{l.fullName || l.email}</option>
+              ))}
+            </select>
+            {teamLeaders.length === 0 && (
+              <p style={{ margin: '8px 0 0', fontSize: 12.5, color: '#94A3B8', fontWeight: 600 }}>{t('No employees with the Team Leader role yet.')}</p>
+            )}
+          </div>
+          <Btn onClick={saveTeam} style={{ width: '100%', height: 52, borderRadius: 14, fontWeight: 900, background: '#10B981' }}>{form.team_id ? t('Save Changes') : t('Add Team')}</Btn>
+        </div>
+      </Modal>
+
+      <Modal open={modal === 'title'} onClose={() => setModal(null)} title={t('Add Job Title')}>
+        <div style={{ display: 'grid', gap: 24 }}>
+          <Input label={t('Job Title')} value={form.title || ''} onChange={e => setForm(p => ({...p, title: e.target.value}))} placeholder="e.g. Software Engineer" />
+          <p style={{ margin: 0, fontSize: 13, color: '#64748B', fontWeight: 600 }}>{t('A job title with no level. Add leveled positions for it in the Job Positions column.')}</p>
+          <Btn onClick={addTitle} style={{ width: '100%', height: 52, borderRadius: 14, fontWeight: 900, background: '#10B981' }}>{t('Add Title')}</Btn>
         </div>
       </Modal>
 
