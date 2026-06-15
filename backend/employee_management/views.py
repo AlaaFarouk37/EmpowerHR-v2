@@ -3925,4 +3925,10 @@ class EmployeeProfileView(APIView):
         if not employee:
             return Response({'error': 'Employee record not found.'},
                             status=status.HTTP_404_NOT_FOUND)
-        return Response(EmployeeSerializer(employee).data)
+        data = EmployeeSerializer(employee).data
+        # Resolve FK ids to human-readable names so the profile page shows real labels.
+        data['departmentName'] = employee.department.name if employee.department_id else None
+        data['teamName'] = employee.team.name if employee.team_id else None
+        manager = employee.team.leader if (employee.team_id and employee.team.leader_id) else None
+        data['managerName'] = manager.fullName if manager else None
+        return Response(data)

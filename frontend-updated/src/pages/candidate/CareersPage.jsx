@@ -110,6 +110,7 @@ export function EmployeeCareersPage() {
   const [browseVibe, setBrowseVibe] = useState('all');
   const [activeDepartment, setActiveDepartment] = useState('all');
   const [showApply, setShowApply] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const [file, setFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
@@ -125,9 +126,7 @@ export function EmployeeCareersPage() {
 
   const heroTitle = isApplicationsView
     ? t('Track your job applications in one place.')
-    : isCandidateDashboard
-      ? t('Candidate Command Center')
-      : t('page.careers.title');
+    : t('page.careers.title');
   const heroSubtitle = isApplicationsView
     ? t('See each submitted role, current review stage, and latest HR notes instantly.')
     : isCandidateDashboard
@@ -161,16 +160,17 @@ export function EmployeeCareersPage() {
   const latestApplication = applications[0] || null;
   const nextActionText = latestApplication ? getApplicationGuidance(latestApplication.review_stage || 'Applied') : t('Submit an application to unlock live tracking and recruiter updates.');
   const applicationCompletion = applications.length ? Math.round((closedApplications / applications.length) * 100) : 0;
+  const appliedJobIds = useMemo(
+    () => new Set(applications.map((item) => item.job).filter((id) => id != null).map(String)),
+    [applications],
+  );
+  const hasApplied = (job) => appliedJobIds.has(String(job?.id));
   const searchSummary = useMemo(() => {
     if (!search.trim()) return `${jobs.length} ${t('roles available now')}`;
     return filtered.length === 0
       ? t('No roles match your current search.')
       : `${filtered.length} ${t('matching roles found')}`;
   }, [filtered.length, jobs.length, search, t]);
-
-  const averageMatchScore = applications.length
-    ? Math.round(applications.reduce((sum, item) => sum + Number(item.ats_score || 0), 0) / applications.length)
-    : null;
 
   const roleSignals = useMemo(() => {
     const departmentMap = new Map();
@@ -307,10 +307,10 @@ export function EmployeeCareersPage() {
       setTrackingCode(initialCode);
     }
 
-    if (isApplicationsView || queryEmail) {
+    if (isApplicationsView || queryEmail || isSignedInCandidate) {
       loadApplications(initialEmail, { silent: true, codeToLookup: initialCode || trackingCode });
     }
-  }, [email, isApplicationsView, queryEmail, searchParams]);
+  }, [email, isApplicationsView, queryEmail, searchParams, isSignedInCandidate]);
 
   useEffect(() => {
     const requestedJobId = searchParams.get('job');
@@ -346,14 +346,15 @@ export function EmployeeCareersPage() {
       setApplications((current) => [data, ...current.filter((item) => item.id !== data.id)]);
       toast('Application submitted successfully');
     } catch (e) {
-      toast('Error: ' + e.message, 'error');
+      toast(e.message || t('Could not submit your application.'), 'error');
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div>
+    <div className="careers-root">
+      {!isApplicationsView && !isCandidateDashboard && (
       <section className="careers-hero">
         <div className="careers-hero-inner">
           <h1 style={{ fontFamily: 'var(--serif)', fontSize: 'clamp(36px,5vw,56px)', fontWeight: 400, lineHeight: 1.12, maxWidth: 760 }}>
@@ -386,14 +387,14 @@ export function EmployeeCareersPage() {
           </div>
         </div>
       </section>
+      )}
 
+      {!isCandidateDashboard && (
       <div style={{ maxWidth: 1280, margin: '0 auto', padding: '24px 28px 0' }}>
+        {!isApplicationsView && (
         <div className="hr-surface-card" style={{ padding: 24, borderRadius: 28, marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--red)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 8 }}>
-                {t('Candidate Journey Board')}
-              </div>
               <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>{t('See your current pipeline, role demand, and next best moves across the hiring journey.')}</h2>
               <p style={{ margin: '8px 0 0', color: 'var(--gray-500)', maxWidth: 720 }}>
                 {t('Own the job journey, applications, and hiring updates.')}
@@ -440,7 +441,6 @@ export function EmployeeCareersPage() {
               [t('Live Openings'), jobs.length, 'var(--red-light)'],
               [t('Applications'), applications.length, '#EEF6FF'],
               [t('Interviews'), interviewApplications, '#ECFDF3'],
-              [t('Average ATS Match'), averageMatchScore != null ? `${averageMatchScore}%` : '—', '#FFF7ED'],
             ].map(([label, value, bg]) => (
               <div key={label} style={{ background: bg, borderRadius: 18, padding: 16 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>{label}</div>
@@ -515,6 +515,7 @@ export function EmployeeCareersPage() {
             </div>
           </div>
         </div>
+        )}
 
         <div className="hr-surface-card" style={{ padding: 24, borderRadius: 28 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
@@ -620,12 +621,6 @@ export function EmployeeCareersPage() {
                           {application.talent_pool ? <Badge color="green" label={t('Talent Pool')} /> : <Badge color="slate" label={t('In review')} />}
                         </div>
                       </div>
-                      <div style={{ minWidth: 120, textAlign: 'right' }}>
-                        <div style={{ fontSize: 11, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em' }}>{t('ATS Match Score')}</div>
-                        <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--red)' }}>
-                          {application.ats_score != null ? Number(application.ats_score).toFixed(1) : '--'}
-                        </div>
-                      </div>
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 14 }}>
@@ -704,7 +699,9 @@ export function EmployeeCareersPage() {
           )}
         </div>
       </div>
+      )}
 
+      {!isApplicationsView && (
       <div className="careers-layout">
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
@@ -768,7 +765,7 @@ export function EmployeeCareersPage() {
                 <div
                   key={job.id}
                   className="careers-job-card"
-                  onClick={() => setSelected(job)}
+                  onClick={() => { setSelected(job); setShowDetails(true); }}
                   style={{
                     border: `2px solid ${selected?.id === job.id ? 'var(--red)' : 'var(--border-primary)'}`,
                     boxShadow: selected?.id === job.id ? '0 0 0 4px rgba(232,50,26,.08)' : 'none',
@@ -824,87 +821,23 @@ export function EmployeeCareersPage() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 18, borderTop: '1px solid #F3F4F6', gap: 8, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{t('Req.')} {job.min_experience_years || 0}+ {t('yrs')}</span>
-                    <Btn size="sm" onClick={(e) => { e.stopPropagation(); setSelected(job); setShowApply(true); setResult(null); setFile(null); }}>{t('Apply Now')}</Btn>
+                    {hasApplied(job)
+                      ? <Btn size="sm" variant="ghost" disabled>{t('Applied')}</Btn>
+                      : <Btn size="sm" onClick={(e) => { e.stopPropagation(); setSelected(job); setShowApply(true); setResult(null); setFile(null); }}>{t('Apply Now')}</Btn>}
                   </div>
                 </div>
               ))}
             </div>
           )}
         </div>
-
-        <aside>
-          {!selected ? (
-            <div className="careers-sidebar-card" style={{ boxShadow: 'var(--shadow-lg)' }}>
-              <span style={{ display: 'inline-flex', padding: '5px 12px', background: 'var(--accent-light)', color: '#8B4A42', borderRadius: 8, fontSize: 11, fontWeight: 700, letterSpacing: '.06em', marginBottom: 16 }}>
-                {t('Candidate Spotlight')}
-              </span>
-              <h2 style={{ fontFamily: 'var(--serif)', fontSize: 26, fontWeight: 400, lineHeight: 1.2, marginBottom: 6 }}>{featuredJob?.title || t('Explore your next opportunity')}</h2>
-              <p style={{ fontSize: 13.5, color: 'var(--gray-500)', lineHeight: 1.65, marginBottom: 16 }}>
-                {featuredJob?.description || t('Select a role to review its details, required skills, and application path.')}
-              </p>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 18 }}>
-                {(featuredJob?.required_skills || []).slice(0, 4).map((skill) => (
-                  <Badge key={`featured-${skill}`} color="slate" label={skill} />
-                ))}
-              </div>
-              <Btn onClick={() => featuredJob ? setSelected(featuredJob) : null} style={{ width: '100%', padding: 15 }}>
-                {t('Preview Role')}
-              </Btn>
-            </div>
-          ) : (
-            <div className="careers-sidebar-card" style={{ boxShadow: 'var(--shadow-lg)' }}>
-              <span style={{ display: 'inline-flex', padding: '5px 12px', background: 'var(--accent-light)', color: '#8B4A42', borderRadius: 8, fontSize: 11, fontWeight: 700, letterSpacing: '.06em', marginBottom: 16 }}>
-                JP-{String(selected.id).padStart(3, '0')}
-              </span>
-              <h2 style={{ fontFamily: 'var(--serif)', fontSize: 26, fontWeight: 400, lineHeight: 1.2, marginBottom: 6 }}>{selected.title}</h2>
-              <p style={{ fontSize: 13.5, color: 'var(--gray-500)', lineHeight: 1.65, marginBottom: 18 }}>{selected.description}</p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-                <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: '10px 12px' }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 4 }}>{t('Experience')}</div>
-                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{selected.min_experience_years || 0}+ {t('yrs')}</div>
-                </div>
-                <div style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: '10px 12px' }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 4 }}>{t('Degree')}</div>
-                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{selected.required_degree || t('Open')}</div>
-                </div>
-              </div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>{t('Required skills')}</div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 18 }}>
-                {(selected.required_skills || []).length ? (selected.required_skills || []).map((skill) => (
-                  <Badge key={`selected-${skill}`} color="slate" label={skill} />
-                )) : <Badge color="slate" label={t('General role')} />}
-              </div>
-
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>{t('Why this role can feel exciting')}</div>
-              <div className="candidate-sidebar-list">
-                {getRoleHighlights(selected).map((item) => (
-                  <div key={`sidebar-${item}`} className="candidate-sidebar-item">{t(item)}</div>
-                ))}
-              </div>
-
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>{t('Quick apply checklist')}</div>
-              <div className="candidate-sidebar-list" style={{ marginBottom: 18 }}>
-                {[t('Tailor your CV to the highlighted skills'), t('Keep your email active for updates'), t('Track progress after submitting')].map((item) => (
-                  <div key={item} className="candidate-sidebar-item">{item}</div>
-                ))}
-              </div>
-
-              <Btn onClick={() => { setShowApply(true); setResult(null); setFile(null); }} style={{ width: '100%', padding: 15 }}>
-                {t('Apply Now')}
-                <svg width="16" height="16" fill="none" stroke="#fff" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
-              </Btn>
-            </div>
-          )}
-        </aside>
       </div>
+      )}
 
       <Modal open={showApply} onClose={() => { setShowApply(false); setResult(null); }} title={result ? t('Pipeline Results') : `${t('Apply for')} ${selected?.title || ''}`} maxWidth={580}>
         {result ? (
           <div>
             <div style={{ textAlign: 'center', padding: '20px 0', borderBottom: '1px solid #F3F4F6', marginBottom: 20 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.15em', color: 'var(--gray-500)', textTransform: 'uppercase', marginBottom: 8 }}>{t('ATS Match Score')}</div>
-              <div style={{ fontFamily: 'var(--serif)', fontSize: 68, color: result.ats_score >= 70 ? '#22C55E' : 'var(--red)' }}>{(result.ats_score || 0).toFixed(1)}</div>
-              <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <Badge color="accent" label={`${t('Stage:')} ${t(result.review_stage || 'Applied')}`} />
                 {result.talent_pool ? <Badge color="green" label={t('Talent Pool')} /> : null}
               </div>
@@ -919,17 +852,6 @@ export function EmployeeCareersPage() {
                 </div>
               ) : null}
             </div>
-            {[['Skills', result.skills_score, '#E8321A'], ['Experience', result.experience_score, 'var(--red-600)'], ['Education', result.education_score, 'var(--pink-400)'], ['Semantic', result.semantic_score, 'var(--red-800)']].map(([label, value, color]) => (
-              <div key={label} style={{ marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
-                  <span style={{ color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em' }}>{label}</span>
-                  <span style={{ fontWeight: 700 }}>{(value || 0).toFixed(1)}%</span>
-                </div>
-                <div style={{ height: 3, background: '#F3F4F6', borderRadius: 2 }}>
-                  <div style={{ height: '100%', width: `${value || 0}%`, background: color, borderRadius: 2 }} />
-                </div>
-              </div>
-            ))}
             <div style={{ marginTop: 18 }}>
               <Btn onClick={() => { setShowApply(false); loadApplications(result.candidate_email || applicationDetails.candidate_email, { silent: true, codeToLookup: result.tracking_code || trackingCode }); }} style={{ width: '100%', justifyContent: 'center' }}>
                 {t('Track Applications')}
@@ -983,6 +905,67 @@ export function EmployeeCareersPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={showDetails}
+        onClose={() => setShowDetails(false)}
+        title={selected ? `JP-${String(selected.id).padStart(3, '0')} · ${selected.title}` : t('Job Details')}
+        maxWidth={620}
+      >
+        {selected ? (
+          <div>
+            <p style={{ fontSize: 13.5, color: 'var(--gray-500)', lineHeight: 1.65, marginBottom: 18 }}>
+              {selected.description || t('No description provided for this role yet.')}
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 18 }}>
+              {[
+                [t('Experience'), `${selected.min_experience_years || 0}+ ${t('yrs')}`],
+                [t('Degree'), selected.required_degree || t('Open')],
+                [t('Department'), t(selected.department || 'General')],
+                [t('Journey'), t(getCandidateVibe(selected))],
+              ].map(([label, value]) => (
+                <div key={label} style={{ background: 'var(--bg-secondary)', borderRadius: 14, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 4 }}>{label}</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>{t('Required skills')}</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 18 }}>
+              {(selected.required_skills || []).length ? (selected.required_skills || []).map((skill) => (
+                <Badge key={`details-${skill}`} color="slate" label={skill} />
+              )) : <Badge color="slate" label={t('General role')} />}
+            </div>
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>{t('Why this role can feel exciting')}</div>
+            <div className="candidate-sidebar-list" style={{ marginBottom: 18 }}>
+              {getRoleHighlights(selected).map((item) => (
+                <div key={`details-h-${item}`} className="candidate-sidebar-item">{t(item)}</div>
+              ))}
+            </div>
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>{t('Quick apply checklist')}</div>
+            <div className="candidate-sidebar-list" style={{ marginBottom: 20 }}>
+              {[t('Tailor your CV to the highlighted skills'), t('Keep your email active for updates'), t('Track progress after submitting')].map((item) => (
+                <div key={`details-c-${item}`} className="candidate-sidebar-item">{item}</div>
+              ))}
+            </div>
+
+            {hasApplied(selected) ? (
+              <Btn variant="ghost" disabled style={{ width: '100%', padding: 15, justifyContent: 'center' }}>
+                {t('Applied')}
+              </Btn>
+            ) : (
+              <Btn onClick={() => { setShowDetails(false); setShowApply(true); setResult(null); setFile(null); }} style={{ width: '100%', padding: 15, justifyContent: 'center' }}>
+                {t('Apply Now')}
+                <svg width="16" height="16" fill="none" stroke="#fff" strokeWidth="2.5" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
+              </Btn>
+            )}
+          </div>
+        ) : null}
       </Modal>
     </div>
   );

@@ -23,7 +23,16 @@
       "Bash(python manage.py test Attendance_and_Leave payroll)",
       "Bash(npx eslint *)",
       "Bash(python manage.py makemigrations employee_management)",
-      "Bash(python manage.py migrate employee_management)"
+      "Bash(python manage.py migrate employee_management)",
+      "Bash(CI=false BUILD_PATH=build_cssverify npx react-scripts build)",
+      "Bash(CI=false BUILD_PATH=build_verify2 npx react-scripts build)",
+      "Bash(CI=false BUILD_PATH=build_verify3 npx react-scripts build)",
+      "Bash(CI=false BUILD_PATH=build_verify4 npx react-scripts build)",
+      "Bash(CI=false BUILD_PATH=build_verify5 npx react-scripts build)",
+      "Bash(CI=false BUILD_PATH=build_verify6 npx react-scripts build)",
+      "Bash(python -m py_compile resume_pipeline/views.py)",
+      "Bash(CI=false BUILD_PATH=build_verify7 npx react-scripts build)",
+      "Bash(python -m py_compile employee_management/views.py)"
     ]
   }
 }

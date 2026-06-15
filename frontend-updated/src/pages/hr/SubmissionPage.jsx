@@ -116,14 +116,6 @@ export function HRSubmissionPage() {
            </div>
            <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>Audit raw form payloads, map organizational sentiment vectors, and resolve critical feedback.</p>
         </div>
-
-        <Btn
-          onClick={() => toast(t('Initializing Intelligence Export...'), 'info')}
-          variant="primary"
-          style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
-        >
-           <Zap size={18} style={{ marginRight: 8 }} /> {t('Export Payloads')}
-        </Btn>
       </div>
 
       {/* Sentiment Telemetry Strip */}
@@ -169,15 +161,6 @@ export function HRSubmissionPage() {
               />
            </div>
         </div>
-        
-        <div style={{ display: 'flex', gap: 12 }}>
-           <Btn variant="secondary" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
-              <Filter size={16} style={{ marginRight: 8 }} /> {t('Neural Filters')}
-           </Btn>
-           <Btn variant="outline" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
-              <TrendingUp size={16} style={{ marginRight: 8 }} /> {t('Sentiment Trends')}
-           </Btn>
-        </div>
       </div>
 
       {/* Neural Submission Ledger */}
@@ -185,7 +168,7 @@ export function HRSubmissionPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#F8FAFC', borderBottom: '1.5px solid #F1F5F9' }}>
-              {['Talent Node', 'Intelligence Source', 'Execution Date', 'Sentiment Vector', 'Actions'].map(h => (
+              {['Talent Node', 'Intelligence Source', 'Execution Date', 'Sentiment Vector'].map(h => (
                 <th key={h} style={{ padding: '20px 32px', textAlign: 'left', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t(h)}</th>
               ))}
             </tr>
@@ -235,13 +218,6 @@ export function HRSubmissionPage() {
                            {score === null ? '—' : `${score.toFixed(1)}/4`}
                         </div>
                      </div>
-                  </td>
-                  <td style={{ padding: '24px 32px' }}>
-                    <div style={{ display: 'flex', gap: 10 }}>
-                       <button className="action-btn" title="Audit Raw Payload"><SearchCode size={18} /></button>
-                       <button className="action-btn" title="Resolve Flag" style={{ color: '#10B981' }}><CheckCircle size={18} /></button>
-                       <button className="action-btn" title="Tactical Options"><MoreVertical size={18} /></button>
-                    </div>
                   </td>
                 </tr>
               );

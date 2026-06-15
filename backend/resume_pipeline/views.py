@@ -1114,6 +1114,17 @@ class SubmitResumeView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+        # Prevent a candidate from applying to the same job more than once (matched by email).
+        job = serializer.validated_data.get('job')
+        candidate_email = (serializer.validated_data.get('candidate_email') or '').strip()
+        if job is not None and candidate_email and Submission.objects.filter(
+            job=job, candidate_email__iexact=candidate_email
+        ).exists():
+            return Response(
+                {"detail": "You have already applied to this job with this email address."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         submission = serializer.save(status=Submission.Status.PENDING)
         created_at = timezone.now()
         if not submission.stage_history:

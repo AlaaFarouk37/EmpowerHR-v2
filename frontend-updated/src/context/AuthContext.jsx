@@ -7,7 +7,7 @@ const ROLE_HOME = {
   Candidate: "/candidate/dashboard",
   TeamMember: "/employee/dashboard",
   TeamLeader: "/leader/dashboard",
-  HRManager: "/hr/dashboard",
+  HRManager: "/hr/attendance",
   Admin: "/admin/organization",
 };
 

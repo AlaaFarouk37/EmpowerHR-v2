@@ -7,6 +7,7 @@
 @import './styles/workspace.css';
 @import './styles/design-system.css';
 @import './styles/employee-portal.css';
+@import './styles/candidate.css';
 @import './styles/dark-mode-overrides.css';
 
 /* Responsive Utilities (Mobile/Tablet Overrides) */

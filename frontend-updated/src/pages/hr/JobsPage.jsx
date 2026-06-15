@@ -514,15 +514,6 @@ export function HRJobsPage() {
               {t('Active only')}
            </button>
         </div>
-        
-        <div style={{ display: 'flex', gap: 12 }}>
-           <Btn variant="secondary" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
-              <Filter size={16} style={{ marginRight: 8 }} /> {t('Neural Filters')}
-           </Btn>
-           <Btn variant="outline" style={{ borderRadius: 12, height: 44, fontWeight: 800 }}>
-              <Globe size={16} style={{ marginRight: 8 }} /> {t('Global Cohorts')}
-           </Btn>
-        </div>
       </div>
 
       {/* Neural Jobs Ledger */}

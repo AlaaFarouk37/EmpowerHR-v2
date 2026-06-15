@@ -1,20 +1,13 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  changePassword,
-} from '../../api/index.js';
-import { Spinner, Btn, Badge, Modal, Input, useToast } from "../../components/shared/index.jsx";
+import { changePassword, getMyProfile } from '../../api/index.js';
+import { Btn, Modal, Input, useToast } from "../../components/shared/index.jsx";
 import { useAuth } from '../../context/AuthContext';
-import { useLanguage } from '../../context/LanguageContext';
-import { 
-  User, 
-  Shield, 
-  Activity, 
-  ChevronRight, 
+import {
+  User,
+  Shield,
+  Activity,
   Lock,
-  Globe,
-  Settings,
-  Camera,
   Mail,
   Phone,
   Briefcase,
@@ -26,22 +19,30 @@ import {
   FileText
 } from 'lucide-react';
 
+const fmtDate = (value) => {
+  if (!value) return '';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime())
+    ? value
+    : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
 /* --- Odoo-Inspired Smart Action Button --- */
 const SmartButton = ({ icon: Icon, label, value, subValue, color = "#DC2626", onClick }) => (
-  <button 
+  <button
     onClick={onClick}
     className="glass-card-employee"
-    style={{ 
-      display: 'flex', flex: 1, minWidth: 160, padding: '16px 20px', 
-      gap: 16, alignItems: 'center', cursor: 'pointer', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    style={{
+      display: 'flex', flex: 1, minWidth: 160, padding: '16px 20px',
+      gap: 16, alignItems: 'center', cursor: onClick ? 'pointer' : 'default', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
       border: '1.5px solid transparent', textAlign: 'left', background: 'rgba(255,255,255,0.8)'
     }}
     onMouseEnter={(e) => { e.currentTarget.style.borderColor = color; e.currentTarget.style.transform = 'translateY(-4px)'; }}
     onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.transform = 'translateY(0)'; }}
   >
-    <div style={{ 
-      width: 48, height: 48, borderRadius: 14, background: `${color}10`, color: color, 
-      display: 'grid', placeItems: 'center', flexShrink: 0 
+    <div style={{
+      width: 48, height: 48, borderRadius: 14, background: `${color}10`, color: color,
+      display: 'grid', placeItems: 'center', flexShrink: 0
     }}>
       <Icon size={22} />
     </div>
@@ -53,79 +54,62 @@ const SmartButton = ({ icon: Icon, label, value, subValue, color = "#DC2626", on
   </button>
 );
 
-const ProfileHeader = ({ user, details, t }) => (
+const ProfileHeader = ({ user, details }) => (
   <div style={{ marginBottom: 40 }}>
     <div style={{ height: 200, background: 'linear-gradient(135deg, #1E293B, #0F172A)', borderRadius: '32px 32px 0 0', position: 'relative', overflow: 'hidden' }}>
       <div style={{ position: 'absolute', inset: 0, opacity: 0.1, background: 'radial-gradient(circle at 20% 50%, #DC2626 0%, transparent 50%)' }} />
       <div style={{ position: 'absolute', bottom: -60, left: 40, display: 'flex', alignItems: 'flex-end', gap: 24, zIndex: 10 }}>
-        <div style={{ 
-          width: 140, height: 140, borderRadius: 32, background: '#fff', padding: 4, 
-          boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)'
+        <div style={{
+          width: 140, height: 140, borderRadius: 32, background: '#fff', padding: 4,
+          boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)', position: 'relative'
         }}>
-          <div style={{ 
-            width: '100%', height: '100%', borderRadius: 28, 
+          <div style={{
+            width: '100%', height: '100%', borderRadius: 28,
             background: 'linear-gradient(135deg, #F1F5F9, #E2E8F0)',
             display: 'grid', placeItems: 'center', fontSize: 48, fontWeight: 900, color: '#94A3B8'
           }}>
             {user?.full_name?.charAt(0) || 'U'}
           </div>
-          <button style={{ 
-            position: 'absolute', bottom: 8, right: 8, width: 36, height: 36, borderRadius: 12, 
-            background: '#fff', border: '1.5px solid #F1F5F9', display: 'grid', placeItems: 'center', 
-            color: '#1E293B', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
-          }}>
-            <Camera size={16} />
-          </button>
         </div>
         <div style={{ marginBottom: 12 }}>
           <h1 style={{ fontSize: 32, fontWeight: 900, color: '#1E293B', margin: 0, letterSpacing: '-0.02em' }}>{user?.full_name}</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
             <span style={{ fontSize: 16, color: '#64748B', fontWeight: 600 }}>{details?.jobTitle || user?.role}</span>
-            <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#CBD5E1' }} />
-            <span style={{ fontSize: 16, color: '#64748B', fontWeight: 600 }}>{details?.department || 'Operations'}</span>
+            {details?.departmentName && <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#CBD5E1' }} />}
+            {details?.departmentName && <span style={{ fontSize: 16, color: '#64748B', fontWeight: 600 }}>{details.departmentName}</span>}
           </div>
         </div>
       </div>
-      <button style={{ 
-        position: 'absolute', bottom: 20, right: 32, 
-        padding: '10px 20px', borderRadius: 12, background: 'rgba(255,255,255,0.1)',
-        border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontWeight: 700,
-        backdropFilter: 'blur(10px)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8
-      }}>
-        <Camera size={18} />
-        Change Branding
-      </button>
     </div>
-    <div style={{ height: 80 }} /> 
-    
-    {/* Smart Buttons Row */}
+    <div style={{ height: 80 }} />
+
+    {/* Smart Buttons Row — real employee data */}
     <div style={{ display: 'flex', gap: 20, marginTop: 20, overflowX: 'auto', paddingBottom: 10 }}>
-       <SmartButton 
-         icon={Calendar} 
-         label="Time Off" 
-         value={`${details?.totalLeaveBalance || 21} Days`} 
-         subValue="Available"
+       <SmartButton
+         icon={Calendar}
+         label="At Company"
+         value={details?.yearsAtCompany != null ? `${details.yearsAtCompany} yrs` : '—'}
+         subValue={details?.hiring_date ? `Since ${fmtDate(details.hiring_date)}` : null}
          color="#2563EB"
        />
-       <SmartButton 
-         icon={Briefcase} 
-         label="Contract" 
-         value={details?.contractStatus || 'Active'} 
-         subValue={details?.contractExpiry ? `Exp: ${details.contractExpiry}` : 'Permanent'}
-         color={details?.contractStatus === 'Expired' ? '#DC2626' : '#059669'}
+       <SmartButton
+         icon={Briefcase}
+         label="Employment Type"
+         value={details?.employeeType || '—'}
+         subValue={details?.jobLevel ? `Level: ${details.jobLevel}` : null}
+         color="#059669"
        />
-       <SmartButton 
-         icon={Building} 
-         label="Equipment" 
-         value={details?.equipmentCount || 0} 
-         subValue="Assigned Tools"
+       <SmartButton
+         icon={Building}
+         label="Work Location"
+         value={details?.location || '—'}
+         subValue={details?.remoteWork ? 'Remote' : 'On-site'}
          color="#7C3AED"
        />
-       <SmartButton 
-         icon={Activity} 
-         label="Training" 
-         value={`${details?.trainingProgress || 0}%`} 
-         subValue="Completed"
+       <SmartButton
+         icon={Activity}
+         label="Status"
+         value={details?.employmentStatus || '—'}
          color="#EA580C"
        />
     </div>
@@ -139,44 +123,31 @@ const OrgChartSection = ({ user, details }) => (
       Organization Chart
     </h3>
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
-      {/* Manager */}
-      {details?.manager && (
-        <div style={{ padding: '12px 24px', borderRadius: 16, background: '#F8FAFC', border: '1.5px solid #E2E8F0', textAlign: 'center' }}>
-          <div style={{ fontSize: 10, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase' }}>Manager</div>
-          <div style={{ fontWeight: 800, color: '#1E293B' }}>{details.manager.fullName || 'Manager'}</div>
-        </div>
+      {/* Manager (team leader) */}
+      {details?.managerName && (
+        <>
+          <div style={{ padding: '12px 24px', borderRadius: 16, background: '#F8FAFC', border: '1.5px solid #E2E8F0', textAlign: 'center' }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase' }}>Manager</div>
+            <div style={{ fontWeight: 800, color: '#1E293B' }}>{details.managerName}</div>
+          </div>
+          <div style={{ width: 2, height: 20, background: '#E2E8F0' }} />
+        </>
       )}
-      
-      {/* Connector */}
-      <div style={{ width: 2, height: 20, background: '#E2E8F0' }} />
-      
+
       {/* Self */}
       <div style={{ padding: '16px 32px', borderRadius: 20, background: '#DC2626', color: '#fff', textAlign: 'center', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.2)' }}>
         <div style={{ fontSize: 11, fontWeight: 800, opacity: 0.8, textTransform: 'uppercase' }}>You</div>
         <div style={{ fontWeight: 900, fontSize: 18 }}>{user?.full_name}</div>
+        {details?.teamName && <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.85, marginTop: 2 }}>{details.teamName}</div>}
       </div>
-      
-      {/* Subordinates Connector */}
-      {details?.subordinates?.length > 0 && (
-        <>
-          <div style={{ width: 2, height: 20, background: '#E2E8F0' }} />
-          <div style={{ display: 'flex', gap: 16 }}>
-            {details.subordinates.map((sub, i) => (
-              <div key={i} style={{ padding: '10px 20px', borderRadius: 14, background: '#fff', border: '1.5px solid #F1F5F9', textAlign: 'center' }}>
-                <div style={{ fontWeight: 800, color: '#1E293B', fontSize: 13 }}>{sub.fullName}</div>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
     </div>
   </div>
 );
 
 const PulseRequestButton = ({ icon: Icon, label, onClick, color = "#DC2626" }) => (
-  <button 
+  <button
     onClick={onClick}
-    style={{ 
+    style={{
       flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '20px',
       borderRadius: 20, background: '#fff', border: '1.5px solid #F1F5F9', cursor: 'pointer', transition: 'all 0.2s ease',
       outline: 'none'
@@ -221,17 +192,21 @@ const InfoCard = ({ title, items, icon: Icon, onEdit }) => (
 );
 
 export function EmployeeProfilePage() {
-  const { user, logout } = useAuth();
-  const { t } = useLanguage();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const showToast = useToast();
 
-  const details = user?.employee_details || {};
+  const [profile, setProfile] = useState(null);
+  const details = profile || {};
 
   const [activeTab, setActiveTab] = useState('profile');
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ old_password: "", new_password: "", confirm_password: "" });
+
+  useEffect(() => {
+    getMyProfile().then(setProfile).catch(() => {});
+  }, []);
 
   const handlePasswordChange = async (e) => {
     e.preventDefault();
@@ -251,22 +226,20 @@ export function EmployeeProfilePage() {
   return (
     <div className="employee-portal-bg animate-fade-in" style={{ padding: '0 20px' }}>
       <div style={{ maxWidth: 1400, margin: '0 auto' }}>
-        
-        <ProfileHeader user={user} details={details} t={t} />
+
+        <ProfileHeader user={user} details={details} />
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 32, borderBottom: '1.5px solid #E2E8F0', marginBottom: 32 }}>
           {[
             { id: 'profile', label: 'Personal Details', icon: <User size={18} /> },
-            { id: 'career', label: 'Career & Work', icon: <Briefcase size={18} /> },
             { id: 'security', label: 'Security & Privacy', icon: <Shield size={18} /> },
-            { id: 'settings', label: 'App Settings', icon: <Settings size={18} /> }
           ].map(tab => (
-            <button 
+            <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              style={{ 
-                padding: '16px 0', background: 'none', border: 'none', 
+              style={{
+                padding: '16px 0', background: 'none', border: 'none',
                 borderBottom: activeTab === tab.id ? '2px solid #DC2626' : '2px solid transparent',
                 color: activeTab === tab.id ? '#DC2626' : '#64748B',
                 fontSize: 15, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
@@ -281,18 +254,20 @@ export function EmployeeProfilePage() {
         {activeTab === 'profile' && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 400px', gap: 32 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
-               <InfoCard 
+               <InfoCard
                  title="Personal Information"
                  icon={User}
                  onEdit={() => setIsEditModalOpen(true)}
                  items={[
-                   { label: 'Full Name', value: user?.full_name, icon: <User size={18} /> },
-                   { label: 'Email Address', value: user?.email, icon: <Mail size={18} /> },
-                   { label: 'Phone Number', value: '+20 123 456 789', icon: <Phone size={18} /> },
-                   { label: 'Date of Birth', value: '15 May 1995', icon: <Calendar size={18} /> },
+                   { label: 'Full Name', value: user?.full_name || '—', icon: <User size={18} /> },
+                   { label: 'Email Address', value: user?.email || '—', icon: <Mail size={18} /> },
+                   { label: 'Phone Number', value: details?.phoneNumber || '—', icon: <Phone size={18} /> },
+                   { label: 'Date of Birth', value: fmtDate(details?.birth_date) || '—', icon: <Calendar size={18} /> },
+                   { label: 'Gender', value: details?.gender || '—', icon: <User size={18} /> },
+                   { label: 'Marital Status', value: details?.maritalStatus || '—', icon: <Users size={18} /> },
                  ]}
                />
-               
+
                <div className="glass-card-employee" style={{ padding: '32px' }}>
                  <h3 style={{ fontSize: 18, fontWeight: 900, color: '#1E293B', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 10 }}>
                    <Shield size={20} color="#DC2626" />
@@ -307,120 +282,24 @@ export function EmployeeProfilePage() {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
-               <InfoCard 
+               <InfoCard
                  title="Work Information"
                  icon={Briefcase}
                  items={[
-                   { label: 'Employee ID', value: user?.employee_id || 'EMP-1029', icon: <Activity size={18} /> },
-                   { label: 'Joined Date', value: details?.joinedDate || '12 Jan 2024', icon: <Calendar size={18} /> },
-                   { label: 'Department', value: details?.department || 'Product Engineering', icon: <Building size={18} /> },
-                   { label: 'Work Location', value: details?.location || 'Cairo Headquarters', icon: <MapPin size={18} /> },
+                   { label: 'Employee ID', value: user?.employee_id || details?.employeeID || '—', icon: <Activity size={18} /> },
+                   { label: 'Job Title', value: details?.jobTitle || '—', icon: <Briefcase size={18} /> },
+                   { label: 'Department', value: details?.departmentName || '—', icon: <Building size={18} /> },
+                   { label: 'Team', value: details?.teamName || '—', icon: <Users size={18} /> },
+                   { label: 'Work Location', value: details?.location || '—', icon: <MapPin size={18} /> },
+                   { label: 'Joined Date', value: fmtDate(details?.hiring_date) || '—', icon: <Calendar size={18} /> },
+                   { label: 'Employment Type', value: details?.employeeType || '—', icon: <Activity size={18} /> },
                  ]}
                />
-               
-               {/* Skills Visualization */}
-               <div className="glass-card-employee" style={{ padding: '32px' }}>
-                 <h3 style={{ fontSize: 18, fontWeight: 900, color: '#1E293B', marginBottom: 24 }}>Skills Mastery</h3>
-                 <div style={{ display: 'grid', gap: 16 }}>
-                   {(details?.skills?.length > 0 ? details.skills : [
-                     { name: 'UI/UX Design', level: 90 },
-                     { name: 'React Development', level: 85 },
-                     { name: 'Neural Logic', level: 70 }
-                   ]).map((skill, i) => (
-                     <div key={i}>
-                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                         <span style={{ fontSize: 13, fontWeight: 800, color: '#1E293B' }}>{skill.name}</span>
-                         <span style={{ fontSize: 13, fontWeight: 900, color: '#DC2626' }}>{skill.level}%</span>
-                       </div>
-                       <div style={{ height: 6, background: '#F1F5F9', borderRadius: 3, overflow: 'hidden' }}>
-                         <div style={{ width: `${skill.level}%`, height: '100%', background: 'linear-gradient(90deg, #DC2626, #EF4444)', borderRadius: 3 }} />
-                       </div>
-                     </div>
-                   ))}
-                 </div>
-               </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
               <OrgChartSection user={user} details={details} />
-              
-              <div className="glass-card-employee" style={{ padding: '32px' }}>
-                <h3 style={{ fontSize: 16, fontWeight: 900, color: '#1E293B', marginBottom: 20 }}>Work Approvers</h3>
-                <div style={{ display: 'grid', gap: 16 }}>
-                  {[
-                    { label: 'Expenses', name: details?.approverExpenses?.fullName || 'Sarah Chen' },
-                    { label: 'Time Off', name: details?.approverTimeOff?.fullName || 'John Doe' },
-                  ].map((item, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                       <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#DC2626' }} />
-                       <span style={{ fontSize: 13, fontWeight: 700, color: '#64748B' }}>{item.label}:</span>
-                       <span style={{ fontSize: 13, fontWeight: 800, color: '#1E293B' }}>{item.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
-          </div>
-        )}
-
-        {activeTab === 'career' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
-             <div className="glass-card-employee" style={{ padding: '32px' }}>
-                <h3 style={{ fontSize: 18, fontWeight: 900, color: '#1E293B', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 10 }}>
-                   <Calendar size={20} color="#DC2626" />
-                   Hybrid Work Schedule
-                </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
-                   {['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map(day => {
-                     const loc = details?.workSchedule?.[day] || (day === 'Tue' || day === 'Thu' ? 'Home' : 'Office');
-                     return (
-                       <div key={day} style={{ 
-                         padding: '16px 12px', borderRadius: 16, textAlign: 'center',
-                         background: loc === 'Home' ? '#EFF6FF' : '#F8FAFC',
-                         border: loc === 'Home' ? '1.5px solid #DBEAFE' : '1.5px solid #F1F5F9'
-                       }}>
-                         <div style={{ fontSize: 11, fontWeight: 900, color: '#94A3B8', marginBottom: 8 }}>{day}</div>
-                         <div style={{ fontSize: 14, fontWeight: 800, color: loc === 'Home' ? '#2563EB' : '#1E293B' }}>{loc}</div>
-                       </div>
-                     );
-                   })}
-                </div>
-                <p style={{ fontSize: 12, color: '#64748B', marginTop: 20, fontWeight: 600 }}>
-                  This is your default recurring weekly schedule. Contact HR to request changes.
-                </p>
-             </div>
-
-             <div className="glass-card-employee" style={{ padding: '32px' }}>
-                <h3 style={{ fontSize: 18, fontWeight: 900, color: '#1E293B', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 10 }}>
-                   <Briefcase size={20} color="#DC2626" />
-                   Qualified Planning Roles
-                </h3>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                   {(details?.planningRoles || ['Technical Lead', 'System Architect', 'Code Reviewer']).map((role, i) => (
-                     <div key={i} style={{ 
-                       padding: '10px 20px', borderRadius: 12, background: '#FEF2F2', color: '#DC2626',
-                       fontSize: 14, fontWeight: 800, border: '1.5px solid #FEE2E2'
-                     }}>
-                       {role}
-                     </div>
-                   ))}
-                </div>
-                <div style={{ marginTop: 32 }}>
-                   <h4 style={{ fontSize: 14, fontWeight: 900, color: '#1E293B', marginBottom: 16 }}>Career Progression</h4>
-                   <div style={{ height: 100, borderLeft: '2px dashed #E2E8F0', marginLeft: 10, paddingLeft: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
-                      <div style={{ position: 'relative' }}>
-                         <div style={{ position: 'absolute', left: -30, top: 4, width: 10, height: 10, borderRadius: '50%', background: '#DC2626' }} />
-                         <div style={{ fontSize: 14, fontWeight: 800, color: '#1E293B' }}>Senior Engineer</div>
-                         <div style={{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>Current Role • Joined 2024</div>
-                      </div>
-                      <div style={{ position: 'relative', opacity: 0.5 }}>
-                         <div style={{ position: 'absolute', left: -30, top: 4, width: 10, height: 10, borderRadius: '50%', background: '#CBD5E1' }} />
-                         <div style={{ fontSize: 14, fontWeight: 800, color: '#1E293B' }}>Technical Architect</div>
-                         <div style={{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>Next Milestone • Est. 2026</div>
-                      </div>
-                   </div>
-                </div>
-             </div>
           </div>
         )}
 
@@ -451,37 +330,6 @@ export function EmployeeProfilePage() {
              </div>
           </div>
         )}
-
-        {activeTab === 'settings' && (
-          <div style={{ maxWidth: 600 }}>
-             <div className="glass-card-employee" style={{ padding: '32px' }}>
-                <h3 style={{ fontSize: 20, fontWeight: 900, color: '#1E293B', marginBottom: 24 }}>System Settings</h3>
-                <div style={{ display: 'grid', gap: 24 }}>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 24, borderBottom: '1px solid #F1F5F9' }}>
-                      <div>
-                         <div style={{ fontWeight: 800, color: '#1E293B', marginBottom: 4 }}>Language Preference</div>
-                         <div style={{ fontSize: 13, color: '#64748B', fontWeight: 600 }}>English (United States)</div>
-                      </div>
-                      <Globe size={24} color="#DC2626" />
-                   </div>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 24, borderBottom: '1px solid #F1F5F9' }}>
-                      <div>
-                         <div style={{ fontWeight: 800, color: '#1E293B', marginBottom: 4 }}>Notification Center</div>
-                         <div style={{ fontSize: 13, color: '#64748B', fontWeight: 600 }}>Manage email and push alerts.</div>
-                      </div>
-                      <ChevronRight size={20} color="#94A3B8" />
-                   </div>
-                </div>
-             </div>
-             <button onClick={logout} style={{ 
-               marginTop: 32, width: '100%', padding: '16px', borderRadius: 16, 
-               background: '#FEF2F2', border: '1.5px solid #FEE2E2', color: '#DC2626',
-               fontWeight: 800, cursor: 'pointer', transition: 'all 0.2s ease'
-             }}>
-               Sign Out from Account
-             </button>
-          </div>
-        )}
       </div>
 
       <Modal open={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="Edit Profile Details">
@@ -492,7 +340,7 @@ export function EmployeeProfilePage() {
             </div>
             <div>
                <label style={{ display: 'block', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>Phone Number</label>
-               <Input defaultValue="+20 123 456 789" style={{ height: 48, borderRadius: 14 }} />
+               <Input defaultValue={details?.phoneNumber || ''} style={{ height: 48, borderRadius: 14 }} />
             </div>
             <Btn style={{ background: '#DC2626', color: '#fff', height: 48, borderRadius: 14, fontWeight: 800 }} onClick={() => setIsEditModalOpen(false)}>Save Changes</Btn>
          </div>
