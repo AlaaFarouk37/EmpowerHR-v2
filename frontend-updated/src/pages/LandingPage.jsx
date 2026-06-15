@@ -6,31 +6,21 @@ import {
   Menu, X
 } from "lucide-react";
 const logo = "/logo.png";
-const NAV_LINKS = [
+const NAV_ITEMS = [
   {
-    label: "Our Platform",
+    label: 'Our Platform',
+    dropdown: true,
     items: [
-      { title: "Core HR", desc: "Employee data & org management", icon: Users },
-      { title: "Payroll & Benefits", desc: "Automated payroll processing", icon: BarChart3 },
-      { title: "Performance", desc: "Reviews & goal tracking", icon: Target },
-      { title: "Attendance & Shifts", desc: "Time tracking & scheduling", icon: Clock },
+      { title: 'Our Platform', desc: 'Features and capabilities', icon: Zap, href: '#features' },
+      { title: 'Onboarding', desc: 'Streamlined onboarding flows', icon: CheckCircle, href: '#onboarding' },
     ],
   },
   {
-    label: "Solutions",
+    label: 'Company',
+    dropdown: true,
     items: [
-      { title: "For HR Teams", desc: "Streamline HR operations", icon: Heart },
-      { title: "For Leaders", desc: "Team insights & management", icon: TrendingUp },
-      { title: "For Employees", desc: "Self-service portal", icon: Star },
-      { title: "Enterprise", desc: "Scale across your organization", icon: Award },
-    ],
-  },
-  {
-    label: "Company",
-    items: [
-      { title: "About EmpowerHR", desc: "Our mission & team", icon: Globe },
-      { title: "Security", desc: "Enterprise-grade security", icon: ShieldCheck },
-      { title: "Careers", desc: "Join our team", icon: Zap },
+      { title: 'About EmpowerHR', desc: 'Our mission & team', icon: Globe, href: '/about-us' },
+      { title: 'Results', desc: 'Results that speak for themselves', icon: TrendingUp, href: '#results' },
     ],
   },
 ];
@@ -203,39 +193,44 @@ function NavDropdown({ item, isOpen, onToggle }) {
           {item.items.map((sub) => {
             const Icon = sub.icon;
             return (
-              <div
+              <a
                 key={sub.title}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  cursor: "pointer",
-                  transition: "background 0.15s",
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "#FEF2F2")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                href={sub.href || '#'}
+                style={{ textDecoration: 'none', color: 'inherit' }}
               >
                 <div
                   style={{
-                    width: 36,
-                    height: 36,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: "10px 12px",
                     borderRadius: 10,
-                    background: "linear-gradient(135deg, #FEE2E2, #FECACA)",
-                    display: "grid",
-                    placeItems: "center",
-                    color: "#DC2626",
-                    flexShrink: 0,
+                    cursor: "pointer",
+                    transition: "background 0.15s",
                   }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#FEF2F2")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                 >
-                  <Icon size={16} />
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 10,
+                      background: "linear-gradient(135deg, #FEE2E2, #FECACA)",
+                      display: "grid",
+                      placeItems: "center",
+                      color: "#DC2626",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Icon size={16} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#111" }}>{sub.title}</div>
+                    <div style={{ fontSize: 12, color: "#888", marginTop: 1 }}>{sub.desc}</div>
+                  </div>
                 </div>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#111" }}>{sub.title}</div>
-                  <div style={{ fontSize: 12, color: "#888", marginTop: 1 }}>{sub.desc}</div>
-                </div>
-              </div>
+              </a>
             );
           })}
         </div>
@@ -480,8 +475,8 @@ export default function LandingPage() {
           </Link>
 
           {/* Center nav */}
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            {NAV_LINKS.map((item) => (
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {NAV_ITEMS.map((item) => (
               <NavDropdown
                 key={item.label}
                 item={item}
@@ -602,10 +597,8 @@ export default function LandingPage() {
               <Link to="/login" className="cta-btn-primary">
                 Get Started <ArrowRight size={18} />
               </Link>
-              <a href="#features" className="cta-btn-ghost">
-                See Features
-              </a>
-            </div>
+              </div>
+            
 
             <div
               className="hero-trust"
@@ -765,7 +758,7 @@ export default function LandingPage() {
                       borderRadius: 99,
                       background: `rgba(220,38,38,${v / 100})`,
                     }}
-                  />
+                  ></div>
                 ))}
               </div>
             </div>
@@ -902,6 +895,7 @@ export default function LandingPage() {
 
       {/* ── STATS GRID ── */}
       <section
+        id="results"
         style={{
           background: "linear-gradient(160deg, #FEF2F2 0%, #FDF2F8 100%)",
           padding: "100px 32px",
@@ -952,7 +946,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── HOW IT WORKS ── */}
-      <section style={{ padding: "120px 32px", maxWidth: 1200, margin: "0 auto" }}>
+      <section id="onboarding" style={{ padding: "120px 32px", maxWidth: 1200, margin: "0 auto" }}>
         <div style={{ textAlign: "center", marginBottom: 72 }}>
           <div
             style={{
@@ -1027,65 +1021,6 @@ export default function LandingPage() {
               <p style={{ fontSize: 15, color: "#666", lineHeight: 1.7 }}>{item.desc}</p>
             </div>
           ))}
-        </div>
-      </section>
-
-      {/* ── TESTIMONIALS ── */}
-      <section
-        style={{
-          background: "#fff",
-          padding: "100px 32px",
-          borderTop: "1px solid #F0EDE8",
-        }}
-      >
-        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <div style={{ textAlign: "center", marginBottom: 64 }}>
-            <h2
-              style={{
-                fontSize: "clamp(28px, 4vw, 48px)",
-                fontWeight: 900,
-                letterSpacing: "-0.03em",
-                color: "#111",
-              }}
-            >
-              Loved by HR teams worldwide
-            </h2>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 }}>
-            {TESTIMONIALS.map((t, i) => (
-              <div key={i} className="testimonial-card scroll-reveal">
-                <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
-                  {[...Array(5)].map((_, j) => (
-                    <Star key={j} size={16} fill="#DC2626" color="#DC2626" />
-                  ))}
-                </div>
-                <p style={{ fontSize: 16, color: "#333", lineHeight: 1.7, marginBottom: 24, fontWeight: 500 }}>
-                  "{t.quote}"
-                </p>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div
-                    style={{
-                      width: 44,
-                      height: 44,
-                      borderRadius: "50%",
-                      background: "linear-gradient(135deg, #DC2626, #BE185D)",
-                      display: "grid",
-                      placeItems: "center",
-                      color: "#fff",
-                      fontSize: 14,
-                      fontWeight: 800,
-                    }}
-                  >
-                    {t.avatar}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 15, fontWeight: 800, color: "#111" }}>{t.name}</div>
-                    <div style={{ fontSize: 13, color: "#888" }}>{t.title}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
       </section>
 

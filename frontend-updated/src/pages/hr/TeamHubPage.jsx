@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getTeamGoals, getTeamTasks, hrGetTeamOptions, hrGetEmployees, hrGetWeeklyCapacity, getPublicHolidays, createTeamGoal, createTeamTask, approveTeamTask, returnTeamTaskWithNotes } from '../../api/index.js';
+import { getTeamGoals, getTeamTasks, hrGetTeamOptions, hrGetEmployees, hrGetWeeklyCapacity, getPublicHolidays, createTeamGoal, createTeamTask, updateTeamTask, approveTeamTask, returnTeamTaskWithNotes } from '../../api/index.js';
 import { Badge, Btn, EmployeeSelect, Input, Modal, Spinner, Textarea, useToast } from '../../components/shared/index.jsx';
 import ContactEmailModal from '../../components/shared/ContactEmailModal.jsx';
 import { useAuth } from '../../context/AuthContext';
@@ -47,6 +47,11 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [taskForm, setTaskForm] = useState(EMPTY_TASK);
   const [taskSaving, setTaskSaving] = useState(false);
+
+  // Edit-task state — a Team Leader editing a task they created.
+  const [editTask, setEditTask] = useState(null);
+  const [editForm, setEditForm] = useState(null);
+  const [editSaving, setEditSaving] = useState(false);
 
   // Review / contact state (ported from frontend-old/src/pages/leader/TeamPage.jsx)
   const [savingTaskId, setSavingTaskId] = useState(null);
@@ -209,6 +214,51 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
       toast(e?.response?.data?.detail || e?.message || t('Failed to assign task'), 'error');
     } finally {
       setTaskSaving(false);
+    }
+  };
+
+  // A TL may edit only tasks they themselves created and assigned (assignedBy = them).
+  const canEditTask = (task) => isTL && !!task?.assignedBy && (task.assignedBy === user?.full_name || task.assignedBy === user?.email);
+
+  const openEditTask = (task) => {
+    if (!canEditTask(task)) return;
+    setEditTask(task);
+    setEditForm({
+      title: task.title || '',
+      description: task.description || '',
+      priority: task.priority || 'Medium',
+      status: task.status || 'To Do',
+      estimatedHours: task.estimatedHours ?? 1,
+      dueDate: task.dueDate || '',
+      progress: task.progress ?? 0,
+    });
+  };
+
+  const handleUpdateTask = async () => {
+    if (!editTask || !editForm) return;
+    if (!editForm.title.trim() || !Number(editForm.estimatedHours)) {
+      toast(t('Title and estimated hours are required.'), 'error');
+      return;
+    }
+    setEditSaving(true);
+    try {
+      await updateTeamTask(editTask.taskID, {
+        title: editForm.title.trim(),
+        description: editForm.description,
+        priority: editForm.priority,
+        status: editForm.status,
+        progress: Number(editForm.progress || 0),
+        estimatedHours: Math.round(Number(editForm.estimatedHours)),
+        dueDate: editForm.dueDate || null,
+      });
+      toast(t('Task updated'));
+      setEditTask(null);
+      setEditForm(null);
+      await reloadGoalsTasks();
+    } catch (e) {
+      toast(e?.response?.data?.detail || e?.message || t('Failed to update task'), 'error');
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -637,7 +687,12 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
           ) : (
             <div style={{ display: 'grid', gap: 10 }}>
               {selectedDayTasks.map(tk => (
-                <div key={tk.taskID} style={{ padding: 12, background: '#F8FAFC', borderRadius: 12, border: '1px solid #F1F5F9' }}>
+                <div
+                  key={tk.taskID}
+                  onClick={() => openEditTask(tk)}
+                  title={canEditTask(tk) ? t('Edit task') : undefined}
+                  style={{ padding: 12, background: '#F8FAFC', borderRadius: 12, border: '1px solid #F1F5F9', cursor: canEditTask(tk) ? 'pointer' : 'default' }}
+                >
                   <div style={{ fontSize: 13, fontWeight: 800, color: '#1E293B', marginBottom: 4 }}>{tk.title}</div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', marginBottom: 8 }}>{tk.employeeName || tk.employeeID}</div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -702,7 +757,12 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
             ) : otherTasks.map(tk => {
               const isDone = tk.status === 'Done';
               return (
-                <div key={tk.taskID} style={{ padding: '14px 22px', borderBottom: '1px solid #F1F5F9', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                <div
+                  key={tk.taskID}
+                  onClick={() => openEditTask(tk)}
+                  title={canEditTask(tk) ? t('Edit task') : undefined}
+                  style={{ padding: '14px 22px', borderBottom: '1px solid #F1F5F9', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', cursor: canEditTask(tk) ? 'pointer' : 'default' }}
+                >
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 800, color: '#1E293B' }}>{tk.title}</div>
                     <div style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', marginTop: 2 }}>{tk.employeeName || tk.employeeID} · {tk.dueDate || '—'}</div>
@@ -710,7 +770,7 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                     <Badge label={tk.status} color={isDone ? 'green' : tk.status === 'Blocked' ? 'red' : 'gray'} />
                     <button
-                      onClick={() => openContactModalForTask(tk)}
+                      onClick={(e) => { e.stopPropagation(); openContactModalForTask(tk); }}
                       disabled={!tk.employeeEmail}
                       title={tk.employeeEmail ? `${t('Email')} ${tk.employeeEmail}` : t('No email on file')}
                       style={{
@@ -741,7 +801,12 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
             {pendingReviewTasks.length === 0 ? (
               <div style={{ padding: 24, textAlign: 'center', color: '#94A3B8', fontSize: 12 }}>{t('Nothing awaiting your review.')}</div>
             ) : pendingReviewTasks.map(tk => (
-              <div key={tk.taskID} style={{ padding: '14px 22px', borderBottom: '1px solid #F1F5F9', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+              <div
+                key={tk.taskID}
+                onClick={() => openEditTask(tk)}
+                title={canEditTask(tk) ? t('Edit task') : undefined}
+                style={{ padding: '14px 22px', borderBottom: '1px solid #F1F5F9', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', cursor: canEditTask(tk) ? 'pointer' : 'default' }}
+              >
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 800, color: '#1E293B' }}>{tk.title}</div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', marginTop: 2 }}>{tk.employeeName || tk.employeeID} · {tk.dueDate || '—'}</div>
@@ -750,7 +815,7 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
                   {isTL ? (
                     <>
                       <button
-                        onClick={() => handleApproveTask(tk)}
+                        onClick={(e) => { e.stopPropagation(); handleApproveTask(tk); }}
                         disabled={savingTaskId === tk.taskID}
                         title={t('Mark as Reviewed')}
                         style={{
@@ -764,7 +829,7 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
                         <CheckCircle2 size={12} /> {savingTaskId === tk.taskID ? t('Saving...') : t('Mark as Reviewed')}
                       </button>
                       <button
-                        onClick={() => setNoteModal({ open: true, task: tk, note: '' })}
+                        onClick={(e) => { e.stopPropagation(); setNoteModal({ open: true, task: tk, note: '' }); }}
                         disabled={savingTaskId === tk.taskID}
                         title={t('Send back with notes for changes')}
                         style={{
@@ -926,6 +991,85 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
             </Btn>
           </div>
         </div>
+      </Modal>
+
+      {/* ─── Edit Task Modal (TL editing a task they created) ─── */}
+      <Modal
+        open={!!editTask}
+        onClose={() => { setEditTask(null); setEditForm(null); }}
+        title={editTask ? `${t('Edit Task')}: ${editTask.title}` : t('Edit Task')}
+        maxWidth={560}
+      >
+        {editForm && (
+          <div style={{ display: 'grid', gap: 14, padding: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#64748B' }}>
+              {t('Assigned to')}: <strong style={{ color: '#1E293B' }}>{editTask?.employeeName || editTask?.employeeID}</strong>
+            </div>
+            <Input
+              label={t('Task Title')}
+              value={editForm.title}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, title: e.target.value }))}
+            />
+            <Textarea
+              label={t('Description')}
+              value={editForm.description}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, description: e.target.value }))}
+            />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 6 }}>{t('Priority')}</label>
+                <select
+                  value={editForm.priority}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, priority: e.target.value }))}
+                  style={{ width: '100%', height: 44, padding: '0 12px', borderRadius: 12, border: '1.5px solid #E2E8F0', fontSize: 13, fontWeight: 600, outline: 'none', cursor: 'pointer', background: '#fff' }}
+                >
+                  {['Low', 'Medium', 'High'].map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 6 }}>{t('Status')}</label>
+                <select
+                  value={editForm.status}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}
+                  style={{ width: '100%', height: 44, padding: '0 12px', borderRadius: 12, border: '1.5px solid #E2E8F0', fontSize: 13, fontWeight: 600, outline: 'none', cursor: 'pointer', background: '#fff' }}
+                >
+                  {['To Do', 'In Progress', 'Pending Review', 'Done', 'Blocked'].map(s => <option key={s} value={s}>{t(s)}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Input
+                label={t('Est. Hours')}
+                type="number"
+                min="0"
+                step="1"
+                value={editForm.estimatedHours}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, estimatedHours: e.target.value === '' ? '' : Number(e.target.value) }))}
+              />
+              <Input
+                label={t('Progress %')}
+                type="number"
+                min="0"
+                max="100"
+                step="5"
+                value={editForm.progress}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, progress: e.target.value === '' ? '' : Number(e.target.value) }))}
+              />
+            </div>
+            <Input
+              label={t('Due Date')}
+              type="date"
+              value={editForm.dueDate}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, dueDate: e.target.value }))}
+            />
+            <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+              <Btn variant="ghost" onClick={() => { setEditTask(null); setEditForm(null); }} style={{ flex: 1, height: 44, borderRadius: 12, fontWeight: 800 }}>{t('Cancel')}</Btn>
+              <Btn onClick={handleUpdateTask} disabled={editSaving} style={{ flex: 1, height: 44, borderRadius: 12, fontWeight: 900, background: 'var(--red-600)', border: 'none' }}>
+                {editSaving ? t('Saving...') : t('Save Changes')}
+              </Btn>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* ─── Contact via email Modal ─── */}

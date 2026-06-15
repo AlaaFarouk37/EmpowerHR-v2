@@ -815,6 +815,14 @@ class EmployeeLeaveRequestListCreateView(APIView):
             return Response({'error': f"Leave type '{leave_type}' is not configured."},
                             status=status.HTTP_400_BAD_REQUEST)
 
+        # Casual is not filed by employees — it's the label for no-show absence days,
+        # detected from attendance and drawn from Annual automatically.
+        if leave_type_obj.deducts_from_annual:
+            return Response(
+                {'error': f"{leave_type_obj.name} leave is tracked automatically from "
+                          f"absences and cannot be requested."},
+                status=status.HTTP_400_BAD_REQUEST)
+
         # Gender restriction (Maternity/Paternity) and once-per-employment (Hajj).
         eligible, eligibility_error = leave_services.check_eligibility(employee, leave_type_obj)
         if not eligible:
@@ -889,12 +897,21 @@ def _balances_payload(employee, year):
             gender = (lt.restricted_to_gender or '').strip()
             if gender and (employee.gender or '') != gender:
                 continue
+            # Casual has no balance of its own: it's the label for no-show absence
+            # days, capped at its own max (7) but still draining Annual past 7. It is
+            # reported as a used/cap allowance and is NOT requestable.
+            cap = lt.max_days_per_year
             synthetic = dict(annual_data)
             synthetic.update({
                 'balanceID': f'annual-{lt.name.lower()}-{year}',
                 'leaveTypeName': lt.name,
                 'leaveType': lt.leave_type_id,
+                'entitledDays': cap,
+                'usedDays': min(no_show, cap) if cap is not None else no_show,
+                'remainingDays': max(cap - no_show, 0) if cap is not None else None,
+                'noShowDays': no_show,
                 'drawsFromAnnual': True,
+                'requestable': False,
             })
             data.append(synthetic)
     return data

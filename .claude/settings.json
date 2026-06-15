@@ -32,7 +32,17 @@
       "Bash(CI=false BUILD_PATH=build_verify6 npx react-scripts build)",
       "Bash(python -m py_compile resume_pipeline/views.py)",
       "Bash(CI=false BUILD_PATH=build_verify7 npx react-scripts build)",
-      "Bash(python -m py_compile employee_management/views.py)"
+      "Bash(python -m py_compile employee_management/views.py)",
+      "Bash(ls -la db.sqlite3)",
+      "Bash(python -c \"import sqlite3; c=sqlite3.connect\\('db.sqlite3'\\); print\\([r[0] for r in c.execute\\(\\\\\"select name from sqlite_master where type='table' and \\(name like '%Attendance%' or name like '%WorkTask%'\\)\\\\\"\\)]\\)\")",
+      "Bash(python -)",
+      "Bash(python manage.py seed_overtime_worklogs --created 2026-06-14 --dry-run)",
+      "Bash(python manage.py seed_overtime_worklogs --dry-run)",
+      "Bash(python manage.py seed_overtime_worklogs)",
+      "Bash(ls backend/*.txt backend/requirements*)",
+      "Bash(ls *.txt requirements*)",
+      "Bash(CI=false BUILD_PATH=build_verify9 npx react-scripts build)",
+      "Bash(CI=false BUILD_PATH=build_verify10 npx react-scripts build)"
     ]
   }
 }

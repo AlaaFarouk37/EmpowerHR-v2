@@ -80,9 +80,10 @@ export function EmployeeLeaveManagementPage() {
 
   const PALETTE = ['#DC2626', '#EA580C', '#2563EB', '#7C3AED', '#0891B2'];
 
-  // Leave-type options come straight from the configured types in the system.
+  // Requestable types only — Casual draws from Annual and is logged from absences,
+  // so it is not something an employee files.
   const leaveTypeOptions = useMemo(
-    () => balanceRows.map(b => b.leaveTypeName),
+    () => balanceRows.filter(b => !b.drawsFromAnnual).map(b => b.leaveTypeName),
     [balanceRows],
   );
 
@@ -98,6 +99,7 @@ export function EmployeeLeaveManagementPage() {
     used: b.usedDays || 0,
     total: b.entitledDays,             // null => uncapped (e.g. Unpaid)
     remaining: b.remainingDays,        // null => uncapped
+    drawsFromAnnual: !!b.drawsFromAnnual,
     color: PALETTE[i % PALETTE.length],
   })), [balanceRows]);
 
@@ -149,8 +151,14 @@ export function EmployeeLeaveManagementPage() {
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(balances.length, 1)}, 1fr)`, gap: 24, marginBottom: 32 }}>
           {balances.map(b => {
             const capped = b.total !== null && b.total !== undefined;
-            const remaining = capped ? b.total - b.used : null;
-            const pct = capped && b.total > 0 ? Math.max(0, Math.min(100, (remaining / b.total) * 100)) : 100;
+            const fromAnnual = b.drawsFromAnnual;
+            // Casual shows days *used* against its 7-day cap (it has no balance of its
+            // own — absences drain Annual). Other types show days *remaining*, which
+            // for Annual already reflects no-show absences.
+            const headline = fromAnnual ? b.used : b.remaining;
+            const pct = capped && b.total > 0
+              ? Math.max(0, Math.min(100, (headline / b.total) * 100))
+              : 100;
             return (
               <div key={b.label} className="glass-card-employee" style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
                 <div style={{ position: 'relative', width: 80, height: 80 }}>
@@ -166,16 +174,21 @@ export function EmployeeLeaveManagementPage() {
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 14, fontWeight: 900, color: '#1E293B'
                   }}>
-                    {capped ? remaining : '∞'}
+                    {capped ? headline : '∞'}
                   </div>
                 </div>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{b.label}</div>
                   <div style={{ fontSize: 20, fontWeight: 900, color: '#1E293B', marginTop: 2 }}>
                     {capped
-                      ? <>{remaining} / {b.total} <span style={{ fontSize: 12, color: '#94A3B8' }}>Days</span></>
+                      ? (fromAnnual
+                          ? <>{b.used} / {b.total} <span style={{ fontSize: 12, color: '#94A3B8' }}>used</span></>
+                          : <>{b.remaining} / {b.total} <span style={{ fontSize: 12, color: '#94A3B8' }}>Days</span></>)
                       : <>{b.used} <span style={{ fontSize: 12, color: '#94A3B8' }}>used (uncapped)</span></>}
                   </div>
+                  {fromAnnual && (
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', marginTop: 2 }}>Absence days — drawn from Annual (unpaid)</div>
+                  )}
                 </div>
               </div>
             );

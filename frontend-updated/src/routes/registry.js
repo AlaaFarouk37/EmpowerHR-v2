@@ -6,6 +6,7 @@ import EmployeeLogin  from "../pages/EmployeeLogin";
 import CandidateLogin from "../pages/CandidateLogin";
 import Unauthorized   from "../pages/Unauthorized";
 import LandingPage    from "../pages/LandingPage";
+import AboutUsPage    from "../pages/AboutUsPage";
 
 // HR pages
 import { HRDashboardPage  } from "../pages/hr/DashboardPage";
@@ -116,6 +117,7 @@ export const PUBLIC_ROUTES = [
   { path: "/candidate/login", element: <CandidateLogin /> },
   { path: "/careers", element: <EmployeeCareersPage /> },
   { path: "/unauthorized", element: <Unauthorized /> },
+  { path: "/about-us", element: <AboutUsPage /> },
 ];
 
 export const PROTECTED_ROUTES = [

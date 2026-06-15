@@ -10,7 +10,10 @@
       "Bash(python manage.py shell -c \"exec\\(open\\('_seed_jobs.py'\\).read\\(\\)\\)\")",
       "Bash(python -c \"import ast,sys; ast.parse\\(open\\(r'c:/Users/Alaa Farouk/Downloads/EmpowerHR-GraduationProject-main/EmpowerHR-GraduationProject-main/backend/employee_management/views.py',encoding='utf-8'\\).read\\(\\)\\); print\\('views.py OK'\\)\")",
       "Bash(python -c \"import ast,sys; ast.parse\\(open\\(r'c:/Users/Alaa Farouk/Downloads/EmpowerHR-GraduationProject-main/EmpowerHR-GraduationProject-main/backend/employee_management/urls.py',encoding='utf-8'\\).read\\(\\)\\); print\\('urls.py OK'\\)\")",
-      "Bash(python \"c:/Users/Alaa Farouk/Downloads/EmpowerHR-GraduationProject-main/EmpowerHR-GraduationProject-main/backend/_test_routing.py\")"
+      "Bash(python \"c:/Users/Alaa Farouk/Downloads/EmpowerHR-GraduationProject-main/EmpowerHR-GraduationProject-main/backend/_test_routing.py\")",
+      "Bash(python manage.py test Attendance_and_Leave -v 1)",
+      "Bash(python manage.py shell -c \"from employee_management.models import WorkTask, WorkTaskLog; print\\('WorkTask rows:', WorkTask.objects.count\\(\\)\\); print\\('WorkTaskLog rows \\(will cascade-delete\\):', WorkTaskLog.objects.count\\(\\)\\)\")",
+      "Bash(python manage.py shell -c ' *)"
     ]
   }
 }
