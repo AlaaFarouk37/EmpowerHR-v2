@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { changePassword, getMyProfile } from '../../api/index.js';
+import { changePassword, getMyProfile, updateMyProfile } from '../../api/index.js';
 import { Btn, Modal, Input, useToast } from "../../components/shared/index.jsx";
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -192,7 +192,7 @@ const InfoCard = ({ title, items, icon: Icon, onEdit }) => (
 );
 
 export function EmployeeProfilePage() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const navigate = useNavigate();
   const showToast = useToast();
 
@@ -203,10 +203,37 @@ export function EmployeeProfilePage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ old_password: "", new_password: "", confirm_password: "" });
+  const [editForm, setEditForm] = useState({ fullName: "", phoneNumber: "" });
+  const [savingProfile, setSavingProfile] = useState(false);
 
   useEffect(() => {
     getMyProfile().then(setProfile).catch(() => {});
   }, []);
+
+  const openEditModal = () => {
+    setEditForm({
+      fullName: user?.full_name || details?.fullName || "",
+      phoneNumber: details?.phoneNumber || "",
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleProfileSave = async () => {
+    const fullName = editForm.fullName.trim();
+    if (!fullName) return showToast("Full name cannot be empty", "error");
+    setSavingProfile(true);
+    try {
+      const updated = await updateMyProfile({ fullName, phoneNumber: editForm.phoneNumber.trim() });
+      setProfile(updated);
+      updateUser({ full_name: updated?.fullName ?? fullName });
+      showToast("Profile updated", "success");
+      setIsEditModalOpen(false);
+    } catch (err) {
+      showToast(err.message || "Failed to update profile", "error");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   const handlePasswordChange = async (e) => {
     e.preventDefault();
@@ -257,7 +284,7 @@ export function EmployeeProfilePage() {
                <InfoCard
                  title="Personal Information"
                  icon={User}
-                 onEdit={() => setIsEditModalOpen(true)}
+                 onEdit={openEditModal}
                  items={[
                    { label: 'Full Name', value: user?.full_name || '—', icon: <User size={18} /> },
                    { label: 'Email Address', value: user?.email || '—', icon: <Mail size={18} /> },
@@ -336,13 +363,13 @@ export function EmployeeProfilePage() {
          <div style={{ display: 'grid', gap: 20 }}>
             <div>
                <label style={{ display: 'block', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>Full Name</label>
-               <Input defaultValue={user?.full_name} style={{ height: 48, borderRadius: 14 }} />
+               <Input value={editForm.fullName} onChange={e => setEditForm({ ...editForm, fullName: e.target.value })} style={{ height: 48, borderRadius: 14 }} />
             </div>
             <div>
                <label style={{ display: 'block', fontSize: 11, fontWeight: 900, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>Phone Number</label>
-               <Input defaultValue={details?.phoneNumber || ''} style={{ height: 48, borderRadius: 14 }} />
+               <Input value={editForm.phoneNumber} onChange={e => setEditForm({ ...editForm, phoneNumber: e.target.value })} style={{ height: 48, borderRadius: 14 }} />
             </div>
-            <Btn style={{ background: '#DC2626', color: '#fff', height: 48, borderRadius: 14, fontWeight: 800 }} onClick={() => setIsEditModalOpen(false)}>Save Changes</Btn>
+            <Btn loading={savingProfile} style={{ background: '#DC2626', color: '#fff', height: 48, borderRadius: 14, fontWeight: 800 }} onClick={handleProfileSave}>Save Changes</Btn>
          </div>
       </Modal>
     </div>

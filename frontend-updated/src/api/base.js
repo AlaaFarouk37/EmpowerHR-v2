@@ -120,6 +120,7 @@ export const api = {
   get:    (url)       => request(url, { headers: authHeaders() }),
   post:   (url, data) => request(url, { method: 'POST', headers: authHeaders(), body: JSON.stringify(data) }),
   put:    (url, data) => request(url, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(data) }),
+  patch:  (url, data) => request(url, { method: 'PATCH', headers: authHeaders(), body: JSON.stringify(data) }),
   delete: (url)       => request(url, { method: 'DELETE', headers: authHeaders() }),
   postForm: (url, formData) => request(url, {
     method: 'POST',

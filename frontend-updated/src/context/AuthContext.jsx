@@ -326,6 +326,17 @@ export function AuthProvider({ children }) {
     return ROLE_HOME[userData.role] ?? "/login";
   }, []);
 
+  // Merge already-persisted field changes (e.g. full_name from a profile save) into the session user.
+  const updateUser = useCallback((fields) => {
+    if (!fields) return;
+    setUser((prev) => {
+      if (!prev) return prev;
+      const nextUser = { ...prev, ...fields };
+      persistSessionUser(nextUser);
+      return nextUser;
+    });
+  }, []);
+
   const updateAccountPreferences = useCallback(async (preferences) => {
     const data = await updateMyPreferences(preferences || {});
     // Merge existing user data with updated preferences to avoid losing non-preference fields (like role)
@@ -386,6 +397,7 @@ export function AuthProvider({ children }) {
       hasPermission,
       canAccessPath,
       resolvePath,
+      updateUser,
       updateAccountPreferences,
       notificationPreferences,
       updateNotificationPreference,

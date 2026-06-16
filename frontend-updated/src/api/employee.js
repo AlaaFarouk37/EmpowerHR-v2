@@ -56,6 +56,8 @@ export const getMyPayroll = async (employeeID) => toList(await api.get(`/payroll
 
 // The requesting user's own employee record (real profile data, any internal role).
 export const getMyProfile = async () => api.get('/employee_management/employee/profile/');
+// Self-service update of editable personal fields (fullName, phoneNumber).
+export const updateMyProfile = (data) => api.patch('/employee_management/employee/profile/', data);
 
 export const getMyReviews = async (employeeID) => toList(await api.get(`/employee_management/employee/reviews/${employeeID ? `?employee_id=${employeeID}` : ''}`));
 export const acknowledgeMyReview = (id, data = {}) => api.post(`/employee_management/employee/reviews/${id}/acknowledge/`, data);

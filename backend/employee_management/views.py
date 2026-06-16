@@ -3912,23 +3912,67 @@ class AdminTicketStatusView(APIView):
 
 class EmployeeProfileView(APIView):
     """GET /employee_management/employee/profile/ — the requesting user's own
-    employee record (read-only). Available to any internal employee, so the
-    profile pages can show real data without HR-level permissions."""
+    employee record. Available to any internal employee, so the profile pages
+    can show real data without HR-level permissions.
+
+    PATCH allows the employee to update a narrow set of self-editable personal
+    fields (name, phone). All other fields remain HR-managed."""
     permission_classes = [IsAuthenticated, IsInternalEmployee]
 
-    def get(self, request):
+    # Fields an employee is allowed to change on their own profile.
+    SELF_EDITABLE_FIELDS = {'fullName', 'phoneNumber'}
+
+    def _get_employee(self, request):
         employee_id = getattr(request.user, 'employee_id', None)
         if not employee_id:
-            return Response({'error': 'No employee linked to this account.'},
-                            status=status.HTTP_404_NOT_FOUND)
+            return None, Response({'error': 'No employee linked to this account.'},
+                                  status=status.HTTP_404_NOT_FOUND)
         employee = Employee.objects.filter(employeeID=employee_id, isDeleted=False).first()
         if not employee:
-            return Response({'error': 'Employee record not found.'},
-                            status=status.HTTP_404_NOT_FOUND)
+            return None, Response({'error': 'Employee record not found.'},
+                                  status=status.HTTP_404_NOT_FOUND)
+        return employee, None
+
+    def _serialize(self, employee):
         data = EmployeeSerializer(employee).data
         # Resolve FK ids to human-readable names so the profile page shows real labels.
         data['departmentName'] = employee.department.name if employee.department_id else None
         data['teamName'] = employee.team.name if employee.team_id else None
         manager = employee.team.leader if (employee.team_id and employee.team.leader_id) else None
         data['managerName'] = manager.fullName if manager else None
-        return Response(data)
+        return data
+
+    def get(self, request):
+        employee, error = self._get_employee(request)
+        if error:
+            return error
+        return Response(self._serialize(employee))
+
+    def patch(self, request):
+        employee, error = self._get_employee(request)
+        if error:
+            return error
+
+        updates = {k: v for k, v in request.data.items() if k in self.SELF_EDITABLE_FIELDS}
+        if not updates:
+            return Response({'error': 'No editable fields provided.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        if 'fullName' in updates and not str(updates['fullName']).strip():
+            return Response({'error': 'Full name cannot be empty.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if 'fullName' in updates:
+            updates['fullName'] = str(updates['fullName']).strip()
+
+        for field, value in updates.items():
+            setattr(employee, field, value)
+        employee.save(update_fields=list(updates.keys()))
+
+        # Keep the linked User account's display name in sync with the employee record.
+        if 'fullName' in updates and request.user.full_name != updates['fullName']:
+            request.user.full_name = updates['fullName']
+            request.user.save(update_fields=['full_name'])
+
+        return Response(self._serialize(employee))
+
+    put = patch
