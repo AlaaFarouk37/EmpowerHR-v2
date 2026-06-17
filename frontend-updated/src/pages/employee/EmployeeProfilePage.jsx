@@ -295,17 +295,19 @@ export function EmployeeProfilePage() {
                  ]}
                />
 
-               <div className="glass-card-employee" style={{ padding: '32px' }}>
-                 <h3 style={{ fontSize: 18, fontWeight: 900, color: '#1E293B', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 10 }}>
-                   <Shield size={20} color="#DC2626" />
-                   Quick Pulse Actions
-                 </h3>
-                 <div style={{ display: 'flex', gap: 16 }}>
-                    <PulseRequestButton icon={Activity} label="Appraisal" color="#8B5CF6" onClick={() => navigate('/employee/reviews')} />
-                    <PulseRequestButton icon={Calendar} label="Time Off" color="#2563EB" onClick={() => navigate('/employee/leave-requests')} />
-                    <PulseRequestButton icon={FileText} label="Sign Doc" color="#059669" onClick={() => navigate('/employee/documents')} />
+               {!['HRManager', 'Admin'].includes(user?.role) && (
+                 <div className="glass-card-employee" style={{ padding: '32px' }}>
+                   <h3 style={{ fontSize: 18, fontWeight: 900, color: '#1E293B', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 10 }}>
+                     <Shield size={20} color="#DC2626" />
+                     Quick Pulse Actions
+                   </h3>
+                   <div style={{ display: 'flex', gap: 16 }}>
+                      <PulseRequestButton icon={Activity} label="Appraisal" color="#8B5CF6" onClick={() => navigate('/employee/reviews')} />
+                      <PulseRequestButton icon={Calendar} label="Time Off" color="#2563EB" onClick={() => navigate('/employee/leave-requests')} />
+                      <PulseRequestButton icon={FileText} label="Sign Doc" color="#059669" onClick={() => navigate('/employee/documents')} />
+                   </div>
                  </div>
-               </div>
+               )}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>

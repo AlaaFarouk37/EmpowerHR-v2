@@ -86,6 +86,32 @@ MEMBER_LEVELS = [
     'Mid-level', 'Intern', 'Senior', 'Mid-level',
 ]
 
+# Full employee_management_job catalog: 23 titles x 16 levels (368) + 12 standalone
+# null-level titles = 380 rows. Seeded so the command is self-contained on a fresh
+# DB; existing rows are reused via get_or_create and never duplicated.
+JOB_CATALOG_LEVELS = [
+    'C-Level', 'Director', 'Group Product Manager', 'Head of Products', 'Intern',
+    'Junior', 'Manager', 'Mid-level', 'Principal', 'Senior', 'Senior Manager',
+    'Senior Principal', 'Senior Staff', 'Staff', 'Team Lead', 'VP',
+]
+JOB_CATALOG_TITLES = [
+    'AI & Automation Engineer', 'Backend Engineer', 'CRM Developer', 'Data Analytics',
+    'Data Engineer', 'Data Scientist', 'DevOps / SRE / Platform',
+    'Embedded Systems Engineer', 'Engineering Manager',
+    'Executive (C-level, director, etc.)', 'Frontend Engineer', 'Full-stack Engineer',
+    'Hardware Engineer (Semiconductors, Digital Design, Electronics, etc)',
+    'Mobile Development Engineer', 'Product Manager', 'Product Owner',
+    'QA / SDET Engineer', 'R&D Engineer (Computer Vision, NLP, etc.)', 'Scrum Master',
+    'Security/Network Engineer', 'Systems Architect', 'Technical Support',
+    'UI/UX Designer/Engineer',
+]
+JOB_CATALOG_STANDALONE = [
+    'Account Executive', 'Customer Success Engineer', 'Customer Success Lead',
+    'Engineering Team Lead', 'Finance Team Lead', 'Financial Analyst', 'HR Manager',
+    'People Ops Lead', 'People Ops Specialist', 'Platform Administrator',
+    'Sales Team Lead', 'Software Engineer',
+]
+
 # 20 members: (full name, gender). Four per team, in team order.
 MEMBERS = [
     ('Ahmed Sobhy', 'Male'),   ('Sara Kamal', 'Female'), ('Youssef Adel', 'Male'),  ('Nourhan Gamal', 'Female'),
@@ -195,6 +221,7 @@ class Command(BaseCommand):
         self.notes = []
         self._wipe()
         self._leave_types()
+        self._jobs_catalog()
         self._org()
         self._attendance()          # builds normal + overtime + suspicious records
         self._tasks_and_logs()      # task history + utilization-week logs + auto-OT logs
@@ -251,6 +278,15 @@ class Command(BaseCommand):
                           'once_per_employment': once},
             )
 
+    # ─── job catalog (employee_management_job; shared config, never wiped) ─────
+    def _jobs_catalog(self):
+        zero = {'base_salary': Decimal('0'), 'benchmark_salary': Decimal('0')}
+        for title in JOB_CATALOG_TITLES:
+            for level in JOB_CATALOG_LEVELS:
+                Job.objects.get_or_create(title=title, level=level, defaults=zero)
+        for title in JOB_CATALOG_STANDALONE:
+            Job.objects.get_or_create(title=title, level=None, defaults=zero)
+
     # ─── org structure ────────────────────────────────────────────────────────
     def _job(self, title, level):
         """An existing employee_management_job row (never created here)."""
@@ -260,7 +296,7 @@ class Command(BaseCommand):
     def _make_user_employee(self, full_name, role, gender, dept, team,
                             hiring_date=None, has_disability=False,
                             birth_date=None, job=None, is_staff=False,
-                            monthly=12000):
+                            monthly=12000, marital='Single', dependents=0):
         emp = Employee.objects.create(
             fullName=full_name, department=dept, team=team,
             job=job,
@@ -270,6 +306,7 @@ class Command(BaseCommand):
             default_clock_in=time(9, 0), default_clock_out=time(17, 0),
             contracted_hours=Decimal('40.00'), contracted_hours_day=Decimal('8.00'),
             monthlyIncome=monthly, performanceRating=4,
+            maritalStatus=marital, numberOfDependents=dependents,
         )
         User.objects.create_user(
             email=email_for(full_name), password=PASSWORD, full_name=full_name,
@@ -285,14 +322,16 @@ class Command(BaseCommand):
             'Karim Mansour', User.Role.ADMIN, 'Male', self.departments[1], None,
             hiring_date=self.today - timedelta(days=TEN_YEARS),
             birth_date=date(1985, 3, 4), job=self._job(*ADMIN_JOB),
-            is_staff=True, monthly=30000)
+            is_staff=True, monthly=30000, marital='Married', dependents=2)
         self.hr = self._make_user_employee(
             'Yasmin Abdelrahman', User.Role.HR_MANAGER, 'Female', self.departments[1], None,
             hiring_date=self.today - timedelta(days=ONE_YEAR + 800),
             birth_date=date(1988, 7, 19), job=self._job(*HR_JOB),
-            is_staff=True, monthly=26000)
+            is_staff=True, monthly=26000, marital='Married', dependents=3)
 
         # team leaders (one per team) — real catalog title at the 'Team Lead' level
+        tl_marital = ['Married', 'Divorced', 'Married', 'Single', 'Married']
+        tl_dependents = [2, 1, 3, 0, 2]
         self.leaders = []
         for i, (team_name, leader_name) in enumerate(TEAMS):
             tl = self._make_user_employee(
@@ -300,23 +339,28 @@ class Command(BaseCommand):
                 self.departments[i], self.teams[i],
                 hiring_date=self.today - timedelta(days=TEN_YEARS - 200),
                 birth_date=date(1986, 1, 10),
-                job=self._job(TL_JOB_TITLES[i], TL_LEVEL), monthly=20000)
+                job=self._job(TL_JOB_TITLES[i], TL_LEVEL), monthly=20000,
+                marital=tl_marital[i], dependents=tl_dependents[i])
             self.teams[i].leader = tl
             self.teams[i].save(update_fields=['leader'])
             self.leaders.append(tl)
 
         # 20 members, 4 per team — real catalog title + tenure-graded level
+        marital_cycle = ['Married', 'Single', 'Married', 'Divorced', 'Single']
         self.members = []
         for idx, (name, gender) in enumerate(MEMBERS):
             team_i = idx // 4
             birth = date(1973, 5, 6) if idx in SENIOR_AGE_IDX else date(1995, 6, 1)
+            marital = marital_cycle[idx % len(marital_cycle)]
+            dependents = (idx % 3 + 1) if marital == 'Married' else (
+                idx % 3 if marital == 'Divorced' else 0)
             emp = self._make_user_employee(
                 name, User.Role.TEAM_MEMBER, gender,
                 self.departments[team_i], self.teams[team_i],
                 hiring_date=self.today - timedelta(days=TENURE[idx]),
                 has_disability=idx in DISABLED_IDX, birth_date=birth,
                 job=self._job(TEAM_JOB_TITLES[team_i][idx % 4], MEMBER_LEVELS[idx]),
-                monthly=14000)
+                monthly=14000, marital=marital, dependents=dependents)
             self.members.append(emp)
 
     # ─── attendance (Apr–Jun, cap 6/21) ───────────────────────────────────────
@@ -719,6 +763,7 @@ class Command(BaseCommand):
             ('Employee', seeded_emps.count()),
             ('Department', Department.objects.filter(name__in=DEPARTMENTS).count()),
             ('Team', Team.objects.filter(name__in=[t[0] for t in TEAMS]).count()),
+            ('Job catalog (all)', Job.objects.count()),
             ('LeaveRequest', LeaveRequest.objects.filter(employee__in=seeded_emps).count()),
             ('AttendanceRecord', AttendanceRecord.objects.filter(employee__in=seeded_emps).count()),
             ('WorkTask', WorkTask.objects.filter(employee__in=seeded_emps).count()),
