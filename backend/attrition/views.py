@@ -250,10 +250,14 @@ class AttritionPredictionLatestView(APIView):
                 predictedAt=entry['latest']
             )
             results.append(pred)
+            # Escalation baseline = the employee's most recent prediction from a
+            # DIFFERENT feedback form. Re-running the same form must not count as a
+            # second, corroborating submission.
             previous = (
                 AttritionPrediction.objects
                 .filter(employeeID_id=entry['employeeID'])
                 .exclude(predictionID=pred.predictionID)
+                .exclude(feedbackFormID=pred.feedbackFormID)
                 .order_by('-predictedAt')
                 .first()
             )
@@ -262,15 +266,18 @@ class AttritionPredictionLatestView(APIView):
         serializer = AttritionPredictionSerializer(results, many=True)
         data = serializer.data
 
-        # Decorate each row with previous-cycle info and an escalation flag.
-        # An employee is "escalated" when their current riskLevel is High AND the
-        # previous cycle was also High AND a follow-up action plan existed for them
-        # (created between the previous prediction and the current one).
+        # Decorate each row with previous-form info and an escalation flag.
+        # An employee is "escalated" when their current riskLevel is Medium/High AND
+        # their most recent prediction from a DIFFERENT feedback form was also
+        # Medium/High — i.e. two independent forms flagged them, not the same form
+        # re-run. hadPreviousActionPlan is surfaced for context but no longer gates it.
+        ELEVATED = (AttritionPrediction.RISK_MEDIUM, AttritionPrediction.RISK_HIGH)
         action_plans = WorkTask.objects.filter(assignedBy__startswith='ActionPlan:')
         for item, pred in zip(data, results):
             prev = previous_by_employee.get(pred.employeeID_id)
             item['previousRiskLevel'] = prev.riskLevel if prev else None
             item['previousPredictedAt'] = prev.predictedAt if prev else None
+            item['previousFeedbackFormID'] = prev.feedbackFormID if prev else None
 
             had_previous_plan = False
             if prev:
@@ -292,10 +299,9 @@ class AttritionPredictionLatestView(APIView):
 
             item['hadPreviousActionPlan'] = had_previous_plan
             item['escalation'] = bool(
-                pred.riskLevel == 'High'
+                pred.riskLevel in ELEVATED
                 and prev is not None
-                and prev.riskLevel == 'High'
-                and had_previous_plan
+                and prev.riskLevel in ELEVATED
             )
 
         return Response(data)

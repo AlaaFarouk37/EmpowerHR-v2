@@ -175,7 +175,7 @@ CORS_ALLOW_ALL_ORIGINS = True
 # Path to skills taxonomy CSV
 SKILLS_TAXONOMY_CSV = os.getenv(
     "SKILLS_TAXONOMY_CSV",
-    str(BASE_DIR / "it-job-roles-skills-analysis.csv"),
+    str(BASE_DIR / "resume_pipeline" / "it-job-roles-skills-analysis.csv"),
 )
 
 # Sentence transformer model

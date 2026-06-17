@@ -886,13 +886,13 @@ def _balances_payload(employee, year):
     annual_data = next(
         (d for d in data if d['leaveTypeName'] == LeaveRequest.TYPE_ANNUAL), None)
     if annual_data is not None:
-        # No-shows (no clock-in, no approved leave) are unpaid and also consumed
-        # from the Annual pool, so they reduce the Annual + Casual remaining shown.
+        # The Annual card reflects APPROVED Annual leave only: remainingDays stays
+        # entitledDays - usedDays (the serializer value). No-shows are still computed
+        # and surfaced as noShowDays (and drive the Casual row below), but they no
+        # longer drain the Annual remaining shown — otherwise heavy absence pushes
+        # the card negative.
         no_show = leave_services.annual_extra_consumed(employee, year)
         annual_data['noShowDays'] = no_show
-        if annual_data['entitledDays'] is not None:
-            annual_data['remainingDays'] = (
-                annual_data['entitledDays'] - annual_data['usedDays'] - no_show)
         for lt in LeaveType.objects.filter(deducts_from_annual=True):
             gender = (lt.restricted_to_gender or '').strip()
             if gender and (employee.gender or '') != gender:

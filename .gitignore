@@ -44,13 +44,10 @@ __pycache__/
 venv/
 .venv/
 env/
-<<<<<<< HEAD
 media/
 staticfiles/
 static/
 logs/
-=======
->>>>>>> 9944dddc (remove frontend.rar)
 
 # IDEs & Editors
 .vscode/

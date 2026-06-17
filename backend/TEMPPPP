@@ -1,9 +1,0 @@
-from employee_management.models import Job, Department, Team
-
-# List all records for each
-print(list(Job.objects.all()))
-print(list(Department.objects.all()))
-print(list(Team.objects.all()))
-
-# Or get a count to see if they are empty
-print(f"Jobs: {Job.objects.count()}, Depts: {Department.objects.count()}")

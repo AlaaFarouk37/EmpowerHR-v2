@@ -8,7 +8,7 @@ This document summarizes the current deployment readiness of the project and the
 
 ### Frontend
 - **Platform:** Vercel
-- **Root directory:** `frontend`
+- **Root directory:** `frontend-updated`
 - **Build command:** `npm run build`
 - **Output directory:** `build`
 - **Key environment variable:**

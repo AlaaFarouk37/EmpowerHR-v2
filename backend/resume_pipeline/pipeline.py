@@ -141,7 +141,7 @@ def extract_experience_years(text: str) -> tuple[float, str]:
     even if the file isn't on the path yet.
     """
     try:
-        from experience_extractor import extract_experience
+        from resume_pipeline.experience_extractor import extract_experience
         result = extract_experience(str(text) if text else "")
         return float(result["total_years"]), result["method"]
     except ImportError:
