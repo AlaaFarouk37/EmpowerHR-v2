@@ -33,6 +33,7 @@ from employee_management.models import (
     ExpenseClaim,
 )
 from payroll.models import Commission, Deduction
+from .seed_jobs import seed_job_catalog
 from Attendance_and_Leave.models import (
     AttendanceRecord, LeaveRequest, TimeCorrectionRequest, LeaveBalance,
 )
@@ -84,32 +85,6 @@ MEMBER_LEVELS = [
     'Principal', 'Intern', 'Senior', 'Junior',
     'Mid-level', 'Senior', 'Staff', 'Junior',
     'Mid-level', 'Intern', 'Senior', 'Mid-level',
-]
-
-# Full employee_management_job catalog: 23 titles x 16 levels (368) + 12 standalone
-# null-level titles = 380 rows. Seeded so the command is self-contained on a fresh
-# DB; existing rows are reused via get_or_create and never duplicated.
-JOB_CATALOG_LEVELS = [
-    'C-Level', 'Director', 'Group Product Manager', 'Head of Products', 'Intern',
-    'Junior', 'Manager', 'Mid-level', 'Principal', 'Senior', 'Senior Manager',
-    'Senior Principal', 'Senior Staff', 'Staff', 'Team Lead', 'VP',
-]
-JOB_CATALOG_TITLES = [
-    'AI & Automation Engineer', 'Backend Engineer', 'CRM Developer', 'Data Analytics',
-    'Data Engineer', 'Data Scientist', 'DevOps / SRE / Platform',
-    'Embedded Systems Engineer', 'Engineering Manager',
-    'Executive (C-level, director, etc.)', 'Frontend Engineer', 'Full-stack Engineer',
-    'Hardware Engineer (Semiconductors, Digital Design, Electronics, etc)',
-    'Mobile Development Engineer', 'Product Manager', 'Product Owner',
-    'QA / SDET Engineer', 'R&D Engineer (Computer Vision, NLP, etc.)', 'Scrum Master',
-    'Security/Network Engineer', 'Systems Architect', 'Technical Support',
-    'UI/UX Designer/Engineer',
-]
-JOB_CATALOG_STANDALONE = [
-    'Account Executive', 'Customer Success Engineer', 'Customer Success Lead',
-    'Engineering Team Lead', 'Finance Team Lead', 'Financial Analyst', 'HR Manager',
-    'People Ops Lead', 'People Ops Specialist', 'Platform Administrator',
-    'Sales Team Lead', 'Software Engineer',
 ]
 
 # 20 members: (full name, gender). Four per team, in team order.
@@ -221,7 +196,7 @@ class Command(BaseCommand):
         self.notes = []
         self._wipe()
         self._leave_types()
-        self._jobs_catalog()
+        seed_job_catalog()          # populate employee_management_job (see seed_jobs)
         self._org()
         self._attendance()          # builds normal + overtime + suspicious records
         self._tasks_and_logs()      # task history + utilization-week logs + auto-OT logs
@@ -277,15 +252,6 @@ class Command(BaseCommand):
                           'deducts_from_annual': from_annual,
                           'once_per_employment': once},
             )
-
-    # ─── job catalog (employee_management_job; shared config, never wiped) ─────
-    def _jobs_catalog(self):
-        zero = {'base_salary': Decimal('0'), 'benchmark_salary': Decimal('0')}
-        for title in JOB_CATALOG_TITLES:
-            for level in JOB_CATALOG_LEVELS:
-                Job.objects.get_or_create(title=title, level=level, defaults=zero)
-        for title in JOB_CATALOG_STANDALONE:
-            Job.objects.get_or_create(title=title, level=None, defaults=zero)
 
     # ─── org structure ────────────────────────────────────────────────────────
     def _job(self, title, level):
