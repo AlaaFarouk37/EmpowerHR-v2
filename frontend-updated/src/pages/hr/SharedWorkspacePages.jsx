@@ -113,7 +113,7 @@ function HROwnedShell({ titleKey, variant = 'team', children }) {
         ]}
         actions={variant === 'team' ? [] : [
           { label: t('nav.employees'), onClick: () => navigate(resolvePath('/hr/employees')), variant: 'outline' },
-          { label: t('nav.approvals'), onClick: () => navigate(resolvePath('/hr/approvals')), variant: 'primary' }
+          ...(variant === 'profile' ? [] : [{ label: t('nav.approvals'), onClick: () => navigate(resolvePath('/hr/approvals')), variant: 'primary' }])
         ]}
       />
 
