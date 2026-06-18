@@ -451,9 +451,10 @@ export function HRCVRankingPage() {
   };
   const loadRankings = async (id) => {
     setRankLoading(true);
+    setRankings([]);
     try {
       const data = await getJobRanking(id); setRankings(Array.isArray(data) ? data : []);
-    } catch (e) { toast('Error analysis', 'error'); } finally { setRankLoading(false); }
+    } catch (e) { setRankings([]); toast('Error analysis', 'error'); } finally { setRankLoading(false); }
   };
   
   const handleAutomate = async (rules) => {
@@ -601,7 +602,7 @@ export function HRCVRankingPage() {
       <div style={{ background: '#fff', padding: '24px', borderRadius: 28, border: '1.5px solid #F1F5F9', marginBottom: 32 }}>
          <div style={{ maxWidth: 360 }}>
             <label style={{ display: 'block', fontSize: 10, fontWeight: 950, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 8 }}>Active Job Hub</label>
-            <select value={activeJobId} onChange={e => { setActiveJobId(e.target.value); loadRankings(e.target.value); }} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px', fontSize: 13, fontWeight: 800 }}>
+            <select value={activeJobId ?? ''} onChange={e => { const id = Number(e.target.value); setActiveJobId(id); setBenchmarkPersona(null); setPersonaMatches({}); loadRankings(id); }} style={{ width: '100%', height: 44, borderRadius: 12, border: '1.5px solid #F1F5F9', background: '#F8FAFC', padding: '0 12px', fontSize: 13, fontWeight: 800 }}>
                {jobs.map(j => <option key={j.id} value={j.id}>{j.title}</option>)}
             </select>
          </div>
@@ -616,7 +617,11 @@ export function HRCVRankingPage() {
             </tr>
           </thead>
           <tbody>
-            {filteredRankings.map((r, i) => {
+            {rankLoading ? (
+              <tr><td colSpan={4} style={{ padding: '60px 24px', textAlign: 'center' }}><Spinner /><div style={{ marginTop: 12, fontWeight: 700, color: '#94A3B8' }}>Loading candidates…</div></td></tr>
+            ) : filteredRankings.length === 0 ? (
+              <tr><td colSpan={4} style={{ padding: '60px 24px', textAlign: 'center', color: '#94A3B8', fontWeight: 700 }}>No candidates found for this job.</td></tr>
+            ) : filteredRankings.map((r, i) => {
               const k = `${r.submission_id}-${i}`;
               const isRisk = r.profile_meta?.fraud_detection?.is_padding_risk;
               return (
