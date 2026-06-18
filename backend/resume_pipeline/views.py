@@ -68,6 +68,7 @@ def _enqueue_resume_pipeline(submission_id):
         try:
             submission = Submission.objects.get(pk=submission_id)
             _get_pipeline_functions()["run_pipeline"](submission)
+            score_and_store_submission(submission)
         except Exception:
             logging.getLogger(__name__).exception("Async resume pipeline failed for submission %s", submission_id)
 
@@ -770,47 +771,85 @@ def _score_cvs(job, cvs_data, key_skills=None, job_description=None):
     results.sort(key=lambda x: x["final_score"], reverse=True)
     return results
 
+def _submission_cv_data(sub):
+    """Build the cv_data dict the scorer expects from a persisted submission."""
+    cv_text = sub.raw_text or ""
+    if not cv_text and sub.resume_file:
+        try:
+            with sub.resume_file.open("rb") as f:
+                file_bytes = f.read()
+            cv_text = _safe_extract_resume_text(file_bytes, sub.resume_file.name)
+        except Exception:
+            cv_text = ""
+
+    resume_name = (sub.resume_file.name or "").split("/")[-1] if sub.resume_file else ""
+
+    return {
+        'source': 'submission',
+        'submission': sub,
+        'cv_text': cv_text,
+        'candidate_name': sub.candidate_name or f"Submission {sub.id}",
+        'candidate_email': sub.candidate_email or '',
+        'file_name': resume_name,
+        'candidate_skills': sub.candidate_skills or [],
+        'candidate_years_exp': sub.candidate_years_exp,
+        'candidate_degree': sub.candidate_degree or 'Unknown',
+        'exp_extraction_method': sub.exp_extraction_method or '',
+    }
+
+
+def score_and_store_submission(submission):
+    """Score a single submission once and cache the full ranking payload.
+
+    Called at submission time so the ranking endpoint never recomputes.
+    """
+    job = submission.job
+    result = _score_cvs(
+        job,
+        [_submission_cv_data(submission)],
+        key_skills=job.required_skills or [],
+        job_description=job.description or "",
+    )
+    submission.ranking_result = result[0] if result else {}
+    submission.save(update_fields=["ranking_result"])
+    return submission.ranking_result
+
+
 def rank_cvs_for_job(job_id, review_stage="", include_hired=False):
     try:
         job = Job.objects.get(pk=job_id)
     except Job.DoesNotExist:
         return {"error": "Job not found"}
 
-    submissions = _job_submission_queryset(job, review_stage=review_stage, include_hired=include_hired)
+    submissions = list(_job_submission_queryset(job, review_stage=review_stage, include_hired=include_hired))
+    if not submissions:
+        return {"error": "No submissions found for this job."}
 
-    key_skills = job.required_skills or []
-    job_description = job.description or ""
+    results = []
+    missing = [sub for sub in submissions if not sub.ranking_result]
 
-    cvs_data = []
+    # One-time backfill: score any submissions that predate cached results,
+    # store them, and from then on the ranking page is a pure read + sort.
+    if missing:
+        computed = _score_cvs(
+            job,
+            [_submission_cv_data(sub) for sub in missing],
+            key_skills=job.required_skills or [],
+            job_description=job.description or "",
+        )
+        by_id = {r.get("submission_id"): r for r in computed}
+        for sub in missing:
+            result = by_id.get(sub.id)
+            if result is not None:
+                sub.ranking_result = result
+                sub.save(update_fields=["ranking_result"])
 
     for sub in submissions:
-        cv_text = sub.raw_text or ""
-        if not cv_text and sub.resume_file:
-            try:
-                with sub.resume_file.open("rb") as f:
-                    file_bytes = f.read()
-                cv_text = _safe_extract_resume_text(file_bytes, sub.resume_file.name)
-            except Exception:
-                cv_text = ""
+        if sub.ranking_result:
+            results.append(sub.ranking_result)
 
-        resume_name = (sub.resume_file.name or "").split("/")[-1] if sub.resume_file else ""
-
-        cvs_data.append({
-            'source': 'submission',
-            'submission': sub,
-            'cv_text': cv_text,
-            'candidate_name': sub.candidate_name or f"Submission {sub.id}",
-            'candidate_email': sub.candidate_email or '',
-            'file_name': resume_name,
-            'candidate_skills': sub.candidate_skills or [],
-            'candidate_years_exp': sub.candidate_years_exp,
-            'candidate_degree': sub.candidate_degree or 'Unknown',
-            'exp_extraction_method': sub.exp_extraction_method or '',
-        })
-
-    if not cvs_data:
-        return {"error": "No submissions found for this job."}
-    return _score_cvs(job, cvs_data, key_skills=key_skills, job_description=job_description)
+    results.sort(key=lambda x: x.get("final_score", 0), reverse=True)
+    return results
 
 logger = logging.getLogger(__name__)
 
@@ -1167,6 +1206,7 @@ class SubmitResumeView(APIView):
 
         try:
             _get_pipeline_functions()["run_pipeline"](submission)
+            score_and_store_submission(submission)
             submission.refresh_from_db()
             return Response(
                 {

@@ -84,6 +84,10 @@ class Submission(models.Model):
     semantic_score   = models.FloatField(null=True)   # stored as 0–100
     ats_score        = models.FloatField(null=True)
 
+    # Full ranking payload computed once at submission time; the ranking
+    # endpoint reads this instead of recomputing scores on every load.
+    ranking_result   = models.JSONField(null=True, blank=True, default=dict)
+
     submitted_at = models.DateTimeField(auto_now_add=True)
     scored_at    = models.DateTimeField(null=True, blank=True)
 
