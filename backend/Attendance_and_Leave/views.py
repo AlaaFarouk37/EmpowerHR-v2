@@ -19,6 +19,7 @@ from .serializers import (
     HolidayOverrideSerializer, HolidayOverrideCreateSerializer, LeaveBalanceSerializer, AbsenceRunSerializer,
 )
 from . import leave_services, holiday_service, absence_service, capacity, reporting_service
+from notifications.services import notify_employee, notify_team_leader_or_hr
 
 
 def _compute_overtime(record):
@@ -217,7 +218,13 @@ class LeaveRequestListCreateView(generics.ListCreateAPIView):
         return LeaveRequest.objects.filter(employee_id=user.employee_id)
 
     def perform_create(self, serializer):
-        serializer.save()
+        leave = serializer.save()
+        notify_team_leader_or_hr(
+            leave.employee,
+            'New leave request',
+            f"{leave.employee.fullName} requested {leave.leaveType.name} leave for review.",
+            category='approval', level='info', section='review_leave',
+        )
 
 
 class LeaveRequestDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -252,6 +259,12 @@ def _approve_leave(leave_request, reviewer):
     leave_request.reviewedAt = timezone.now()
     leave_request.save()
     leave_services.deduct_balance(leave_request.employee, leave_type_name, days, year)
+    notify_employee(
+        leave_request.employee,
+        'Leave request approved',
+        f"Your {leave_type_name} leave request was approved.",
+        category='approval', level='success', section='leave',
+    )
     return True, None
 
 
@@ -286,8 +299,19 @@ def reject_leave_request(request, pk):
     leave_request.reviewedAt = timezone.now()
     leave_request.reviewNotes = request.data.get('reviewNotes', '')
     leave_request.save()
+    _notify_leave_rejected(leave_request)
 
     return Response(LeaveRequestSerializer(leave_request).data)
+
+
+def _notify_leave_rejected(leave_request):
+    notify_employee(
+        leave_request.employee,
+        'Leave request rejected',
+        f"Your {leave_request.leaveType.name} leave request was rejected."
+        + (f" Note: {leave_request.reviewNotes}" if leave_request.reviewNotes else ''),
+        category='approval', level='danger', section='leave',
+    )
 
 
 @api_view(['POST'])
@@ -320,6 +344,7 @@ def review_leave_request(request, pk):
         leave_request.reviewedAt = timezone.now()
         leave_request.reviewNotes = request.data.get('reviewNotes', '')
         leave_request.save()
+        _notify_leave_rejected(leave_request)
 
     return Response(LeaveRequestSerializer(leave_request).data)
 
@@ -561,6 +586,12 @@ class EmployeeTimeCorrectionListCreateView(APIView):
             requestedClockOut=serializer.validated_data.get('requestedClockOut'),
             reason=serializer.validated_data.get('reason', ''),
         )
+        notify_team_leader_or_hr(
+            record.employee,
+            'New time-correction request',
+            f"{record.employee.fullName} requested a time correction for {req.date}.",
+            category='approval', level='info', section='review_corrections',
+        )
         return Response(TimeCorrectionRequestSerializer(req).data, status=status.HTTP_201_CREATED)
 
 
@@ -624,6 +655,14 @@ class TeamTimeCorrectionReviewView(APIView):
             req.status = TimeCorrectionRequest.STATUS_DENIED
 
         req.save()
+        _approved = action == 'approve'
+        notify_employee(
+            req.employee,
+            f"Time correction {'approved' if _approved else 'denied'}",
+            f"Your time-correction request for {req.date} was {'approved' if _approved else 'denied'}."
+            + (f" Note: {req.reviewNote}" if req.reviewNote else ''),
+            category='approval', level='success' if _approved else 'danger', section='attendance',
+        )
         return Response(TimeCorrectionRequestSerializer(req).data)
 
 

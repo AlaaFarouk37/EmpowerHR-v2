@@ -42,6 +42,7 @@ urlpatterns = [
     path('api/payroll/', include('payroll.urls')),
     path('api/onboarding/', include('onboarding.urls')),
     path('api/mobile/', include('mobile.urls')),
+    path('api/notifications/', include('notifications.urls')),
     path('api/send-email/', SendEmailView.as_view(), name='send-email'),
     path("api/auth/", include("accounts.urls"))
 ]

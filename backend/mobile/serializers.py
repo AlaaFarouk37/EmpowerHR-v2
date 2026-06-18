@@ -1,11 +1,5 @@
 from rest_framework import serializers
 
-class NotificationSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    title = serializers.CharField()
-    message = serializers.CharField()
-    created_at = serializers.DateTimeField()
-
 class DashboardSerializer(serializers.Serializer):
     total_employees = serializers.IntegerField()
     active_jobs = serializers.IntegerField()

@@ -10,14 +10,6 @@ from attrition.models import AttritionPrediction
 
 # Dummy data for demonstration. Replace with real queries.
 
-class NotificationListView(APIView):
-    permission_classes = [IsAuthenticated]
-    def get(self, request):
-        data = [
-            {"id": 1, "title": "Welcome", "message": "Welcome to EmpowerHR!", "created_at": "2026-04-12T10:00:00Z"},
-        ]
-        return Response(NotificationSerializer(data, many=True).data)
-
 class MobileDashboardView(APIView):
     permission_classes = [IsAuthenticated]
     def get(self, request):

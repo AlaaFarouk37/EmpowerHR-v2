@@ -9,6 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from accounts.permissions import IsHRManager, IsInternalEmployee, IsTeamLeader
 from employee_management.models import Employee
+from notifications.services import notify_roles
 from .models import (FeedbackForm, FeedbackQuestion,
                      FeedbackSubmission, FeedbackAnswer, AdminUser)
 from .serializers import (
@@ -42,6 +43,12 @@ class HRFormListCreateView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         form = serializer.save()
+        notify_roles(
+            ['TeamMember', 'TeamLeader'],
+            'New feedback form',
+            f"HR published a new feedback form: '{form.title}'. Please share your input.",
+            category='general', level='info', section='feedback',
+        )
         return Response(
             FeedbackFormDetailSerializer(form).data,
             status=status.HTTP_201_CREATED

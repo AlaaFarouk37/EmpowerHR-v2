@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 
 from accounts.permissions import IsHRManager, IsInternalEmployee, IsTeamLeader, IsAdmin
 from accounts.models import User
+from notifications.services import notify_employee, notify_roles
 from .models import (
     Department, Team, Job, LeaveType, Employee, EmployeeJobHistory,
     RecognitionAward, BenefitEnrollment, ExpenseClaim, DocumentRequest, SupportTicket,
@@ -1510,6 +1511,12 @@ class TeamTaskApproveView(APIView):
         task.status = 'Done'
         task.reviewedAt = approved_at
         task.save(update_fields=['status', 'finished_time', 'actualHours', 'reviewedAt', 'updatedAt'])
+        notify_employee(
+            task.employee,
+            'Task approved',
+            f"Your team leader approved the task '{task.title}'.",
+            category='approval', level='success', section='tasks',
+        )
         return Response(WorkTaskSerializer(task).data)
 
 
@@ -1545,6 +1552,12 @@ class TeamTaskReturnForChangesView(APIView):
         task.reviewNote = note
         task.reviewedAt = timezone.now()
         task.save(update_fields=['status', 'reviewNote', 'reviewedAt', 'updatedAt'])
+        notify_employee(
+            task.employee,
+            'Task returned for changes',
+            f"Your team leader sent back the task '{task.title}'. Note: {note}",
+            category='approval', level='warning', section='tasks',
+        )
         return Response(WorkTaskSerializer(task).data)
 
 
@@ -3258,6 +3271,12 @@ class EmployeeExpenseListCreateView(APIView):
             description=serializer.validated_data.get('description', ''),
             status='Submitted',
         )
+        notify_roles(
+            ['HRManager'],
+            'New expense claim',
+            f"{employee.fullName} submitted an expense claim '{claim.title}' for review.",
+            category='approval', level='info', section='expenses',
+        )
         return Response(ExpenseClaimSerializer(claim).data, status=status.HTTP_201_CREATED)
 
 
@@ -3401,6 +3420,15 @@ class HRExpenseReviewView(APIView):
         claim.reviewedBy = getattr(request.user, 'full_name', '') or getattr(request.user, 'email', '')
         claim.reviewedAt = timezone.now()
         claim.save(update_fields=['status', 'reviewNote', 'approvedAmount', 'reviewedBy', 'reviewedAt', 'updatedAt'])
+
+        _level = {'Approved': 'success', 'Reimbursed': 'success', 'Rejected': 'danger'}.get(next_status, 'info')
+        notify_employee(
+            claim.employee,
+            f"Expense claim {next_status.lower()}",
+            f"Your expense claim '{claim.title}' was {next_status.lower()}."
+            + (f" Note: {claim.reviewNote}" if claim.reviewNote else ''),
+            category='approval', level=_level, section='expenses',
+        )
         return Response(ExpenseClaimSerializer(claim).data)
 
 

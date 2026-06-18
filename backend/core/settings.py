@@ -34,6 +34,13 @@ CSRF_TRUSTED_ORIGINS = env_list(
 )
 
 CLOUDINARY_URL = os.getenv("CLOUDINARY_URL", "").strip()
+# The cloudinary package self-configures from CLOUDINARY_URL at import time and
+# raises if it isn't a well-formed `cloudinary://` URL — which crash-loops the
+# whole app on boot. Treat a malformed value as "not configured" and scrub it
+# from the environment so the import can't blow up.
+if CLOUDINARY_URL and not CLOUDINARY_URL.startswith("cloudinary://"):
+    os.environ.pop("CLOUDINARY_URL", None)
+    CLOUDINARY_URL = ""
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME", "").strip()
 CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY", "").strip()
 CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET", "").strip()
@@ -60,8 +67,9 @@ INSTALLED_APPS = [
     'core',
     "rest_framework",
     "rest_framework_simplejwt",
-    "rest_framework_simplejwt.token_blacklist",  
+    "rest_framework_simplejwt.token_blacklist",
     "mobile",
+    "notifications",
 ]
 
 if USE_CLOUDINARY:
