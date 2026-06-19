@@ -3,7 +3,6 @@ import {
   hrGetPositionCatalog, hrCreatePosition, hrGetEmployees,
   hrGetDepartmentOptions, hrCreateDepartment, hrDeleteDepartment,
   hrGetTeamOptions, hrCreateTeam, hrUpdateTeam, hrDeleteTeam,
-  adminGetOrgConfig, adminUpdateOrgConfig,
   adminGetLeaveTypes, adminCreateLeaveType, adminDeleteLeaveType,
   adminGetPublicHolidays, adminGetHolidayOverrides, adminCreateHolidayOverride, adminDeleteHolidayOverride
 } from '../../api/index.js';
@@ -32,21 +31,17 @@ import {
   Users
 } from 'lucide-react';
 
-import { OrgEntityProfile } from '../../features/core/components/OrgEntityProfile';
-import { useOrgStats } from '../../features/core/hooks/useOrgStats';
-
 export function OrganizationConfigPage() {
   const { t } = useLanguage();
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') || 'company';
+  const activeTab = searchParams.get('tab') || 'departments';
   
   const setTab = (newTab) => {
     setSearchParams({ tab: newTab });
   };
   
   const tabs = useMemo(() => [
-    { id: 'company', label: 'Company Info', icon: <Building2 size={18} /> },
     { id: 'departments', label: 'Departments', icon: <Building2 size={18} /> },
     { id: 'teams', label: 'Teams', icon: <Users size={18} /> },
     { id: 'jobs', label: 'Jobs', icon: <Briefcase size={18} /> },
@@ -54,8 +49,6 @@ export function OrganizationConfigPage() {
     { id: 'holidays', label: 'Public Holidays', icon: <Globe size={18} /> },
   ], []);
   
-  const [company, setCompany] = useState({ name: '', legalName: '', address: '', phone: '', email: '', workStart: '09:00', workEnd: '17:00', workingDays: [] });
-  const [security, setSecurity] = useState({ twoFactorEnabled: true, sessionTimeout: 30, notificationsEnabled: true });
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [holidayYear, setHolidayYear] = useState(new Date().getFullYear());
   const [holidays, setHolidays] = useState([]);
@@ -67,16 +60,14 @@ export function OrganizationConfigPage() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({});
-  const { departmentStats, teamStats } = useOrgStats(employees);
 
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [j, e, cfg, lv, dept, tm] = await Promise.all([
+        const [j, e, lv, dept, tm] = await Promise.all([
           hrGetPositionCatalog().catch(() => []),
           hrGetEmployees().catch(() => []),
-          adminGetOrgConfig().catch(() => ({})),
           adminGetLeaveTypes().catch(() => []),
           hrGetDepartmentOptions().catch(() => []),
           hrGetTeamOptions().catch(() => []),
@@ -86,25 +77,7 @@ export function OrganizationConfigPage() {
         setEmployees(Array.isArray(e) ? e : []);
         setDepartments(Array.isArray(dept) ? dept : []);
         setTeams(Array.isArray(tm) ? tm : []);
-        
-        if (cfg) {
-          setCompany({
-            name: cfg.name || '',
-            legalName: cfg.legalName || '',
-            address: cfg.address || '',
-            phone: cfg.phone || '',
-            email: cfg.email || '',
-            workStart: cfg.workStart || '09:00',
-            workEnd: cfg.workEnd || '17:00',
-            workingDays: cfg.workingDays || []
-          });
-          setSecurity({
-            twoFactorEnabled: cfg.twoFactorEnabled ?? true,
-            sessionTimeout: cfg.sessionTimeout || 30,
-            notificationsEnabled: cfg.notificationsEnabled ?? true
-          });
-        }
-        
+
         setLeaveTypes(Array.isArray(lv) ? lv : []);
       } finally {
         setLoading(false);
@@ -112,16 +85,6 @@ export function OrganizationConfigPage() {
     };
     loadData();
   }, []);
-
-  const handleSaveCompany = async () => {
-    try {
-      const data = { ...company, ...security };
-      await adminUpdateOrgConfig(data);
-      toast(t('Organization configuration updated'), 'success');
-    } catch (err) {
-      toast(t('Failed to save configuration'), 'error');
-    }
-  };
 
   // Levels = the distinct job levels in the catalog (each once, case-insensitive),
   // with how many catalog entries use them; Titles = the distinct title strings.
@@ -394,17 +357,6 @@ export function OrganizationConfigPage() {
       </div>
 
       <div className="animate-in" key={activeTab}>
-        {activeTab === 'company' && (
-          <OrgEntityProfile
-            company={company}
-            setCompany={setCompany}
-            onSave={handleSaveCompany}
-            departmentStats={departmentStats}
-            teamStats={teamStats}
-            employeeCount={employees.length}
-          />
-        )}
-
         {activeTab === 'departments' && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32, flexWrap: 'wrap', gap: 16 }}>

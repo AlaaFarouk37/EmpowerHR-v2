@@ -1183,32 +1183,41 @@ class TeamGoalListCreateView(APIView):
     permission_classes = [IsAuthenticated, IsTeamLeader]
 
     def get(self, request):
-        team = getattr(getattr(request.user, 'employee', None), 'team', None)
-        if not team:
-            return Response({'error': 'Team information not available.'}, status=status.HTTP_400_BAD_REQUEST)
+        # HR/Admin see goals across all teams; a Team Leader is scoped to their team.
+        goals = EmployeeGoal.objects.select_related('employee').filter(employee__isDeleted=False)
 
-        goals = EmployeeGoal.objects.select_related('employee').filter(
-            employee__team=team, employee__isDeleted=False
-        ).order_by('-createdAt')
+        if getattr(request.user, 'role', None) == 'TeamLeader':
+            leader = Employee.objects.filter(
+                employeeID=getattr(request.user, 'employee_id', None), isDeleted=False,
+            ).first()
+            if leader and leader.team:
+                goals = goals.filter(employee__team=leader.team)
+            else:
+                goals = goals.none()
 
-        return Response(EmployeeGoalSerializer(goals, many=True).data)
+        employee_id = request.query_params.get('employee_id')
+        team = request.query_params.get('team')
+        status_filter = request.query_params.get('status')
+        if employee_id:
+            goals = goals.filter(employee_id=employee_id)
+        if team:
+            goals = goals.filter(employee__team__name__icontains=team)
+        if status_filter:
+            goals = goals.filter(status=status_filter)
+
+        return Response(EmployeeGoalSerializer(goals.order_by('-createdAt'), many=True).data)
 
     def post(self, request):
-        team = getattr(getattr(request.user, 'employee', None), 'team', None)
-        if not team:
-            return Response({'error': 'Team information not available.'}, status=status.HTTP_400_BAD_REQUEST)
-
         serializer = EmployeeGoalCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         data = serializer.validated_data
-        employee_id = data['employeeID']
-
-        try:
-            employee = Employee.objects.get(pk=employee_id, team=team, isDeleted=False)
-        except Employee.DoesNotExist:
-            return Response({'error': 'Employee not found in your team.'}, status=status.HTTP_404_NOT_FOUND)
+        employee = _resolve_employee(data['employeeID'], request.user)
+        if not employee:
+            return Response({'error': 'Employee not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if not _can_manage_employee(request.user, employee):
+            return Response({'error': 'You do not have permission to manage this employee.'}, status=status.HTTP_403_FORBIDDEN)
 
         goal = EmployeeGoal.objects.create(
             employee=employee,
@@ -1220,6 +1229,7 @@ class TeamGoalListCreateView(APIView):
             progress=data.get('progress', 0),
             dueDate=data.get('dueDate'),
             createdBy=getattr(request.user, 'full_name', '') or getattr(request.user, 'email', ''),
+            createdByRole=getattr(request.user, 'role', '') or '',
         )
 
         return Response(EmployeeGoalSerializer(goal).data, status=status.HTTP_201_CREATED)
@@ -1228,30 +1238,25 @@ class TeamGoalListCreateView(APIView):
 class TeamGoalDetailView(APIView):
     permission_classes = [IsAuthenticated, IsTeamLeader]
 
-    def get(self, request, goal_id):
-        team = getattr(getattr(request.user, 'employee', None), 'team', None)
-        if not team:
-            return Response({'error': 'Team information not available.'}, status=status.HTTP_400_BAD_REQUEST)
+    def _get_managed_goal(self, request, goal_id):
+        """The goal, only if the requester (TL on the team, or HR/Admin) may manage it."""
+        goal = EmployeeGoal.objects.select_related('employee').filter(
+            pk=goal_id, employee__isDeleted=False,
+        ).first()
+        if not goal or not _can_manage_employee(request.user, goal.employee):
+            return None
+        return goal
 
-        try:
-            goal = EmployeeGoal.objects.select_related('employee').get(
-                pk=goal_id, employee__team=team, employee__isDeleted=False
-            )
-        except EmployeeGoal.DoesNotExist:
+    def get(self, request, goal_id):
+        goal = self._get_managed_goal(request, goal_id)
+        if not goal:
             return Response({'error': 'Goal not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         return Response(EmployeeGoalSerializer(goal).data)
 
     def put(self, request, goal_id):
-        team = getattr(getattr(request.user, 'employee', None), 'team', None)
-        if not team:
-            return Response({'error': 'Team information not available.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            goal = EmployeeGoal.objects.select_related('employee').get(
-                pk=goal_id, employee__team=team, employee__isDeleted=False
-            )
-        except EmployeeGoal.DoesNotExist:
+        goal = self._get_managed_goal(request, goal_id)
+        if not goal:
             return Response({'error': 'Goal not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         serializer = EmployeeGoalCreateSerializer(goal, data=request.data, partial=True)
@@ -1288,15 +1293,8 @@ class TeamGoalDetailView(APIView):
         return Response(EmployeeGoalSerializer(goal).data)
 
     def delete(self, request, goal_id):
-        team = getattr(getattr(request.user, 'employee', None), 'team', None)
-        if not team:
-            return Response({'error': 'Team information not available.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            goal = EmployeeGoal.objects.select_related('employee').get(
-                pk=goal_id, employee__team=team, employee__isDeleted=False
-            )
-        except EmployeeGoal.DoesNotExist:
+        goal = self._get_managed_goal(request, goal_id)
+        if not goal:
             return Response({'error': 'Goal not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         goal.delete()

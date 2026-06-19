@@ -51,6 +51,7 @@ import { EmployeeCareerPathPage } from "../pages/employee/CareerPathPage";
 import { EmployeeOnboardingPage } from "../pages/employee/OnboardingPage";
 import { EmployeeShiftsPage } from "../pages/employee/ShiftsPage";
 import { EmployeeTasksPage } from "../pages/employee/TasksPage";
+import { EmployeeGoalsPage } from "../pages/employee/GoalsPage";
 import { EmployeeTrainingPage } from "../pages/employee/TrainingPage";
 import { EmployeePoliciesPage } from "../pages/employee/PoliciesPage";
 import { EmployeeRecognitionPage } from "../pages/employee/RecognitionPage";
@@ -136,6 +137,7 @@ export const PROTECTED_ROUTES = [
   { path: "/employee/onboarding", element: <EmployeeOnboardingPage />, roles: ["TeamMember"], permission: "employee.workspace.access" },
   { path: "/employee/shifts", element: <EmployeeShiftsPage />, roles: ["TeamMember"], permission: "employee.workspace.access" },
   { path: "/employee/tasks", element: <EmployeeTasksPage />, roles: ["TeamMember"], permission: "employee.workspace.access" },
+  { path: "/employee/goals", element: <EmployeeGoalsPage />, roles: ["TeamMember"], permission: "employee.workspace.access" },
   { path: "/employee/training", element: <EmployeeTrainingPage />, roles: ["TeamMember"], permission: "employee.workspace.access" },
   { path: "/employee/policies", element: <EmployeePoliciesPage />, roles: ["TeamMember"], permission: "employee.workspace.access" },
   { path: "/employee/recognition", element: <EmployeeRecognitionPage />, roles: ["TeamMember"], permission: "employee.workspace.access" },

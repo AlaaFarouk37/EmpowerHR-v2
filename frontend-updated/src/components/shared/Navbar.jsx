@@ -152,6 +152,7 @@ const NAV_GROUPS = {
         { path: '/employee/dashboard', labelKey: 'nav.dashboard', icon: 'Layout' },
         { path: '/employee/payroll', labelKey: 'nav.payroll', icon: 'Activity' },
         { path: '/employee/tasks', labelKey: 'nav.tasks', icon: 'Activity' },
+        { path: '/employee/goals', labelKey: 'My Goals', icon: 'Target' },
         { path: '/employee/attendance', labelKey: 'nav.attendance', icon: 'Activity' },
         { path: '/employee/sheet', labelKey: 'Employee Sheet', icon: 'Copy' },
       ],

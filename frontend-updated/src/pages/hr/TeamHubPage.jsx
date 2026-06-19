@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getTeamGoals, getTeamTasks, hrGetTeamOptions, hrGetEmployees, hrGetWeeklyCapacity, getPublicHolidays, createTeamGoal, createTeamTask, updateTeamTask, approveTeamTask, returnTeamTaskWithNotes } from '../../api/index.js';
-import { Badge, Btn, EmployeeSelect, Input, Modal, Spinner, Textarea, useToast } from '../../components/shared/index.jsx';
+import { Badge, Btn, Input, Modal, Spinner, Textarea, useToast } from '../../components/shared/index.jsx';
 import ContactEmailModal from '../../components/shared/ContactEmailModal.jsx';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -875,13 +875,19 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
         maxWidth={560}
       >
         <div style={{ display: 'grid', gap: 14, padding: 8 }}>
-          <EmployeeSelect
-            label={t('Employee')}
-            value={goalForm.employeeID}
-            onChange={(value) => setGoalForm((prev) => ({ ...prev, employeeID: value }))}
-            placeholder={t('Select an employee')}
-            teamFilter={selectedTeam ? selectedTeamName : ''}
-          />
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 6 }}>{t('Employee')}</label>
+            <select
+              value={goalForm.employeeID}
+              onChange={(e) => setGoalForm((prev) => ({ ...prev, employeeID: e.target.value }))}
+              style={{ width: '100%', height: 44, padding: '0 12px', borderRadius: 12, border: '1.5px solid #E2E8F0', fontSize: 13, fontWeight: 600, outline: 'none', cursor: 'pointer', background: '#fff' }}
+            >
+              <option value="">{t('Select an employee')}</option>
+              {memberOptions.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}{m.team ? ` — ${m.team}` : ''}</option>
+              ))}
+            </select>
+          </div>
           <Input
             label={t('Goal Title')}
             value={goalForm.title}
@@ -939,13 +945,19 @@ export function HRTeamHubPage({ showTeamFilter = true } = {}) {
         maxWidth={560}
       >
         <div style={{ display: 'grid', gap: 14, padding: 8 }}>
-          <EmployeeSelect
-            label={t('Employee')}
-            value={taskForm.employeeID}
-            onChange={(value) => setTaskForm((prev) => ({ ...prev, employeeID: value }))}
-            placeholder={t('Select an employee')}
-            teamFilter={selectedTeam ? selectedTeamName : ''}
-          />
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', marginBottom: 6 }}>{t('Employee')}</label>
+            <select
+              value={taskForm.employeeID}
+              onChange={(e) => setTaskForm((prev) => ({ ...prev, employeeID: e.target.value }))}
+              style={{ width: '100%', height: 44, padding: '0 12px', borderRadius: 12, border: '1.5px solid #E2E8F0', fontSize: 13, fontWeight: 600, outline: 'none', cursor: 'pointer', background: '#fff' }}
+            >
+              <option value="">{t('Select an employee')}</option>
+              {memberOptions.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}{m.team ? ` — ${m.team}` : ''}</option>
+              ))}
+            </select>
+          </div>
           <Input
             label={t('Task Title')}
             value={taskForm.title}

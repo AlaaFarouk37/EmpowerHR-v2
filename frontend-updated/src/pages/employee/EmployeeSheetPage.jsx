@@ -4,6 +4,7 @@ import {
   getMyAttendance,
   getMyLeaveRequests,
   getMyPayroll,
+  getMyProfile,
 } from '../../api/index.js';
 import { Badge, Spinner, useToast } from '../../components/shared/index.jsx';
 import { useAuth } from '../../context/AuthContext';
@@ -31,20 +32,17 @@ function formatAmount(value) {
   }).format(Number(value || 0));
 }
 
-function formatTime(timeString) {
-  if (!timeString) return '';
-  const [hours, minutes] = timeString.split(':');
-  const date = new Date();
-  date.setHours(hours, minutes);
+// clockIn/clockOut arrive as ISO datetimes from the backend.
+function formatTime(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function calculateWorkingHours(clockIn, clockOut) {
-  if (!clockIn || !clockOut) return '';
-  const inTime = new Date(`1970-01-01T${clockIn}`);
-  const outTime = new Date(`1970-01-01T${clockOut}`);
-  const diff = (outTime - inTime) / (1000 * 60 * 60);
-  return diff > 0 ? `${diff.toFixed(2)}h` : '';
+function formatWorkedHours(workedHours) {
+  if (workedHours == null || workedHours === '') return '—';
+  return `${Number(workedHours).toFixed(2)}h`;
 }
 
 export function EmployeeSheetPage() {
@@ -69,21 +67,30 @@ export function EmployeeSheetPage() {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [attendanceData, leaveData, payrollData] = await Promise.all([
-          getMyAttendance(employeeID),
-          getMyLeaveRequests(employeeID),
-          getMyPayroll(employeeID),
+        const [attendanceData, leaveData, payrollData, profileData] = await Promise.all([
+          getMyAttendance(employeeID).catch(() => []),
+          getMyLeaveRequests(employeeID).catch(() => []),
+          getMyPayroll(employeeID).catch(() => []),
+          getMyProfile().catch(() => null),
         ]);
 
-        setAttendance(attendanceData);
-        setLeaveRequests(leaveData);
-        setPayroll(payrollData);
+        setAttendance(Array.isArray(attendanceData) ? attendanceData : []);
+        setLeaveRequests(Array.isArray(leaveData) ? leaveData : []);
+        setPayroll(Array.isArray(payrollData) ? payrollData : []);
 
-        // Profile from user context
+        // Real employee record, falling back to the auth user context.
         setProfile({
-          name: user.full_name || user.email,
-          email: user.email || 'N/A',
-          role: user.role || 'N/A',
+          name: profileData?.fullName || user.full_name || user.email,
+          employeeID: profileData?.employeeID || employeeID,
+          email: profileData?.email || user.email || 'N/A',
+          role: profileData?.role || user.role || 'N/A',
+          jobTitle: profileData?.jobTitle || 'N/A',
+          department: profileData?.departmentName || 'N/A',
+          team: profileData?.teamName || 'N/A',
+          manager: profileData?.managerName || 'N/A',
+          phone: profileData?.phoneNumber || 'N/A',
+          location: profileData?.location || 'N/A',
+          hireDate: profileData?.hiring_date || 'N/A',
         });
       } catch (error) {
         toast(error.message || 'Failed to load employee sheet data', 'error');
@@ -114,8 +121,16 @@ export function EmployeeSheetPage() {
         </summary>
         <div style={{ padding: 10, border: '1px solid #ddd', borderRadius: 5, marginTop: 10 }}>
           <p><strong>{t('Name')}:</strong> {profile?.name}</p>
+          <p><strong>{t('Employee ID')}:</strong> {profile?.employeeID}</p>
           <p><strong>{t('Email')}:</strong> {profile?.email}</p>
+          <p><strong>{t('Job Title')}:</strong> {profile?.jobTitle}</p>
           <p><strong>{t('Role')}:</strong> {profile?.role}</p>
+          <p><strong>{t('Department')}:</strong> {profile?.department}</p>
+          <p><strong>{t('Team')}:</strong> {profile?.team}</p>
+          <p><strong>{t('Manager')}:</strong> {profile?.manager}</p>
+          <p><strong>{t('Phone')}:</strong> {profile?.phone}</p>
+          <p><strong>{t('Location')}:</strong> {profile?.location}</p>
+          <p><strong>{t('Hire Date')}:</strong> {profile?.hireDate}</p>
         </div>
       </details>
 
@@ -133,8 +148,7 @@ export function EmployeeSheetPage() {
                 <th style={{ border: '1px solid #ddd', padding: 8 }}>{t('Clock In')}</th>
                 <th style={{ border: '1px solid #ddd', padding: 8 }}>{t('Clock Out')}</th>
                 <th style={{ border: '1px solid #ddd', padding: 8 }}>{t('Working Hours')}</th>
-                <th style={{ border: '1px solid #ddd', padding: 8 }}>{t('Leave Status')}</th>
-                <th style={{ border: '1px solid #ddd', padding: 8 }}>{t('Leave Type')}</th>
+                <th style={{ border: '1px solid #ddd', padding: 8 }}>{t('Overtime')}</th>
               </tr>
             </thead>
             <tbody>
@@ -146,9 +160,8 @@ export function EmployeeSheetPage() {
                   </td>
                   <td style={{ border: '1px solid #ddd', padding: 8 }}>{formatTime(record.clockIn)}</td>
                   <td style={{ border: '1px solid #ddd', padding: 8 }}>{formatTime(record.clockOut)}</td>
-                  <td style={{ border: '1px solid #ddd', padding: 8 }}>{calculateWorkingHours(record.clockIn, record.clockOut)}</td>
-                  <td style={{ border: '1px solid #ddd', padding: 8 }}>{record.leaveStatus || ''}</td>
-                  <td style={{ border: '1px solid #ddd', padding: 8 }}>{record.leaveType || ''}</td>
+                  <td style={{ border: '1px solid #ddd', padding: 8 }}>{formatWorkedHours(record.workedHours)}</td>
+                  <td style={{ border: '1px solid #ddd', padding: 8 }}>{Number(record.overtimeHours) > 0 ? `${Number(record.overtimeHours).toFixed(2)}h` : '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -211,7 +224,7 @@ export function EmployeeSheetPage() {
                   <td style={{ border: '1px solid #ddd', padding: 8 }}>{record.payPeriod}</td>
                   <td style={{ border: '1px solid #ddd', padding: 8 }}>{formatAmount(record.baseSalary)}</td>
                   <td style={{ border: '1px solid #ddd', padding: 8 }}>{formatAmount(record.deductions)}</td>
-                  <td style={{ border: '1px solid #ddd', padding: 8 }}>{formatAmount(record.bonus)}</td>
+                  <td style={{ border: '1px solid #ddd', padding: 8 }}>{formatAmount(record.commissions)}</td>
                   <td style={{ border: '1px solid #ddd', padding: 8 }}>{formatAmount(record.netPay)}</td>
                 </tr>
               ))}

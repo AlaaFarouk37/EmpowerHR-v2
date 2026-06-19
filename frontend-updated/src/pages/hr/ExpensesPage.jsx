@@ -16,7 +16,6 @@ import {
   Target, 
   Calendar,
   ChevronRight,
-  Zap,
   Briefcase,
   AlertCircle,
   Globe,
@@ -28,7 +27,7 @@ import {
   MoreVertical,
   History,
   CreditCard,
-  PieChart
+  FileText
 } from 'lucide-react';
 
 export function HRExpensesPage() {
@@ -135,6 +134,80 @@ export function HRExpensesPage() {
     ];
   }, [claims]);
 
+  // Build a printable report of the page (summary + currently shown claims) and
+  // open the browser print dialog so HR can "Save as PDF". No extra deps needed.
+  const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+  ));
+  const money = (value) => `$${parseFloat(value || 0).toLocaleString()}`;
+
+  const handleExportReport = () => {
+    const win = window.open('', '_blank');
+    if (!win) { toast(t('Please allow pop-ups to download the report.'), 'error'); return; }
+
+    const generatedAt = new Date().toLocaleString();
+    const statusLabel = activeStatus === 'All Statuses' ? t('All') : activeStatus;
+    const totalAmount = filteredClaims.reduce((acc, c) => acc + (parseFloat(c.amount) || 0), 0);
+
+    const cards = fiscalStats.map((s) => `
+      <div class="card">
+        <div class="card-label">${escapeHtml(t(s.label))}</div>
+        <div class="card-value">${escapeHtml(String(s.value))}</div>
+      </div>`).join('');
+
+    const rows = filteredClaims.map((c) => `
+      <tr>
+        <td>${escapeHtml(c.employeeName || 'Anonymous')}<div class="sub">${escapeHtml(c.employeeID || '')}</div></td>
+        <td>${escapeHtml(c.category || 'Operational')}</td>
+        <td class="num">${money(c.amount)}</td>
+        <td>${c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '—'}</td>
+        <td>${escapeHtml(c.status || 'Submitted')}</td>
+        <td class="num">${c.approvedAmount != null ? money(c.approvedAmount) : '—'}</td>
+        <td>${escapeHtml(c.reviewedBy || '—')}</td>
+      </tr>`).join('');
+
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"/><title>Global Expenses Report</title>
+      <style>
+        * { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; box-sizing: border-box; }
+        body { padding: 32px; color: #1E293B; }
+        .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #E2E8F0; padding-bottom: 16px; margin-bottom: 20px; }
+        .brand { font-size: 22px; font-weight: 800; color: #DC2626; }
+        .title { font-size: 16px; font-weight: 700; margin-top: 2px; }
+        .meta { text-align: right; font-size: 12px; color: #64748B; line-height: 1.6; }
+        .cards { display: flex; gap: 16px; margin-bottom: 24px; }
+        .card { flex: 1; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px 16px; }
+        .card-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #94A3B8; }
+        .card-value { font-size: 20px; font-weight: 900; margin-top: 4px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+        th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #64748B; border-bottom: 2px solid #E2E8F0; padding: 10px 8px; }
+        td { padding: 10px 8px; border-bottom: 1px solid #EEF1F6; vertical-align: top; }
+        .num { text-align: right; font-weight: 800; white-space: nowrap; }
+        .sub { font-size: 10px; color: #94A3B8; margin-top: 2px; }
+        .total { margin-top: 16px; text-align: right; font-size: 14px; font-weight: 900; }
+        @media print { body { padding: 0; } }
+      </style></head><body>
+      <div class="head">
+        <div><div class="brand">EmpowerHR</div><div class="title">${escapeHtml(t('Global Expenses Report'))}</div></div>
+        <div class="meta">
+          ${escapeHtml(t('Generated'))}: ${escapeHtml(generatedAt)}<br/>
+          ${escapeHtml(t('Status'))}: ${escapeHtml(statusLabel)}${searchQuery ? ` · ${escapeHtml(t('Search'))}: "${escapeHtml(searchQuery)}"` : ''}<br/>
+          ${escapeHtml(t('Claims'))}: ${filteredClaims.length}
+        </div>
+      </div>
+      <div class="cards">${cards}</div>
+      <table>
+        <thead><tr>
+          <th>${escapeHtml(t('Employee'))}</th><th>${escapeHtml(t('Category'))}</th><th>${escapeHtml(t('Amount'))}</th>
+          <th>${escapeHtml(t('Date'))}</th><th>${escapeHtml(t('Status'))}</th><th>${escapeHtml(t('Approved'))}</th><th>${escapeHtml(t('Reviewed By'))}</th>
+        </tr></thead>
+        <tbody>${rows || `<tr><td colspan="7" style="text-align:center;color:#94A3B8;padding:24px">${escapeHtml(t('No claims to report.'))}</td></tr>`}</tbody>
+      </table>
+      <div class="total">${escapeHtml(t('Total Claimed'))}: ${money(totalAmount)}</div>
+      <script>window.onload = function(){ window.print(); }</script>
+      </body></html>`);
+    win.document.close();
+  };
+
   if (loading) return (
     <div style={{ height: '80vh', display: 'grid', placeItems: 'center' }}>
        <div style={{ textAlign: 'center' }}>
@@ -153,21 +226,18 @@ export function HRExpensesPage() {
               <div style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--red-600)', display: 'grid', placeItems: 'center', boxShadow: '0 8px 16px rgba(220, 38, 38, 0.2)' }}>
                  <CreditCard size={22} style={{ color: '#fff' }} />
               </div>
-              <h1 style={{ fontSize: 32, fontWeight: 900, color: '#1E293B', margin: 0, letterSpacing: '-0.02em' }}>Global Expense & Fiscal Command</h1>
+              <h1 style={{ fontSize: 32, fontWeight: 900, color: '#1E293B', margin: 0, letterSpacing: '-0.02em' }}>{t('Global Expenses')}</h1>
            </div>
            <p style={{ fontSize: 14, color: '#94A3B8', fontWeight: 600 }}>Audit organizational fiscal claims, monitor reimbursement telemetry, and manage policy-aligned expenditures.</p>
         </div>
 
         <div style={{ display: 'flex', gap: 16 }}>
-           <Btn variant="secondary" style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 800 }}>
-              <PieChart size={18} style={{ marginRight: 8, color: 'var(--red-600)' }} /> {t('Fiscal Analysis')}
-           </Btn>
-           <Btn 
-             onClick={() => toast(t('Exporting Fiscal Ledger...'), 'info')}
-             variant="primary" 
+           <Btn
+             onClick={handleExportReport}
+             variant="primary"
              style={{ height: 48, borderRadius: 14, padding: '0 24px', fontWeight: 900, background: 'var(--red-600)', border: 'none', boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.3)' }}
            >
-              <Zap size={18} style={{ marginRight: 8 }} /> {t('Export Ledger')}
+              <FileText size={18} style={{ marginRight: 8 }} /> {t('Report')}
            </Btn>
         </div>
       </div>

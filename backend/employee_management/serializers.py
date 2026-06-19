@@ -145,7 +145,7 @@ class EmployeeGoalSerializer(serializers.ModelSerializer):
         fields = [
             'goalID', 'employeeID', 'employeeName', 'department', 'team',
             'title', 'description', 'category', 'priority', 'status',
-            'progress', 'dueDate', 'createdBy', 'createdAt', 'updatedAt'
+            'progress', 'dueDate', 'createdBy', 'createdByRole', 'createdAt', 'updatedAt'
         ]
 
 

@@ -537,6 +537,7 @@ class EmployeeGoal(models.Model):
     progress     = models.PositiveIntegerField(default=0)
     dueDate      = models.DateField(null=True, blank=True)
     createdBy    = models.CharField(max_length=150, blank=True)
+    createdByRole = models.CharField(max_length=30, blank=True)
     createdAt    = models.DateTimeField(auto_now_add=True)
     updatedAt    = models.DateTimeField(auto_now=True)
 
