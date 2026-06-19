@@ -3,12 +3,15 @@ NIXPACKS_PYTHON_VERSION = "3.11"
 PIP_NO_CACHE_DIR = "1"
 PIP_DISABLE_PIP_VERSION_CHECK = "1"
 PIP_EXTRA_INDEX_URL = "https://download.pytorch.org/whl/cpu"
+# Resume pipeline reads NLTK data from here; baked in at build time below.
+NLTK_DATA = "/app/nltk_data"
 
 [phases.install]
 cmds = [
   "python -m pip install --upgrade pip setuptools wheel",
   "python -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu",
-  "python -m pip install --no-cache-dir -r requirements.txt"
+  "python -m pip install --no-cache-dir -r requirements.txt",
+  "python -m nltk.downloader -d /app/nltk_data punkt punkt_tab stopwords wordnet omw-1.4"
 ]
 
 [start]

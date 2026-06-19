@@ -79,7 +79,13 @@ def _ensure_nltk_resource(resource_path, download_name):
     try:
         nltk.data.find(resource_path)
     except LookupError:
-        nltk.download(download_name, quiet=True)
+        if not getattr(settings, 'AI_ALLOW_RUNTIME_NLTK_DOWNLOAD', settings.DEBUG):
+            return
+        try:
+            nltk.download(download_name, quiet=True)
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "NLTK download failed for %s; continuing with fallback.", download_name)
 
 
 def _as_bool(value, default=False):
@@ -572,7 +578,9 @@ def _score_cvs(job, cvs_data, key_skills=None, job_description=None):
             )
             tfidf_matrix = vectorizer.fit_transform(documents)
             similarities = cosine_similarity(tfidf_matrix[1:], tfidf_matrix[0])
-        except ValueError:
+        except (ValueError, LookupError):
+            # ValueError: empty/stopword-only docs. LookupError: NLTK stopwords
+            # data missing and runtime download disabled — degrade, don't crash.
             similarities = np.zeros((len(cvs_data), 1), dtype=float)
 
     pipeline_funcs = _get_pipeline_functions()

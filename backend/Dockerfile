@@ -17,6 +17,12 @@ RUN python -m pip install --upgrade pip setuptools wheel \
     && python -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch \
     && python -m pip install --no-cache-dir -r /app/requirements.txt
 
+# Bake NLTK datasets into the image so the resume pipeline never depends on a
+# runtime download (disabled in prod, fails in no-egress envs).
+ENV NLTK_DATA=/usr/local/share/nltk_data
+RUN python -m nltk.downloader -d /usr/local/share/nltk_data \
+    punkt punkt_tab stopwords wordnet omw-1.4
+
 COPY . /app/
 
 RUN mkdir -p /app/staticfiles
