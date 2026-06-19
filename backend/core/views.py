@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 
 from django.conf import settings
@@ -22,6 +23,9 @@ class SendEmailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        import os
+        print("KEY repr:", repr(os.getenv("RESEND_API_KEY")))
+        print("FROM repr:", repr(os.getenv("HR_FROM_EMAIL")))
         to = (request.data.get("to") or "").strip()
         subject = (request.data.get("subject") or "").strip()
         body = (request.data.get("body") or "").strip()
