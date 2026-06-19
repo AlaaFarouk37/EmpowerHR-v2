@@ -1610,6 +1610,13 @@ class TeamTaskListCreateView(APIView):
             task.progress = 100
             task.status = 'Done'
             task.save(update_fields=['progress', 'status'])
+        assigner = getattr(request.user, 'full_name', '') or getattr(request.user, 'email', '')
+        notify_employee(
+            task.employee,
+            'New task assigned',
+            f"{assigner} assigned you a new task: '{task.title}'.",
+            category='general', level='info', section='tasks',
+        )
         return Response(WorkTaskSerializer(task).data, status=status.HTTP_201_CREATED)
 
 

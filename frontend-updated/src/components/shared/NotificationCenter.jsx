@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Bell, Check, Trash2, Zap, Shield, Wallet, Activity, ExternalLink, X } from 'lucide-react';
 import { getNotifications, getUnreadCount, markNotificationRead, markAllNotificationsRead, deleteNotification } from '../../api/notification';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { fetchSummaryNotifications } from './notificationSummaries';
 import '../../styles/components/NotificationCenter.css';
 
 const CATEGORY_ICONS = {
@@ -26,13 +28,23 @@ export const NotificationCenter = () => {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const { t } = useLanguage();
+  const { user, resolvePath } = useAuth();
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
 
   const fetchNotifications = async () => {
     try {
-      const [data, countData] = await Promise.all([getNotifications(), getUnreadCount()]);
-      setNotifications(data);
+      const [data, countData, summaries] = await Promise.all([
+        getNotifications(),
+        getUnreadCount(),
+        fetchSummaryNotifications(user, t),
+      ]);
+      const backend = Array.isArray(data) ? data : [];
+      const resolvedSummaries = summaries.map((s) => ({ ...s, link: resolvePath(s.link) }));
+      const unread = backend.filter((n) => !n.is_read);
+      const read = backend.filter((n) => n.is_read);
+      // Unread events first, then the aggregate "pending" nudges, then read events.
+      setNotifications([...unread, ...resolvedSummaries, ...read]);
       setUnreadCount(countData.count);
     } catch (error) {
       console.error('Failed to fetch notifications', error);
@@ -43,7 +55,8 @@ export const NotificationCenter = () => {
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 60000); // Poll every minute
     return () => clearInterval(interval);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -89,9 +102,9 @@ export const NotificationCenter = () => {
 
   return (
     <div className="notification-center-root" ref={dropdownRef}>
-      <button 
-        className={`topbar-icon-btn ${isOpen ? 'active' : ''}`} 
-        onClick={() => setIsOpen(!isOpen)}
+      <button
+        className={`topbar-icon-btn ${isOpen ? 'active' : ''}`}
+        onClick={() => { const next = !isOpen; setIsOpen(next); if (next) fetchNotifications(); }}
         title={t('Notifications')}
       >
         <Bell size={18} />
@@ -134,14 +147,18 @@ export const NotificationCenter = () => {
                       </div>
                       <p className="notification-msg">{n.message}</p>
                       <span className="notification-time">
-                        {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {n.created_at
+                          ? new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                          : t('Summary')}
                       </span>
                     </div>
                     <div className="notification-actions">
                        {n.link && <ExternalLink size={12} className="link-icon" />}
-                       <button onClick={(e) => handleDelete(e, n.id)} className="delete-btn">
-                         <Trash2 size={12} />
-                       </button>
+                       {!n.summary && (
+                         <button onClick={(e) => handleDelete(e, n.id)} className="delete-btn">
+                           <Trash2 size={12} />
+                         </button>
+                       )}
                     </div>
                   </div>
                 );

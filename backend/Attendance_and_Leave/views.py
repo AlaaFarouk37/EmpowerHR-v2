@@ -897,6 +897,12 @@ class EmployeeLeaveRequestListCreateView(APIView):
             document=serializer.validated_data.get('document'),
             eligibilityMessage=eligibility_message,
         )
+        notify_team_leader_or_hr(
+            leave_request.employee,
+            'New leave request',
+            f"{leave_request.employee.fullName} requested {leave_request.leaveType.name} leave for review.",
+            category='approval', level='info', section='review_leave',
+        )
         return Response(LeaveRequestSerializer(leave_request, context={'request': request}).data,
                         status=status.HTTP_201_CREATED)
 
