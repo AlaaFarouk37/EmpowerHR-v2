@@ -14,6 +14,7 @@ import os
 import numpy as np
 import xgboost as xgb
 from django.conf import settings
+from django.db.models import Avg
 
 # Path to the saved model JSON file
 MODEL_PATH = os.path.join(os.path.dirname(__file__), 'xgboost_model.json')
@@ -90,12 +91,55 @@ def map_job_level(value):
 # Back-compat alias for any external callers that imported the dict directly.
 JOB_LEVEL_MAP = {'Entry': 1, 'Mid': 2, 'Senior': 3}
 PROTECTED_ATTRIBUTE_LABELS = ['Age', 'Gender', 'Marital Status']
+# Fallbacks used only when the employee record is missing the value.
 PROTECTED_FEATURE_DEFAULTS = {
     'Age': float(getattr(settings, 'ATTRITION_PROTECTED_DEFAULT_AGE', 35.0)),
     'Gender': 0.0,
     'Marital Status_Married': 0.0,
     'Marital Status_Single': 0.0,
 }
+
+# Encoding for the protected features — MUST match the encoders used at training
+# time. Inferred as alphabetical (LabelEncoder / get_dummies(drop_first=True)):
+#   Gender  -> Female=0, Male=1
+#   Marital -> one-hot Married/Single; Divorced is the dropped reference (0, 0)
+# If training used Male=0/Female=1, flip this map.
+GENDER_ENCODING = {'female': 0, 'male': 1}
+
+
+def map_gender(value):
+    if value is None:
+        return None
+    return GENDER_ENCODING.get(str(value).strip().lower())
+
+
+def map_marital(value):
+    text = str(value).strip().lower() if value is not None else ''
+    return (1 if text == 'married' else 0, 1 if text == 'single' else 0)
+
+
+# Performance Rating: the model's original 4-level scale (Low/Below Average/
+# Average/High) encoded 1-4. PerformanceReview.overallRating is a 1-5 score, so
+# the average is bucketed into the 4 bands the model was trained on.
+def map_performance_rating(avg_score):
+    if avg_score is None:
+        return None
+    if avg_score < 2:
+        return 1   # Low
+    if avg_score < 3:
+        return 2   # Below Average
+    if avg_score < 4:
+        return 3   # Average
+    return 4       # High
+
+
+def performance_rating_from_reviews(employee):
+    """Average the employee's submitted (non-draft) performance reviews and map
+    onto the model's 1-4 scale. Returns None if there are no submitted reviews."""
+    avg = (employee.performance_reviews
+           .exclude(status='Draft')
+           .aggregate(a=Avg('overallRating'))['a'])
+    return map_performance_rating(avg)
 
 logger = logging.getLogger(__name__)
 _model = None
@@ -213,11 +257,25 @@ def build_feature_vector(employee, answers_qs):
 
     answer_values = collect_answer_signals(answers_qs)
 
-    # Protected HR attributes are neutralized at inference time so live decisions
-    # are not driven by age, gender, or marital status.
-    marital_married = PROTECTED_FEATURE_DEFAULTS['Marital Status_Married']
-    marital_single = PROTECTED_FEATURE_DEFAULTS['Marital Status_Single']
-    gender = PROTECTED_FEATURE_DEFAULTS['Gender']
+    # Protected HR attributes are fed from real employee data; encoding must
+    # match training. Missing values fall back to defaults and are flagged.
+    age = employee.age if employee.age is not None else PROTECTED_FEATURE_DEFAULTS['Age']
+    if employee.age is None:
+        missing.append('Age')
+
+    gender = map_gender(employee.gender)
+    if gender is None:
+        missing.append('Gender')
+        gender = int(PROTECTED_FEATURE_DEFAULTS['Gender'])
+
+    marital_married, marital_single = map_marital(employee.maritalStatus)
+    if employee.maritalStatus is None:
+        missing.append('Marital Status')
+
+    # Performance Rating from submitted reviews; fall back to the stored field.
+    perf_rating = performance_rating_from_reviews(employee)
+    if perf_rating is None:
+        perf_rating = get(employee.performanceRating, 'Performance Rating')
 
     # Feedback answers
     wlb = get(answer_values['work_life_balance'], 'Work-Life Balance')
@@ -231,13 +289,13 @@ def build_feature_vector(employee, answers_qs):
     overtime_answer = answer_values.get('overtime')
 
     vector = [
-        PROTECTED_FEATURE_DEFAULTS['Age'],
+        age,
         gender,
         get(employee.yearsAtCompany, 'Years at Company'),
         get(employee.monthlyIncome, 'Monthly Income'),
         wlb,
         job_sat,
-        get(employee.performanceRating, 'Performance Rating'),
+        perf_rating,
         get(employee.numberOfPromotions, 'Number of Promotions'),
         int(answer_values['overtime']) if answer_values.get('overtime') is not None else (int(employee.overtime) if employee.overtime is not None else get(None, 'Overtime')),
         distance,
@@ -330,8 +388,8 @@ def build_prediction_metadata(risk_score=None, missing_fields=None, prediction_s
         'modelVersion': getattr(settings, 'ATTRITION_MODEL_VERSION', 'xgboost-attrition-v2-governed'),
         'decisionSupportOnly': getattr(settings, 'AI_DECISION_SUPPORT_ONLY', True),
         'reviewRequired': True,
-        'neutralizedProtectedFields': list(PROTECTED_ATTRIBUTE_LABELS),
-        'fairnessNotice': 'Protected HR attributes are neutralized at inference time and this output must not be used as the sole basis for an HR decision.',
+        'neutralizedProtectedFields': [],
+        'fairnessNotice': 'This model uses protected HR attributes (age, gender, marital status) as inputs; outputs must be reviewed for bias and must not be the sole basis for an HR decision.',
         'governanceNotice': governance_notice,
     }
 

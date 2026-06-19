@@ -29,7 +29,8 @@ def _ai_policy_payload():
             'AI_GOVERNANCE_NOTICE',
             'AI outputs are advisory only and must be reviewed by HR before any employment decision.',
         ),
-        'protectedFieldsNeutralized': ['Age', 'Gender', 'Marital Status'],
+        'protectedFieldsNeutralized': [],
+        'protectedFieldsUsed': ['Age', 'Gender', 'Marital Status'],
     }
 
 
