@@ -127,7 +127,7 @@ export function EmployeeDashboardPage() {
   const quickGroups = useMemo(() => [
     {
       key: 'leave', title: 'Leave Requests', icon: Plane, path: '/employee/leave-requests',
-      items: leaves.filter((l) => isRecent(l.startDate)).map((l) => ({
+      items: leaves.filter((l) => isRecent(l.requestedAt)).map((l) => ({
         id: l.leaveRequestID,
         primary: l.leaveType,
         secondary: `${l.startDate} → ${l.endDate}`,
@@ -137,7 +137,7 @@ export function EmployeeDashboardPage() {
     },
     {
       key: 'expense', title: 'Expense Claims', icon: Receipt, path: '/employee/expenses',
-      items: expenses.filter((e) => isRecent(e.expenseDate)).map((e) => ({
+      items: expenses.filter((e) => isRecent(e.createdAt)).map((e) => ({
         id: e.claimID,
         primary: e.title,
         secondary: `$${Number(e.amount).toLocaleString()} • ${e.category}`,
@@ -147,7 +147,7 @@ export function EmployeeDashboardPage() {
     },
     {
       key: 'correction', title: 'Time Corrections', icon: Edit3, path: '/employee/attendance',
-      items: corrections.filter((c) => isRecent(c.date)).map((c) => ({
+      items: corrections.filter((c) => isRecent(c.createdAt)).map((c) => ({
         id: c.correctionID,
         primary: `Correction • ${shortDate(c.date)}`,
         secondary: c.reason || 'Attendance time correction',
@@ -168,7 +168,7 @@ export function EmployeeDashboardPage() {
     {
       key: 'overtime', title: 'Overtime Approvals', icon: TrendingUp, path: '/employee/attendance',
       items: attendance
-        .filter((a) => Number(a.overtimeHours) > 0 && a.overtimeStatus !== 'STANDARD' && isRecent(a.date))
+        .filter((a) => Number(a.overtimeHours) > 0 && a.overtimeStatus !== 'STANDARD' && isRecent(a.createdAt))
         .map((a) => ({
           id: a.attendanceID,
           primary: `${a.overtimeHours}h overtime`,

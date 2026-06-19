@@ -11,7 +11,7 @@ from django.contrib.auth import get_user_model
 
 from accounts.permissions import IsHRManager, IsInternalEmployee, IsTeamLeader, IsAdmin
 from accounts.models import User
-from notifications.services import notify_employee, notify_roles
+from notifications.services import notify_employee, notify_roles, notify_team_leader_or_hr
 from .models import (
     Department, Team, Job, LeaveType, Employee, EmployeeJobHistory,
     RecognitionAward, BenefitEnrollment, ExpenseClaim, DocumentRequest, SupportTicket,
@@ -1473,6 +1473,13 @@ class EmployeeTaskDoneView(APIView):
         task.progress = 100
         task.status = 'Pending Review'
         task.save(update_fields=['progress', 'status', 'updatedAt'])
+
+        notify_team_leader_or_hr(
+            task.employee,
+            'Task submitted for review',
+            f"{task.employee.fullName} marked the task '{task.title}' as finished — it's awaiting your review.",
+            category='approval', level='info', section='review_tasks',
+        )
 
         return Response(WorkTaskSerializer(task).data)
 

@@ -36,12 +36,14 @@ WORKSPACE_LINKS = {
         'feedback': '/leader/feedback',
         'review_leave': '/leader/leave-requests',
         'review_corrections': '/leader/attendance-corrections',
+        'review_tasks': '/leader/team',
     },
     'HRManager': {
         'expenses': '/hr/expenses',
         'leave': '/hr/leave-management',
         'review_leave': '/hr/leave-management',
         'review_corrections': '/hr/approvals',
+        'review_tasks': '/hr/team',
         'approvals': '/hr/approvals',
     },
 }
