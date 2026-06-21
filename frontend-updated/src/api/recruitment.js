@@ -37,7 +37,7 @@ export const hrAutomateJobRecruitment = (jobId, protocol) => api.post(`/recruitm
 export const hireCandidate = (id) => api.post(`/recruitment/submissions/${id}/hire/`, {});
 export const hrGetJobInsights = (jobId) => api.get(`/recruitment/jobs/${jobId}/insights/`);
 export const hrOptimizeJob = (jobId, updates) => api.post(`/recruitment/jobs/${jobId}/optimize/`, { updates });
-export const getTalentCloneSimilarity = (jobId, sourceId, sourceType) => api.get(`/recruitment/talent-similarity/`, { params: { job_id: jobId, source_id: sourceId, source_type: sourceType } });
+export const getTalentCloneSimilarity = (jobId, sourceId, sourceType) => api.get(`/recruitment/talent-similarity/?sourceId=${sourceId}`);
 
 // Attrition
 export const runPrediction     = (formID)  => api.post('/attrition/run/', formID ? { form_id: formID } : {});

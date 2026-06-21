@@ -160,10 +160,19 @@ def _get_model():
     if _transformer_model is None:
         from sentence_transformers import SentenceTransformer
         name = getattr(settings, "SENTENCE_TRANSFORMER_MODEL",
-                       "anass1209/resume-job-matcher-all-MiniLM-L6-v2")
+                       "paraphrase-multilingual-MiniLM-L12-v2")
         logger.info("Loading SentenceTransformer: %s", name)
         _transformer_model = SentenceTransformer(name)
     return _transformer_model
+
+def get_embedding(text: str) -> list:
+    """Returns the embedding vector for the text."""
+    try:
+        model = _get_model()
+        return model.encode([text or ""])[0].tolist()
+    except Exception as exc:
+        logger.warning("Could not compute embedding: %s", exc)
+        return []
 
 
 def _fallback_semantic_score(resume_text: str, jd_text: str) -> float:

@@ -6,6 +6,8 @@ from .views import (
     SuccessionPlanListCreateView, SuccessionPlanDetailView,
     HRSuccessionWatchView, HRSuccessionPlanListCreateView,
     AtRiskEmployeeListView, EmployeeSuccessorListView,
+    JobInsightsView, JobOptimizeView, JobAutomateView,
+    TalentSimilarityView,
 )
 
 urlpatterns = [
@@ -16,6 +18,10 @@ urlpatterns = [
     path("jobs/<int:pk>/weights/", JobWeightsView.as_view()),
     path("jobs/<int:pk>/submissions/", JobSubmissionsView.as_view()),
     path("jobs/<int:pk>/ranking/", JobCVRankingView.as_view()),
+    path("jobs/<int:pk>/insights/", JobInsightsView.as_view()),
+    path("jobs/<int:pk>/optimize/", JobOptimizeView.as_view()),
+    path("jobs/<int:pk>/automate/", JobAutomateView.as_view()),
+    path("talent-similarity/", TalentSimilarityView.as_view()),
     path("submit/", SubmitResumeView.as_view()),
     path("applications/", CandidateApplicationListView.as_view()),
     path("submissions/<int:pk>/", SubmissionDetailView.as_view()),
