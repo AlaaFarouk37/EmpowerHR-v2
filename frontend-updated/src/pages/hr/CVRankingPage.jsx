@@ -646,7 +646,10 @@ export function HRCVRankingPage() {
   };
 
   const loadRankings = async (id, forceRescore = false) => {
-    setRankLoading(true); setRankings([]);
+    setRankLoading(true);
+    // Keep the current rows on screen while a rescore runs (the spinner overlays
+    // them); only clear when switching jobs so a failed rescore never blanks the list.
+    if (!forceRescore) setRankings([]);
     try {
       let data;
       if (forceRescore) {
@@ -658,7 +661,10 @@ export function HRCVRankingPage() {
         data = await getJobRanking(id);
       }
       setRankings(Array.isArray(data) ? data : []);
-    } catch { setRankings([]); toast('Error loading rankings', 'error'); } finally { setRankLoading(false); setIsRescoring(false); }
+    } catch {
+      if (!forceRescore) setRankings([]); // on rescore failure, keep the prior scores visible
+      toast('Error loading rankings', 'error');
+    } finally { setRankLoading(false); setIsRescoring(false); }
   };
 
   const handleRescore = async () => {

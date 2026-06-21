@@ -993,7 +993,7 @@ def score_and_store_submission(submission):
     return submission.ranking_result
 
 
-def rank_cvs_for_job(job_id, review_stage="", include_hired=False):
+def rank_cvs_for_job(job_id, review_stage="", include_hired=False, force_rescore=False):
     try:
         job = Job.objects.get(pk=job_id)
     except Job.DoesNotExist:
@@ -1003,29 +1003,26 @@ def rank_cvs_for_job(job_id, review_stage="", include_hired=False):
     if not submissions:
         return {"error": "No submissions found for this job."}
 
-    results = []
-    missing = [sub for sub in submissions if not sub.ranking_result]
-
-    # One-time backfill: score any submissions that predate cached results,
-    # store them, and from then on the ranking page is a pure read + sort.
-    if missing:
+    # force_rescore recomputes every submission; otherwise we only score the ones
+    # that predate cached results. Either way the write is non-destructive: a cached
+    # score is overwritten only when the new computation succeeds for that submission,
+    # so a failed or partial recompute can never blank the job.
+    stale = submissions if force_rescore else [sub for sub in submissions if not sub.ranking_result]
+    if stale:
         computed = _score_cvs(
             job,
-            [_submission_cv_data(sub) for sub in missing],
+            [_submission_cv_data(sub) for sub in stale],
             key_skills=job.required_skills or [],
             job_description=job.description or "",
         )
         by_id = {r.get("submission_id"): r for r in computed}
-        for sub in missing:
+        for sub in stale:
             result = by_id.get(sub.id)
-            if result is not None:
+            if result:
                 sub.ranking_result = result
                 sub.save(update_fields=["ranking_result"])
 
-    for sub in submissions:
-        if sub.ranking_result:
-            results.append(sub.ranking_result)
-
+    results = [sub.ranking_result for sub in submissions if sub.ranking_result]
     results.sort(key=lambda x: x.get("final_score", 0), reverse=True)
     return results
 
@@ -1557,13 +1554,29 @@ class JobCVRankingView(APIView):
         review_stage, include_hired = _parse_submission_history_filters(request)
         force_rescore = _as_bool(request.query_params.get("force_rescore"))
 
-        if force_rescore:
-            # Clear cached ranking results so the backfill in rank_cvs_for_job
-            # recomputes scores with the latest pipeline logic (incl. profile_meta).
-            from .models import Submission as _Sub
-            _Sub.objects.filter(job_id=pk).update(ranking_result={})
+        try:
+            results = rank_cvs_for_job(
+                pk, review_stage=review_stage, include_hired=include_hired,
+                force_rescore=force_rescore,
+            )
+        except Exception:
+            logger.exception("CV ranking failed for job %s (force_rescore=%s)", pk, force_rescore)
+            # The recompute is non-destructive, so any previously cached scores are
+            # still intact — return them rather than blanking the page on a failed
+            # rescore.
+            cached = sorted(
+                (s.ranking_result for s in _job_submission_queryset(
+                    pk, review_stage=review_stage, include_hired=include_hired)
+                 if s.ranking_result),
+                key=lambda x: x.get("final_score", 0), reverse=True,
+            )
+            if cached:
+                return Response(cached)
+            return Response(
+                {"detail": "Ranking temporarily unavailable. Please try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
-        results = rank_cvs_for_job(pk, review_stage=review_stage, include_hired=include_hired)
         if isinstance(results, dict) and "error" in results:
             return Response({"detail": results["error"]}, status=status.HTTP_400_BAD_REQUEST)
         return Response(results)
