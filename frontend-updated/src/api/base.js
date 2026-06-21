@@ -106,7 +106,16 @@ const request = async (url, options = {}, canRetry = true) => {
 
   const data = await parseJsonSafe(response);
   if (!response.ok) {
-    const message = data?.detail || data?.error || `Request failed (${response.status})`;
+    let message = data?.detail || data?.error;
+    if (!message && data && typeof data === 'object') {
+      const values = Object.values(data);
+      if (values.length > 0 && Array.isArray(values[0]) && values[0].length > 0) {
+        message = values[0][0];
+      }
+    }
+    if (!message) {
+      message = `Request failed (${response.status})`;
+    }
     const error = new Error(message);
     error.status = response.status;
     error.data = data;

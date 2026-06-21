@@ -988,7 +988,7 @@ def score_and_store_submission(submission):
         key_skills=job.required_skills or [],
         job_description=job.description or "",
     )
-    submission.ranking_result = result[0] if result else {}
+    submission.ranking_result = result[0] if result else {"error": True}
     submission.save(update_fields=["ranking_result"])
     return submission.ranking_result
 
@@ -1007,7 +1007,7 @@ def rank_cvs_for_job(job_id, review_stage="", include_hired=False, force_rescore
     # that predate cached results. Either way the write is non-destructive: a cached
     # score is overwritten only when the new computation succeeds for that submission,
     # so a failed or partial recompute can never blank the job.
-    stale = submissions if force_rescore else [sub for sub in submissions if not sub.ranking_result]
+    stale = submissions if force_rescore else [sub for sub in submissions if not sub.ranking_result and not (isinstance(sub.ranking_result, dict) and sub.ranking_result.get('error'))]
     if stale:
         computed = _score_cvs(
             job,
@@ -1020,7 +1020,9 @@ def rank_cvs_for_job(job_id, review_stage="", include_hired=False, force_rescore
             result = by_id.get(sub.id)
             if result:
                 sub.ranking_result = result
-                sub.save(update_fields=["ranking_result"])
+            else:
+                sub.ranking_result = {"error": True}
+            sub.save(update_fields=["ranking_result"])
 
     results = [sub.ranking_result for sub in submissions if sub.ranking_result]
     results.sort(key=lambda x: x.get("final_score", 0), reverse=True)
@@ -1051,7 +1053,8 @@ class JobListCreateView(ListCreateAPIView):
     def get_queryset(self):
         # HR and Admin manage the full catalog (incl. deactivated/hidden postings).
         # Anonymous and non-HR callers (candidates, public portal) only see active postings.
-        qs = Job.objects.all().order_by("-created_at")
+        from django.db.models import Count
+        qs = Job.objects.annotate(submission_count_annotated=Count('submissions')).select_related('interviewer').order_by("-created_at")
         user = self.request.user
         if not (user.is_authenticated and getattr(user, "role", None) in ("HRManager", "Admin")):
             qs = qs.filter(is_active=True)

@@ -4,7 +4,7 @@ from .models import Job, Submission, SuccessionPlan
 
 
 class JobSerializer(serializers.ModelSerializer):
-    submission_count = serializers.IntegerField(source="submissions.count", read_only=True)
+    submission_count = serializers.IntegerField(source="submission_count_annotated", read_only=True)
     interviewer_name = serializers.SerializerMethodField()
     interviewer_role = serializers.CharField(source="interviewer.role", read_only=True)
 
