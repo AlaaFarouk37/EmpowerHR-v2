@@ -17,15 +17,37 @@ logger = logging.getLogger(__name__)
 # 1. PDF TEXT EXTRACTION
 # ─────────────────────────────────────────────────────────────────────────────
 
-def extract_text_from_pdf(django_file) -> str:
-    import fitz  # PyMuPDF
-    # Ensure the file is open before reading, required for remote storages like Cloudinary
+def _safe_read_file(django_file):
+    import urllib.error
+    import urllib.request
+    from django.conf import settings
+    
+    # Try the standard Django read first
     try:
         django_file.open("rb")
-        data = django_file.read()
+        return django_file.read()
+    except (urllib.error.HTTPError, Exception) as e:
+        # If it fails with 401/403 and Cloudinary is used, try a signed URL
+        if getattr(settings, 'USE_CLOUDINARY', False) and hasattr(e, 'code') and e.code in (401, 403):
+            try:
+                import cloudinary.utils
+                # For raw files, django-cloudinary-storage uses the file name as the public_id
+                signed_url, _ = cloudinary.utils.cloudinary_url(django_file.name, resource_type='raw', sign_url=True)
+                req = urllib.request.Request(signed_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req) as response:
+                    return response.read()
+            except Exception as inner_e:
+                logger.error("Cloudinary signed URL fetch failed: %s", inner_e)
+        raise e
     finally:
-        django_file.close()
-        
+        try:
+            django_file.close()
+        except Exception:
+            pass
+
+def extract_text_from_pdf(django_file) -> str:
+    import fitz  # PyMuPDF
+    data = _safe_read_file(django_file)
     doc  = fitz.open(stream=data, filetype="pdf")
     return "\n".join(page.get_text("text") for page in doc).strip()
 
@@ -36,11 +58,7 @@ def extract_text_from_resume(django_file, file_name: str) -> str:
     if name.endswith(".pdf"):
         return extract_text_from_pdf(django_file)
     if name.endswith(".txt"):
-        try:
-            django_file.open("rb")
-            return django_file.read().decode("utf-8", errors="ignore").strip()
-        finally:
-            django_file.close()
+        return _safe_read_file(django_file).decode("utf-8", errors="ignore").strip()
     raise ValueError("Unsupported resume format. Only PDF and TXT are supported.")
 
 

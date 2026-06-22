@@ -954,8 +954,8 @@ def _submission_cv_data(sub):
     cv_text = sub.raw_text or ""
     if not cv_text and sub.resume_file:
         try:
-            with sub.resume_file.open("rb") as f:
-                file_bytes = f.read()
+            from .pipeline import _safe_read_file
+            file_bytes = _safe_read_file(sub.resume_file)
             cv_text = _safe_extract_resume_text(file_bytes, sub.resume_file.name)
         except Exception:
             cv_text = ""
