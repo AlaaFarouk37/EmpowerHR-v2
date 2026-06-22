@@ -19,7 +19,13 @@ logger = logging.getLogger(__name__)
 
 def extract_text_from_pdf(django_file) -> str:
     import fitz  # PyMuPDF
-    data = django_file.read()
+    # Ensure the file is open before reading, required for remote storages like Cloudinary
+    try:
+        django_file.open("rb")
+        data = django_file.read()
+    finally:
+        django_file.close()
+        
     doc  = fitz.open(stream=data, filetype="pdf")
     return "\n".join(page.get_text("text") for page in doc).strip()
 
@@ -30,7 +36,11 @@ def extract_text_from_resume(django_file, file_name: str) -> str:
     if name.endswith(".pdf"):
         return extract_text_from_pdf(django_file)
     if name.endswith(".txt"):
-        return django_file.read().decode("utf-8", errors="ignore").strip()
+        try:
+            django_file.open("rb")
+            return django_file.read().decode("utf-8", errors="ignore").strip()
+        finally:
+            django_file.close()
     raise ValueError("Unsupported resume format. Only PDF and TXT are supported.")
 
 
