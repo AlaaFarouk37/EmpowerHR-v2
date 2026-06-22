@@ -4,9 +4,14 @@ from .models import Job, Submission, SuccessionPlan
 
 
 class JobSerializer(serializers.ModelSerializer):
-    submission_count = serializers.IntegerField(source="submission_count_annotated", read_only=True)
+    submission_count = serializers.SerializerMethodField()
     interviewer_name = serializers.SerializerMethodField()
     interviewer_role = serializers.CharField(source="interviewer.role", read_only=True)
+
+    def get_submission_count(self, obj):
+        if hasattr(obj, "submission_count_annotated"):
+            return obj.submission_count_annotated
+        return obj.submissions.count()
 
     def get_interviewer_name(self, obj):
         if not obj.interviewer_id:
